@@ -77,8 +77,8 @@ public aspect SyncRequestProcessorAspect {
     pointcut runSyncProcessor(): execution(* SyncRequestProcessor.run());
 
     before(): runSyncProcessor() {
-        LOG.debug("-------Thread {}: {}------",Thread.currentThread().getId(), Thread.currentThread().getName());
-        LOG.debug("before runSyncProcessor");
+        LOG.debug("-------before runSyncProcessor. Thread {}: {}------",Thread.currentThread().getId(), Thread.currentThread().getName());
+        LOG.debug("");
         quorumPeerAspect.registerSubnode(
                 Thread.currentThread().getId(), Thread.currentThread().getName(), SubnodeType.SYNC_PROCESSOR);
     }

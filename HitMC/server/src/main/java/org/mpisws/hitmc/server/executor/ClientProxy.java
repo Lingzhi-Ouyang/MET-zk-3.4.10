@@ -1,6 +1,6 @@
 package org.mpisws.hitmc.server.executor;
 
-import org.apache.zookeeper.KeeperException;
+import org.apache.zookeeper.*;
 import org.mpisws.hitmc.server.event.ClientRequestEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -9,9 +9,11 @@ import java.io.IOException;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
-public class ZKClient extends Thread{
+public class ClientProxy extends Thread{
 
-    private static final Logger LOG = LoggerFactory.getLogger(ZKClient.class);
+    private static final Logger LOG = LoggerFactory.getLogger(ClientProxy.class);
+
+    private static int count = 0;
 
     volatile boolean stop;
     private final Object eventMonitor = new Object();
@@ -19,23 +21,36 @@ public class ZKClient extends Thread{
     LinkedBlockingQueue<ClientRequestEvent> requestQueue = new LinkedBlockingQueue<>();
     LinkedBlockingQueue<ClientRequestEvent> responseQueue = new LinkedBlockingQueue<>();
 
-    public ZKClient(){
-        this.setName("ZooKeeperClient");
-        this.stop = false;
-    }
-
-    public void init() throws InterruptedException, KeeperException, IOException {
-        // TODO: Create only one client
-        zooKeeperClient = new ZooKeeperClient();
-        zooKeeperClient.getCountDownLatch().await();
-//        if(!zooKeeperClient.syncConnected()) {
-//            Thread.sleep(100);
-//        }
-        LOG.debug("----------create /test-------");
-        zooKeeperClient.create();
-
+    public ClientProxy(){
+        count++;
+        this.setName("ZooKeeperClient-" + count);
+        this.stop = true;
         requestQueue.clear();
         responseQueue.clear();
+    }
+
+    public boolean isStop() {
+        return stop;
+    }
+
+    public boolean init(boolean deleteFlag) {
+        int retry = 5;
+        while (retry > 0) {
+            try {
+                zooKeeperClient = new ZooKeeperClient();
+                zooKeeperClient.getCountDownLatch().await();
+
+                LOG.debug("----------create /test-------");
+                zooKeeperClient.create(deleteFlag);
+
+                return true;
+            } catch (InterruptedException | KeeperException | IOException e) {
+                LOG.debug("----- caught {} during client session initialization", e.toString());
+                e.printStackTrace();
+                retry--;
+            }
+        }
+        return false;
     }
 
     public void deregister(){
@@ -52,11 +67,8 @@ public class ZKClient extends Thread{
 
     @Override
     public void run() {
-//        try {
-//            init();
-//        } catch (InterruptedException | IOException | KeeperException e) {
-//            e.printStackTrace();
-//        }
+        this.stop = false;
+        LOG.info("Thread {} begins to work", currentThread().getName());
         while (!stop) {
             try {
                 ClientRequestEvent m = requestQueue.poll(3000, TimeUnit.MILLISECONDS);
@@ -67,7 +79,8 @@ public class ZKClient extends Thread{
                 break;
             }
         }
-        LOG.info("ZooKeeperClient is down");
+        LOG.info("Thread {} is stopping", currentThread().getName());
+        this.stop = true;
     }
 
     private void process(ClientRequestEvent event) throws InterruptedException, KeeperException {

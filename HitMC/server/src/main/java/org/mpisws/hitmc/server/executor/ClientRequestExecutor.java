@@ -1,11 +1,11 @@
 package org.mpisws.hitmc.server.executor;
 
+import org.mpisws.hitmc.api.NodeStateForClientRequest;
 import org.mpisws.hitmc.server.event.ClientRequestEvent;
 import org.mpisws.hitmc.server.TestingService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.FileWriter;
 import java.io.IOException;
 
 public class ClientRequestExecutor extends BaseEventExecutor {
@@ -24,12 +24,8 @@ public class ClientRequestExecutor extends BaseEventExecutor {
             return false;
         }
         LOG.debug("Releasing client request event: {}", event.toString());
-        testingService.releaseClientRequest(event);
-//        if (event.getType() == ClientRequestType.SET_DATA) {
-//            scheduler.waitAllNodesSteadyForClientMutation();
-//        }
-//        testingService.waitAllNodesLogSyncSteady();
-        testingService.waitAllNodesSteadyAfterClientRequest();
+        releaseClientRequest(event);
+        // waitPredicate has moved to the above method
 
         // TODO: add later event
 //        final ClientRequestEvent clientRequestEvent = new ClientRequestEvent(testingService.generateEventId(),
@@ -39,4 +35,65 @@ public class ClientRequestExecutor extends BaseEventExecutor {
         LOG.debug("Client request executed: {}", event.toString());
         return true;
     }
+
+    /***
+     * The executor of client requests
+     * @param event
+     */
+    public void releaseClientRequest(final ClientRequestEvent event) {
+//        if (clientProxy.isStop()) {
+//            isClientInitializationDone =false;
+//            clientProxy = new ClientProxy();
+//            clientProxy.init(false);
+//            clientProxy.start();
+//            isClientInitializationDone = true;
+//        } else {
+//            LOG.info("------The client is still running!----");
+//        }
+        switch (event.getType()) {
+            case GET_DATA:
+                // TODO: this method should modify related states
+//                for (int i = 0 ; i < schedulerConfiguration.getNumNodes(); i++) {
+//                    nodeStateForClientRequests.set(i, NodeStateForClientRequest.SET_PROCESSING);
+//                }
+                testingService.getZkClient().getRequestQueue().offer(event);
+                // notifyAll() should be called after related states have been changed
+                testingService.getControlMonitor().notifyAll();
+                testingService.waitAllNodesSteady();
+
+                /***
+                 * use responseQueue for acquiring the result
+                 */
+//                while(true){
+//                    try {
+//                        ClientRequestEvent m = responseQueue.poll(3000, TimeUnit.MILLISECONDS);
+//                        if (m == null) {
+//                            Thread.sleep(500);
+//                            continue;
+//                        }
+//                        break;
+//                    } catch (InterruptedException e){
+//                        e.printStackTrace();
+//                        break;
+//                    }
+//                }
+                break;
+            case SET_DATA:
+                for (int i = 0 ; i < testingService.getSchedulerConfiguration().getNumNodes(); i++) {
+                    testingService.getNodeStateForClientRequests().set(i, NodeStateForClientRequest.SET_PROCESSING);
+                }
+
+                // TODO: This should set the leader learnerHandlerSender / syncProcessor into PROCESSING state
+                // TODO: what if leader does not exist?
+
+                String data = String.valueOf(event.getId());
+                event.setData(data);
+                testingService.getZkClient().getRequestQueue().offer(event);
+                // notifyAll() should be called after related states have been changed
+                testingService. getControlMonitor().notifyAll();
+                testingService.waitAllNodesSteadyAfterMutation();
+                break;
+        }
+    }
+
 }

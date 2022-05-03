@@ -2,22 +2,20 @@ package org.mpisws.hitmc.server.predicate;
 
 import org.mpisws.hitmc.api.NodeState;
 import org.mpisws.hitmc.api.NodeStateForClientRequest;
-import org.mpisws.hitmc.api.configuration.SchedulerConfiguration;
 import org.mpisws.hitmc.server.TestingService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 
 /***
  * Wait Predicate for the end of a client mutation event
  */
-public class AllNodesSteadyForClientMutation implements WaitPredicate {
+public class AllNodesSteadyBeforeMutation implements WaitPredicate {
 
-    private static final Logger LOG = LoggerFactory.getLogger(AllNodesSteadyForClientMutation.class);
+    private static final Logger LOG = LoggerFactory.getLogger(AllNodesSteadyBeforeMutation.class);
 
     private final TestingService testingService;
 
-    public AllNodesSteadyForClientMutation(final TestingService testingService) {
+    public AllNodesSteadyBeforeMutation(final TestingService testingService) {
         this.testingService = testingService;
     }
 
@@ -31,7 +29,7 @@ public class AllNodesSteadyForClientMutation implements WaitPredicate {
                 return false;
             }
             final NodeStateForClientRequest nodeStateForClientRequest
-                    = testingService.getNodeStateForClientRequests().get(nodeId);
+                    = testingService.getNodeStateForClientRequests(nodeId);
             if ( NodeStateForClientRequest.SET_PROCESSING.equals(nodeStateForClientRequest)){
                 LOG.debug("------not steady-----Node {} nodeStateForClientRequest: {}",
                         nodeId, nodeStateForClientRequest);
@@ -43,6 +41,6 @@ public class AllNodesSteadyForClientMutation implements WaitPredicate {
 
     @Override
     public String describe() {
-        return "AllNodesSteadyForClientMutation";
+        return "AllNodesSteadyBeforeMutation";
     }
 }

@@ -126,7 +126,7 @@ public aspect FollowerRequestProcessorAspect {
                 case ZooDefs.OpCode.closeSession:
                 case ZooDefs.OpCode.setWatches:
                     LOG.debug("---------Taking the request ({}) from queued requests. Won't intercept.", payload);
-                    msgsInQueuedRequests.decrementAndGet();
+//                    msgsInQueuedRequests.decrementAndGet();
                     return;
                 default:
             };

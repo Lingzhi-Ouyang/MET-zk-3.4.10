@@ -67,14 +67,8 @@ public aspect LearnerHandlerAspect {
         final long threadId = Thread.currentThread().getId();
         final String threadName = Thread.currentThread().getName();
         LOG.debug("before runLearnerHandler-------Thread: {}, {}------", threadId, threadName);
-        QuorumPeerAspect.SubnodeIntercepter intercepter = quorumPeerAspect.registerSubnode(
+        quorumPeerAspect.registerSubnode(
                 Thread.currentThread().getId(), Thread.currentThread().getName(), SubnodeType.LEARNER_HANDLER);
-//        try {
-//            intercepter.getTestingService().setReceivingState(intercepter.getSubnodeId());
-//        } catch (final RemoteException e) {
-//            LOG.debug("Encountered a remote exception", e);
-//            throw new RuntimeException(e);
-//        }
     }
 
     after(): runLearnerHandler() {
@@ -123,6 +117,8 @@ public aspect LearnerHandlerAspect {
         LOG.debug("after closeSock-------Thread: {}, {}------", threadId, threadName);
         quorumPeerAspect.deregisterSubnode(threadId);
     }
+
+
 
 
     // Intercept message offering within LearnerHandlerSenderAspect
@@ -474,11 +470,31 @@ public aspect LearnerHandlerAspect {
         }
 
         QuorumPacket packet = (QuorumPacket) r;
-        final String payload = packetToString(packet);
-        LOG.debug("--------------QuorumPacket {}. Set subnode {} to RECEIVING state." +
-                    " Will be blocked until some packet enqueues", payload, subnodeId);
+        final String payload = quorumPeerAspect.packetToString(packet);
         final int type =  packet.getType();
-        if (type != Leader.PROPOSAL){
+        switch (type) {
+            case Leader.UPTODATE:
+                intercepter.setSyncFinished(true);
+                LOG.debug("-------sending UPTODATE!!!!-------begin to serve clients");
+            case Leader.REQUEST:
+            case Leader.ACK:
+            case Leader.COMMIT:
+            case Leader.PING:
+            case Leader.REVALIDATE:
+            case Leader.SYNC:
+            case Leader.INFORM:
+            case Leader.NEWLEADER:
+            case Leader.FOLLOWERINFO:
+            case Leader.DIFF:
+            case Leader.TRUNC:
+            case Leader.SNAP:
+            case Leader.OBSERVERINFO:
+            case Leader.LEADERINFO:
+            case Leader.ACKEPOCH:
+                LOG.debug("---------Taking the packet ({}) from queued packets. Won't intercept. Subnode: {}",
+                        payload, subnodeId);
+        };
+        if (!intercepter.isSyncFinished() || type != Leader.PROPOSAL){
             proceed(r, s);
             return;
         }
@@ -510,14 +526,14 @@ public aspect LearnerHandlerAspect {
     }
 
     /***
-     * For LearnerHandler sending followers' message during SYNC phase
+     * For LearnerHandler sending followers' message during SYNC phase immediately without adding to the queue
      * package type:
      * (for ZAB1.0) LEADERINFO (17)
      * (for ZAB < 1.0) NEWLEADER (10)
      * (for ZAB1.0) DIFF (13) / TRUNC (14) / SNAP (15)
      */
     pointcut learnerHandlerWriteRecord(Record r, String s):
-            within(org.apache.zookeeper.server.quorum.LearnerHandler) && withincode(void java.lang.Runnable.run()) &&
+            withincode(* org.apache.zookeeper.server.quorum.LearnerHandler.run()) &&
                     call(* org.apache.jute.BinaryOutputArchive.writeRecord(Record, String)) && args(r, s);
 
     void around(Record r, String s): learnerHandlerWriteRecord(r, s) {
@@ -536,7 +552,7 @@ public aspect LearnerHandlerAspect {
         }
 
         QuorumPacket packet = (QuorumPacket) r;
-        final String payload = packetToString(packet);
+        final String payload = quorumPeerAspect.packetToString(packet);
 
         LOG.debug("--------------I am a LearnerHandler. QuorumPacket {}. Set subnode {} to RECEIVING state.",
                 payload, subnodeId);
@@ -551,10 +567,12 @@ public aspect LearnerHandlerAspect {
 
         // TODO: set type
         if (type != Leader.PROPOSAL){
+            LOG.info("------------Type will always be LEADERINFO / DIFF / TRUNC / SNAP!---------");
             proceed(r, s);
             return;
         }
 
+        LOG.info("------------This will never be accessed!---------");
         try {
             // before offerMessage: increase sendingSubnodeNum
             quorumPeerAspect.setSubnodeSending();
@@ -583,67 +601,26 @@ public aspect LearnerHandlerAspect {
         }
     }
 
+//    /***
+//     * set BROADCAST phase. Or use syncFinished in the subnodeInterceptor
+//     */
+//    pointcut sendUptodate(Object object):
+//            withincode(* org.apache.zookeeper.server.quorum.LearnerHandler.run())
+//                    && call(* java.util.AbstractQueue.add(java.lang.Object))
+//                    && if (object instanceof QuorumPacket)
+//                    && args(object);
+//
+//    after(final Object object) returning: sendUptodate(object) {
+//        final long threadId = Thread.currentThread().getId();
+//        final String threadName = Thread.currentThread().getName();
+//        LOG.debug("after sendUptodate-------Thread: {}, {}------", threadId, threadName);
+//        QuorumPacket qp = (QuorumPacket) object;
+//    }
+
+
+
     // TODO: intercept the learner handler receiving messages from followers
 
-     public String packetToString(QuorumPacket p) {
-        String type = null;
-        String mess = null;
-        Record txn = null;
 
-        switch (p.getType()) {
-            case Leader.ACK:
-                type = "ACK";
-                break;
-            case Leader.COMMIT:
-                type = "COMMIT";
-                break;
-            case Leader.FOLLOWERINFO:
-                type = "FOLLOWERINFO";
-                break;
-            case Leader.NEWLEADER:
-                type = "NEWLEADER";
-                break;
-            case Leader.PING:
-                type = "PING";
-                break;
-            case Leader.PROPOSAL:
-                type = "PROPOSAL";
-                TxnHeader hdr = new TxnHeader();
-                try {
-                    txn = SerializeUtils.deserializeTxn(p.getData(), hdr);
-                    // mess = "transaction: " + txn.toString();
-                } catch (IOException e) {
-                    LOG.warn("Unexpected exception",e);
-                }
-                break;
-            case Leader.REQUEST:
-                type = "REQUEST";
-                break;
-            case Leader.REVALIDATE:
-                type = "REVALIDATE";
-                ByteArrayInputStream bis = new ByteArrayInputStream(p.getData());
-                DataInputStream dis = new DataInputStream(bis);
-                try {
-                    long id = dis.readLong();
-                    mess = " sessionid = " + id;
-                } catch (IOException e) {
-                    LOG.warn("Unexpected exception", e);
-                }
-
-                break;
-            case Leader.UPTODATE:
-                type = "UPTODATE";
-                break;
-            default:
-                type = "UNKNOWN" + p.getType();
-        }
-        String entry = null;
-        if (type != null) {
-            // TODO: acquire receivign node from remote socket
-            entry = type + " " + Long.toHexString(p.getZxid()) + " " + mess
-                    + " " + quorumPeerAspect.constructPacket(p);
-        }
-        return entry;
-    }
 
 }

@@ -9,7 +9,7 @@ WORKING_DIR=$(cd $SCRIPT_DIR/../..;pwd)
 echo $WORKING_DIR
 
 ## build ZooKeeper
-cd $WORKING_DIR/zookeeper-3.4.13 && ant
+#cd $WORKING_DIR/zookeeper-3.4.13 && ant
 
 # build HitMC
 cd $WORKING_DIR/HitMC && mvn clean install

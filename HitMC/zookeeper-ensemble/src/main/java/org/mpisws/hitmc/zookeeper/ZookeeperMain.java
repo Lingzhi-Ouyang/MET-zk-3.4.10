@@ -19,20 +19,13 @@ public class ZookeeperMain {
         final TestingService testingService = applicationContext.getBean(TestingService.class);
 
         try {
-            LOG.debug("for test......");
             testingService.loadConfig(args);
             testingService.start();
-
-//            Thread.sleep(Long.MAX_VALUE);
             System.exit(0);
         } catch (final SchedulerConfigurationException e) {
             LOG.error("Error while reading configuration.", e);
         } catch (final IOException e) {
             LOG.error("IO exception", e);
-        } catch (InterruptedException e) {
-            LOG.error("Interrupted exception", e);
-        } catch (KeeperException e) {
-            LOG.error("Keeper exception", e);
         }
     }
 

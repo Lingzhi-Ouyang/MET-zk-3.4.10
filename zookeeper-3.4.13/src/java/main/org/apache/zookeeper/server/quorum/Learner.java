@@ -402,6 +402,7 @@ public class Learner {
                             packetsNotCommitted.remove();
                         }
                     } else {
+                        LOG.debug("----------packetsCommitted.add(qp.getZxid()); 0x{}", Long.toHexString(qp.getZxid()));
                         packetsCommitted.add(qp.getZxid());
                     }
                     break;
@@ -431,9 +432,11 @@ public class Learner {
                     break;
                 case Leader.UPTODATE:
                     if (isPreZAB1_0) {
+                        LOG.debug("-----------in UPTODATE: this is not supposed to happen");
                         zk.takeSnapshot();
                         self.setCurrentEpoch(newEpoch);
                     }
+                    LOG.debug("-----------in UPTODATE: this is supposed to happen");
                     self.cnxnFactory.setZooKeeperServer(zk);                
                     break outerLoop;
                 case Leader.NEWLEADER: // Getting NEWLEADER here instead of in discovery 
@@ -449,8 +452,10 @@ public class Learner {
                                               updating.toString());
                     }
                     if (snapshotNeeded) {
+                        LOG.debug("-----------in NEWLEADER: this is not supposed to happen");
                         zk.takeSnapshot();
                     }
+                    LOG.debug("-----------in NEWLEADER: this is supposed to happen");
                     self.setCurrentEpoch(newEpoch);
                     if (!updating.delete()) {
                         throw new IOException("Failed to delete " +
@@ -465,6 +470,7 @@ public class Learner {
         }
         ack.setZxid(ZxidUtils.makeZxid(newEpoch, 0));
         writePacket(ack, true);
+        LOG.debug("----------writePacket done!");
         sock.setSoTimeout(self.tickTime * self.syncLimit);
         zk.startup();
         /*

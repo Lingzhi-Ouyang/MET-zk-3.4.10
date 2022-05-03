@@ -1,6 +1,9 @@
 package org.apache.zookeeper.server.quorum;
 
+import org.apache.jute.Record;
 import org.apache.zookeeper.server.Request;
+import org.apache.zookeeper.server.util.SerializeUtils;
+import org.apache.zookeeper.txn.TxnHeader;
 import org.mpisws.hitmc.api.TestingDef;
 import org.mpisws.hitmc.api.TestingRemoteService;
 import org.mpisws.hitmc.api.SubnodeType;
@@ -8,6 +11,9 @@ import org.mpisws.hitmc.api.state.LeaderElectionState;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.ByteArrayInputStream;
+import java.io.DataInputStream;
+import java.io.IOException;
 import java.net.InetAddress;
 import java.net.Socket;
 import java.net.SocketOptions;
@@ -42,7 +48,9 @@ public aspect QuorumPeerAspect {
 
     private int myId;
 
-    private Socket mySock;
+    private Socket mySock; // for follower
+
+    private boolean syncFinished = false; // for follower
 
     private Integer lastSentMessageId = null;
 
@@ -82,6 +90,9 @@ public aspect QuorumPeerAspect {
 
         private Integer lastMsgId = null;
 
+        // This is for learner handler sender. After a learner handler has sent UPTODATE, then set it true
+        private boolean syncFinished = false;
+
         @Deprecated
         private final AtomicInteger msgsInQueue = new AtomicInteger(0);
 
@@ -112,6 +123,13 @@ public aspect QuorumPeerAspect {
             this.lastMsgId = lastMsgId;
         }
 
+        public void setSyncFinished(boolean syncFinished) {
+            this.syncFinished = syncFinished;
+        }
+
+        public boolean isSyncFinished() {
+            return syncFinished;
+        }
     }
 
     public SubnodeIntercepter getIntercepter(long threadId) {
@@ -383,6 +401,7 @@ public aspect QuorumPeerAspect {
                     && args(state);
 
     after(final QuorumPeer.ServerState state) returning: setPeerState2(state) {
+        syncFinished = false;
         final LeaderElectionState leState;
         switch (state) {
             case LEADING:
@@ -416,7 +435,7 @@ public aspect QuorumPeerAspect {
                 ", to=" + toSend.sid +
                 ", leader=" + toSend.leader +
                 ", state=" + toSend.state +
-                ", zxid=" + toSend.zxid +
+                ", zxid=0x" + Long.toHexString(toSend.zxid) +
                 ", electionEpoch=" + toSend.electionEpoch +
                 ", peerEpoch=" + toSend.peerEpoch;
     }
@@ -603,7 +622,7 @@ public aspect QuorumPeerAspect {
     public String constructPacket(final QuorumPacket packet) {
         return "learnerHandlerSenderWithinNode=" + myId +
                 ", type=" + packet.getType() +
-                ", zxid=" + packet.getZxid() +
+                ", zxid=0x" + Long.toHexString(packet.getZxid()) +
                 ", data=" + Arrays.toString(packet.getData()) +
                 ", authInfo=" + packet.getAuthinfo();
     }
@@ -648,7 +667,7 @@ public aspect QuorumPeerAspect {
 
     // LearnerHandlerSenderAspect
 
-    public SubnodeIntercepter registerSubnode(final long threadId, final String threadName, final SubnodeType type){
+    public int registerSubnode(final long threadId, final String threadName, final SubnodeType type){
         try {
             TestingRemoteService testingService = createRmiConnection();
             LOG.debug("Found the remote testing service. Registering {} subnode", type);
@@ -657,7 +676,7 @@ public aspect QuorumPeerAspect {
             SubnodeIntercepter intercepter =
                     new SubnodeIntercepter(threadName, subnodeId, type, testingService);
             intercepterMap.put(threadId, intercepter);
-            return intercepter;
+            return subnodeId;
         } catch (final RemoteException e) {
             LOG.error("Encountered a remote exception.", e);
             throw new RuntimeException(e);
@@ -734,6 +753,102 @@ public aspect QuorumPeerAspect {
 
     // intercept the effects of network partition
 //    pointcut followerProcessPacket
+
+
+    /***
+     * For follower's sync with leader process
+     * Related code: Learner.java
+     */
+    pointcut receiveUPTODATE(QuorumPacket packet):
+            withincode(* org.apache.zookeeper.server.quorum.Learner.syncWithLeader(..)) &&
+            call(void org.apache.zookeeper.server.quorum.Learner.readPacket(QuorumPacket)) && args(packet);
+
+    after(QuorumPacket packet) returning: receiveUPTODATE(packet) {
+        final long threadId = Thread.currentThread().getId();
+        final String threadName = Thread.currentThread().getName();
+        LOG.debug("after receiveUPTODATE-------Thread: {}, {}------", threadId, threadName);
+
+        final String payload = packetToString(packet);
+        LOG.debug("---------readPacket: ({}). Subnode: {}", payload, quorumPeerSubnodeId);
+        final int type =  packet.getType();
+        if (type == Leader.UPTODATE) {
+            try {
+                syncFinished = true;
+                testingService.readyForBroadcast(quorumPeerSubnodeId);
+                LOG.debug("-------receiving UPTODATE!!!!-------begin to serve clients");
+            } catch (RemoteException e) {
+                LOG.debug("Encountered a remote exception", e);
+                throw new RuntimeException(e);
+            }
+        }
+        if (!syncFinished){
+            LOG.debug("-------still in sync!");
+            return;
+        }
+    }
+
+    public String packetToString(QuorumPacket p) {
+        String type = null;
+        String mess = null;
+        Record txn = null;
+
+        switch (p.getType()) {
+            case Leader.ACK:
+                type = "ACK";
+                break;
+            case Leader.COMMIT:
+                type = "COMMIT";
+                break;
+            case Leader.FOLLOWERINFO:
+                type = "FOLLOWERINFO";
+                break;
+            case Leader.NEWLEADER:
+                type = "NEWLEADER";
+                break;
+            case Leader.PING:
+                type = "PING";
+                break;
+            case Leader.PROPOSAL:
+                type = "PROPOSAL";
+                TxnHeader hdr = new TxnHeader();
+                try {
+                    txn = SerializeUtils.deserializeTxn(p.getData(), hdr);
+                    // mess = "transaction: " + txn.toString();
+                } catch (IOException e) {
+                    LOG.warn("Unexpected exception",e);
+                }
+                break;
+            case Leader.REQUEST:
+                type = "REQUEST";
+                break;
+            case Leader.REVALIDATE:
+                type = "REVALIDATE";
+                ByteArrayInputStream bis = new ByteArrayInputStream(p.getData());
+                DataInputStream dis = new DataInputStream(bis);
+                try {
+                    long id = dis.readLong();
+                    mess = " sessionid = " + id;
+                } catch (IOException e) {
+                    LOG.warn("Unexpected exception", e);
+                }
+
+                break;
+            case Leader.UPTODATE:
+                type = "UPTODATE";
+                break;
+            default:
+                type = "UNKNOWN" + p.getType();
+        }
+        String entry = null;
+        if (type != null) {
+            // TODO: acquire receivign node from remote socket
+            entry = type + " " + Long.toHexString(p.getZxid()) + " " + mess
+                    + " " + constructPacket(p);
+        }
+        return entry;
+    }
+
+
 
 
 

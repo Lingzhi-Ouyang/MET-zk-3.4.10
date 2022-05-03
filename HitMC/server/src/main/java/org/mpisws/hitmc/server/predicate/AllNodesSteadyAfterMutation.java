@@ -13,15 +13,15 @@ import org.slf4j.LoggerFactory;
  * Wait Predicate for client request event when
  * both learnerHandlerSender and syncProcessor are intercepted
  * - leader: SYNC_PROCESSOR in SENDING state && LEARNER_HANDLER in SENDING states, other subnodes in SENDING / RECEIVING states
- * - follower: all subnodes in SENDING / RECEIVING states
+ * - follower: SYNC_PROCESSOR && FOLLOWER_PROCESSOR in SENDING / RECEIVING states
  */
-public class AllNodesSteadyAfterClientRequest implements WaitPredicate {
+public class AllNodesSteadyAfterMutation implements WaitPredicate {
 
-    private static final Logger LOG = LoggerFactory.getLogger(AllNodesSteadyAfterClientRequest.class);
+    private static final Logger LOG = LoggerFactory.getLogger(AllNodesSteadyAfterMutation.class);
 
     private final TestingService testingService;
 
-    public AllNodesSteadyAfterClientRequest(final TestingService testingService) {
+    public AllNodesSteadyAfterMutation(final TestingService testingService) {
         this.testingService = testingService;
     }
 
@@ -44,11 +44,11 @@ public class AllNodesSteadyAfterClientRequest implements WaitPredicate {
             LeaderElectionState leaderElectionState = testingService.getLeaderElectionStates().get(nodeId);
             // TODO: LOOKING ???
             if (LeaderElectionState.LEADING.equals(leaderElectionState)) {
-                if (!leaderSteadyAfterClientRequest(nodeId)) {
+                if (!leaderSteadyAfterMutation(nodeId)) {
                     return false;
                 }
             } else if (LeaderElectionState.FOLLOWING.equals(leaderElectionState)) {
-                if (!followerSteadyAfterClientRequest(nodeId)) {
+                if (!followerSteadyAfterMutation(nodeId)) {
                     return false;
                 }
             }
@@ -58,10 +58,10 @@ public class AllNodesSteadyAfterClientRequest implements WaitPredicate {
 
     @Override
     public String describe() {
-        return "allNodesSteadyAfterClientRequest";
+        return "all nodes steady after mutation";
     }
 
-    private boolean leaderSteadyAfterClientRequest(final int nodeId) {
+    private boolean leaderSteadyAfterMutation(final int nodeId) {
         boolean syncExisted = false;
         // Note: learnerHandlerSender is created by learnerHandler so here we do not make a flag for learnerHandler
         boolean learnerHandlerSenderExisted = false;
@@ -91,14 +91,30 @@ public class AllNodesSteadyAfterClientRequest implements WaitPredicate {
             LOG.debug("-----------Leader node {} subnode {} status: {}, subnode type: {}",
                         nodeId, subnode.getId(), subnode.getState(), subnode.getSubnodeType());
         }
-        if (!syncExisted && !learnerHandlerSenderExisted) {
-            return false;
-        }
-        return true;
+        return syncExisted && learnerHandlerSenderExisted;
     }
 
-    private boolean followerSteadyAfterClientRequest(final int nodeId) {
+    private boolean followerSteadyAfterMutation(final int nodeId) {
+        boolean syncExisted = false;
+        boolean followerProcessorExisted = false;
         for (final Subnode subnode : testingService.getSubnodeSets().get(nodeId)) {
+            if (SubnodeType.SYNC_PROCESSOR.equals(subnode.getSubnodeType())) {
+                syncExisted = true;
+                if (SubnodeState.PROCESSING.equals(subnode.getState())) {
+                    LOG.debug("------Not steady for follower's {} thread-----" +
+                                    "Node {} subnode {} status: {}",
+                            subnode.getSubnodeType(), nodeId, subnode.getId(), subnode.getState());
+                    return false;
+                }
+            } else if (SubnodeType.FOLLOWER_PROCESSOR.equals(subnode.getSubnodeType())) {
+                followerProcessorExisted = true;
+                if (SubnodeState.PROCESSING.equals(subnode.getState())) {
+                    LOG.debug("------Not steady for follower's {} thread-----" +
+                                    "Node {} subnode {} status: {}",
+                            subnode.getSubnodeType(), nodeId, subnode.getId(), subnode.getState());
+                    return false;
+                }
+            }
             if (SubnodeState.PROCESSING.equals(subnode.getState())) {
                 LOG.debug("------Not steady for follower's {} thread-----" +
                                 "Node {} subnode {} status: {}",
@@ -108,6 +124,6 @@ public class AllNodesSteadyAfterClientRequest implements WaitPredicate {
             LOG.debug("-----------Follower node {} subnode {} status: {}, subnode type: {}",
                     nodeId, subnode.getId(), subnode.getState(), subnode.getSubnodeType());
         }
-        return true;
+        return syncExisted && followerProcessorExisted;
     }
 }

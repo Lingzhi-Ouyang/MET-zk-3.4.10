@@ -121,4 +121,6 @@ public interface TestingRemoteService extends Remote {
     void registerFollowerSocketInfo(int node, String socketAddress) throws RemoteException;
 
     void deregisterFollowerSocketInfo(int node) throws RemoteException;
+
+    void readyForBroadcast(int subnodeId) throws RemoteException;
 }

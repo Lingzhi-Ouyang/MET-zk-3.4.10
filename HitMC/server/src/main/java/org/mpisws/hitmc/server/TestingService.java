@@ -1,6 +1,5 @@
 package org.mpisws.hitmc.server;
 
-import org.apache.zookeeper.*;
 import org.mpisws.hitmc.api.*;
 import org.mpisws.hitmc.api.configuration.SchedulerConfiguration;
 import org.mpisws.hitmc.api.configuration.SchedulerConfigurationException;
@@ -38,7 +37,7 @@ public class TestingService implements TestingRemoteService {
     @Autowired
     private Ensemble ensemble;
 
-    private ZKClient zkClient;
+    private ClientProxy clientProxy;
 
     private SchedulingStrategy schedulingStrategy;
 
@@ -71,8 +70,12 @@ public class TestingService implements TestingRemoteService {
     private List<List<Boolean>> partitionMap = new ArrayList<>();
 
     private final List<NodeState> nodeStates = new ArrayList<>();
+    private final List<Phase> nodePhases = new ArrayList<>();
+
+
     private final List<Subnode> subnodes = new ArrayList<>();
     private final List<Set<Subnode>> subnodeSets = new ArrayList<>();
+
 
     private final List<String> followerSocketAddressBook = new ArrayList<>();
 
@@ -88,6 +91,7 @@ public class TestingService implements TestingRemoteService {
 //    private final Map<Integer, LearnerHandlerMessageEvent> followerMessageEventMap = new HashMap<>();
 
     private final List<NodeStartEvent> lastNodeStartEvents = new ArrayList<>();
+    // TODO: firstMessage should be renewed whenever election occurs.
     private final List<Boolean> firstMessage = new ArrayList<>();
 
     private int messageInFlight;
@@ -101,6 +105,19 @@ public class TestingService implements TestingRemoteService {
     //private Map <Event, List> vectorClockEvent;
 
 //    private Map <Integer, Integer> getSubNodeByID;
+
+
+    public Object getControlMonitor() {
+        return controlMonitor;
+    }
+
+    public List<NodeStateForClientRequest> getNodeStateForClientRequests() {
+        return nodeStateForClientRequests;
+    }
+
+    public NodeStateForClientRequest getNodeStateForClientRequests(int nodeId) {
+        return nodeStateForClientRequests.get(nodeId);
+    }
 
     public List<NodeState> getNodeStates() {
         return nodeStates;
@@ -130,10 +147,6 @@ public class TestingService implements TestingRemoteService {
         return firstMessage;
     }
 
-    public List<NodeStateForClientRequest> getNodeStateForClientRequests() {
-        return nodeStateForClientRequests;
-    }
-
     public NodeStartExecutor getNodeStartExecutor() {
         return nodeStartExecutor;
     }
@@ -150,7 +163,7 @@ public class TestingService implements TestingRemoteService {
         return ensemble;
     }
 
-    public ZKClient getZkClient() { return zkClient; }
+    public ClientProxy getZkClient() { return clientProxy; }
 
     public SchedulerConfiguration getSchedulerConfiguration() {
         return schedulerConfiguration;
@@ -164,10 +177,8 @@ public class TestingService implements TestingRemoteService {
      * The core process the scheduler
      * @throws SchedulerConfigurationException
      * @throws IOException
-     * @throws InterruptedException
-     * @throws KeeperException
      */
-    public void start() throws SchedulerConfigurationException, IOException, InterruptedException, KeeperException {
+    public void start() throws SchedulerConfigurationException, IOException {
         LOG.debug("Starting the scheduler");
         long startTime = System.currentTimeMillis();
         initRemote();
@@ -196,13 +207,14 @@ public class TestingService implements TestingRemoteService {
             totalExecuted = scheduleFirstElection(totalExecuted);
 
             // 1. trigger DIFF
-            configureClientRequests();
+            configureAfterElection();
             totalExecuted = triggerDiff(totalExecuted);
 
             // 2. phantom read
 
-            zkClient.deregister();
+            clientProxy.deregister();
             ensemble.stopEnsemble();
+
 
             executionWriter.close();
             statisticsWriter.close();
@@ -343,6 +355,8 @@ public class TestingService implements TestingRemoteService {
         // Configure nodes and subnodes
         nodeProperties.clear();
         nodeStates.clear();
+        nodePhases.clear();
+
         subnodeSets.clear();
         subnodes.clear();
         nodeStateForClientRequests.clear();
@@ -350,6 +364,7 @@ public class TestingService implements TestingRemoteService {
 
         for (int i = 0 ; i < schedulerConfiguration.getNumNodes(); i++) {
             nodeStates.add(NodeState.STARTING);
+            nodePhases.add(Phase.DISCOVERY);
             subnodeSets.add(new HashSet<Subnode>());
             nodeProperties.add(0L);
             nodeStateForClientRequests.add(NodeStateForClientRequest.SET_DONE);
@@ -395,19 +410,28 @@ public class TestingService implements TestingRemoteService {
 
     /***
      * Configure all testing metadata after election
-     * @throws InterruptedException
-     * @throws KeeperException
-     * @throws IOException
      */
-    private void configureClientRequests() throws InterruptedException, KeeperException, IOException {
-        // Initialize zkClients
-        // Attention: do not intercept any event during the initialization process
-        LOG.debug("------------------start the client session initialization------------------");
-        zkClient = new ZKClient();
-        zkClient.init();
-        zkClient.start();
-        LOG.debug("------------------finish the client session initialization------------------\n");
-        isClientInitializationDone = true; // at this time no client request is produced
+    private void configureAfterElection() {
+//        // Initialize zkClients
+//        // Attention: do not intercept any event during the initialization process
+//        clientProxy = new ClientProxy();
+//        LOG.debug("------------------start the client session initialization------------------");
+//
+//        if (clientProxy.init(true)) {
+//            LOG.debug("------------------create the client session successfully------------------");
+//            clientProxy.start();
+//            isClientInitializationDone = true;
+//        } else {
+//            LOG.warn("----- caught exception during client session initialization");
+//            // TODO: confirm this
+//            isClientInitializationDone = false;
+//        }
+        createClient();
+//
+//
+//
+//        LOG.debug("------------------finish the client session initialization------------------\n");
+
 
 //        // provide initial client requests
 //        final ClientRequestEvent getDataEvent = new ClientRequestEvent(generateEventId(),
@@ -450,6 +474,7 @@ public class TestingService implements TestingRemoteService {
                 }
                 // wait whenever an election ends
                 waitAllNodesVoted();
+                waitAllNodesSteadyBeforeRequest();
             }
             statistics.endTimer();
             // check election results
@@ -531,7 +556,7 @@ public class TestingService implements TestingRemoteService {
     private int scheduleClientRequests(int totalExecuted) {
         try {
             synchronized (controlMonitor) {
-                waitAllNodesSteadyForClientMutation();
+                waitAllNodesSteadyBeforeRequest();
                 LOG.debug("All Nodes steady for client requests");
                 for (int nodeId = 0; nodeId < schedulerConfiguration.getNumNodes(); nodeId++) {
                     executionWriter.write(nodeProperties.get(nodeId).toString() + " # ");
@@ -598,6 +623,27 @@ public class TestingService implements TestingRemoteService {
     }
 
     /***
+     * create client session
+     * Note: when client is initializing, servers are better not allowed to be intercepted
+     *      or the initialization will fail.
+     */
+    private void createClient() {
+        clientProxy = new ClientProxy();
+        LOG.debug("------------------start the client session initialization------------------");
+
+        if (clientProxy.init(true)) {
+            LOG.debug("------------------create the client session successfully------------------");
+            clientProxy.start();
+            isClientInitializationDone = true;
+        } else {
+            LOG.warn("----- caught exception during client session initialization");
+            // TODO: confirm this
+            isClientInitializationDone = false;
+        }
+        LOG.debug("------------------finish the client session initialization------------------\n");
+    }
+
+    /***
      * the steps to trigger DIFF
      */
     private int triggerDiff(int totalExecuted) {
@@ -613,6 +659,7 @@ public class TestingService implements TestingRemoteService {
                         ClientRequestType.SET_DATA, clientRequestExecutor);
                 LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
                 LOG.debug("prepare to execute event: {}", event);
+
                 if (event.execute()) {
                     ++totalExecuted;
                     recordProperties(totalExecuted, startTime, event);
@@ -699,10 +746,11 @@ public class TestingService implements TestingRemoteService {
                 // TODO: check the original leader becomes the new leader again. o.w. repeat Step 4-5
                 // TODO: check DIFF
 
+                waitAllNodesSteadyBeforeRequest();
                 // Step POST. client request SET_DATA
                 startTime = System.currentTimeMillis();
                 event = new ClientRequestEvent(generateEventId(),
-                        ClientRequestType.SET_DATA, clientRequestExecutor);
+                        ClientRequestType.GET_DATA, clientRequestExecutor);
                 LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
                 LOG.debug("prepare to execute event: {}", event);
                 if (event.execute()) {
@@ -727,6 +775,10 @@ public class TestingService implements TestingRemoteService {
             statistics.reportTotalExecutedEvents(totalExecuted);
             statisticsWriter.write(statistics.toString() + "\n\n");
             LOG.info(statistics.toString() + "\n\n\n\n\n");
+//            synchronized (controlMonitor){
+//                waitAllNodesSteadyBeforeRequest();
+//            }
+
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -960,57 +1012,6 @@ public class TestingService implements TestingRemoteService {
         controlMonitor.notifyAll();
     }
 
-    /***
-     * The executor of client requests
-     * @param event
-     * @throws InterruptedException
-     * @throws KeeperException
-     */
-    public void releaseClientRequest(final ClientRequestEvent event) {
-        switch (event.getType()) {
-            case GET_DATA:
-                // TODO: this method should modify related states
-//                for (int i = 0 ; i < schedulerConfiguration.getNumNodes(); i++) {
-//                    nodeStateForClientRequests.set(i, NodeStateForClientRequest.SET_PROCESSING);
-//                }
-                zkClient.getRequestQueue().offer(event);
-                // notifyAll() should be called after related states have been changed
-                controlMonitor.notifyAll();
-
-                /***
-                 * use responseQueue for acquiring the result
-                 */
-//                while(true){
-//                    try {
-//                        ClientRequestEvent m = responseQueue.poll(3000, TimeUnit.MILLISECONDS);
-//                        if (m == null) {
-//                            Thread.sleep(500);
-//                            continue;
-//                        }
-//                        break;
-//                    } catch (InterruptedException e){
-//                        e.printStackTrace();
-//                        break;
-//                    }
-//                }
-                break;
-            case SET_DATA:
-                for (int i = 0 ; i < schedulerConfiguration.getNumNodes(); i++) {
-                    nodeStateForClientRequests.set(i, NodeStateForClientRequest.SET_PROCESSING);
-                }
-
-                // TODO: This should set the leader learnerHandlerSender / syncProcessor into PROCESSING state
-                // TODO: what if leader does not exist?
-
-                String data = String.valueOf(event.getId());
-                event.setData(data);
-                zkClient.getRequestQueue().offer(event);
-                // notifyAll() should be called after related states have been changed
-                controlMonitor.notifyAll();
-                break;
-        }
-    }
-
     @Override
     public int registerSubnode(final int nodeId, final SubnodeType subnodeType) throws RemoteException {
         final int subnodeId;
@@ -1102,6 +1103,7 @@ public class TestingService implements TestingRemoteService {
     public void startNode(final int nodeId) throws RemoteException {
         // 1. PRE_EXECUTION: set unstable state (set STARTING)
         nodeStates.set(nodeId, NodeState.STARTING);
+        nodePhases.set(nodeId, Phase.DISCOVERY);
         nodeStateForClientRequests.set(nodeId, NodeStateForClientRequest.SET_DONE);
         votes.set(nodeId, null);
         leaderElectionStates.set(nodeId, LeaderElectionState.LOOKING);
@@ -1142,6 +1144,7 @@ public class TestingService implements TestingRemoteService {
         // If hasSending == true, the node has been set OFFLINE when the last intercepted subnode is shutdown
         // o.w. set OFFLINE here anyway.
         nodeStates.set(nodeId, NodeState.OFFLINE);
+        nodePhases.set(nodeId, Phase.NULL);
         nodeStateForClientRequests.set(nodeId, NodeStateForClientRequest.SET_DONE);
 
         votes.set(nodeId, null);
@@ -1228,12 +1231,18 @@ public class TestingService implements TestingRemoteService {
         LOG.debug("before setting Node {} state: {}", nodeId, state);
         synchronized (controlMonitor) {
             leaderElectionStates.set(nodeId, state);
+            if (LeaderElectionState.LOOKING.equals(state)) {
+                nodePhases.set(nodeId, Phase.DISCOVERY);
+            } else {
+                nodePhases.set(nodeId, Phase.SYNC);
+            }
             try {
                 LOG.debug("Writing execution file------Node {} state: {}", nodeId, state);
                 executionWriter.write("\nNode " + nodeId + " state: " + state + '\n');
             } catch (final IOException e) {
                 LOG.debug("IO exception", e);
             }
+            controlMonitor.notifyAll();
         }
         LOG.debug("after setting Node {} state: {}", nodeId, state);
     }
@@ -1253,25 +1262,14 @@ public class TestingService implements TestingRemoteService {
 
     @Override
     public void updateProperties(int nodeId, long lastProcessedZxid) throws RemoteException{
-        // TODO: this method is also called during initialization. Is it okay?
-//        nodeProperties.set(nodeId, lastProcessedZxid);
-//        try {
-//                LOG.debug("Writing execution file------Node {} lastProcessedZxid: {}", nodeId, lastProcessedZxid);
-//                executionWriter.write("\nnodeId: " + nodeId + " lastProcessedZxid: " + lastProcessedZxid + " ||| ");
-//                for (int i = 0; i < schedulerConfiguration.getNumNodes(); i++) {
-//                    executionWriter.write(nodeProperties.get(i).toString() + " | ");
-//                }
-//            } catch (final IOException e) {
-//                LOG.debug("IO exception", e);
-//        }
         synchronized (controlMonitor) {
-//            LOG.debug("-------begin updateProperties, node id: {}, lastProcessedZxid: {}", nodeId, lastProcessedZxid);
             nodeProperties.set(nodeId, lastProcessedZxid);
             nodeStateForClientRequests.set(nodeId, NodeStateForClientRequest.SET_DONE);
             try {
-                executionWriter.write("\nnodeId: " + nodeId + " lastProcessedZxid: " + lastProcessedZxid);
+                executionWriter.write(
+                        "\nnodeId: " + nodeId + " lastProcessedZxid: 0x" + Long.toHexString(lastProcessedZxid));
                 for (int i = 0; i < schedulerConfiguration.getNumNodes(); i++) {
-                    executionWriter.write("|||" + nodeProperties.get(i).toString());
+                    executionWriter.write(" # " + Long.toHexString(nodeProperties.get(i)));
                 }
                 executionWriter.write("\n");
                 controlMonitor.notifyAll();
@@ -1284,26 +1282,44 @@ public class TestingService implements TestingRemoteService {
     public void recordProperties(final int step, final long startTime, final Event event) throws IOException {
         executionWriter.write("\n---Step: " + step + "--->");
         executionWriter.write(event.toString());
-        executionWriter.write("\nlastProcessedZxid: ");
+        executionWriter.write("\nlastProcessedZxid: 0x");
         // Property verification
         for (int nodeId = 0; nodeId < schedulerConfiguration.getNumNodes(); nodeId++) {
-            executionWriter.write(nodeProperties.get(nodeId).toString() + " # ");
+            executionWriter.write(Long.toHexString(nodeProperties.get(nodeId)) + " # ");
         }
         executionWriter.write("\ntime/ms: " + (System.currentTimeMillis() - startTime) + "\n");
         executionWriter.flush();
     }
 
+    @Override
+    public void readyForBroadcast(int subnodeId) throws RemoteException {
+        // TODO: Leader needs to collect quorum. Here we suppose 1 learnerHanlder is enough
+        final Subnode subnode = subnodes.get(subnodeId);
+        final int nodeId = subnode.getNodeId();
+        LOG.debug("Node {} is ready to broadcast", nodeId);
+        synchronized (controlMonitor) {
+            nodePhases.set(nodeId, Phase.BROADCAST);
+            controlMonitor.notifyAll();
+        }
+    }
+
+
     /***
      * The following predicates are general to some type of events.
+     * Should be called while holding a lock on controlMonitor
      */
 
+    /***
+     * General pre-/post-condition
+     */
     private final WaitPredicate allNodesSteady = new AllNodesSteady(this);
-
-    // Should be called while holding a lock on controlMonitor
     public void waitAllNodesSteady() {
         wait(allNodesSteady, 0L);
     }
 
+    /***
+     * Pre-condition for election vote property check
+     */
     private final WaitPredicate allNodesVoted = new AllNodesVoted(this);
     // Should be called while holding a lock on controlMonitor
     private void waitAllNodesVoted() {
@@ -1313,30 +1329,55 @@ public class TestingService implements TestingRemoteService {
         wait(allNodesVoted, timeout);
     }
 
-    private final WaitPredicate allNodesSteadyForClientMutation = new AllNodesSteadyForClientMutation(this);
+    /***
+     * Pre-condition for client requests.
+     * Note: session creation is all a type of client request, so this is better placed before client session creation.
+     */
+    private final WaitPredicate allNodesSteadyBeforeRequest = new AllNodesSteadyBeforeRequest(this);
     // Should be called while holding a lock on controlMonitor
-    public void waitAllNodesSteadyForClientMutation() {
-        wait(allNodesSteadyForClientMutation, 0L);
+    public void waitAllNodesSteadyBeforeRequest() {
+        wait(allNodesSteadyBeforeRequest, 0L);
     }
 
+    /***
+     * Pre-condition for client mutation
+     */
+    private final WaitPredicate allNodesSteadyBeforeMutation = new AllNodesSteadyBeforeMutation(this);
+    @Deprecated
+    public void waitAllNodesSteadyBeforeMutation() {
+        wait(allNodesSteadyBeforeMutation, 0L);
+    }
+
+    /***
+     * Post-condition for client mutation
+     */
+    private final WaitPredicate allNodesSteadyAfterMutation = new AllNodesSteadyAfterMutation(this);
+    public void waitAllNodesSteadyAfterMutation() {wait(allNodesSteadyAfterMutation, 0L);}
+
+
+    /***
+     * Post-condition for logging
+     */
     private final WaitPredicate allNodesLogSyncSteady = new AllNodesLogSyncSteady(this);
     public void waitAllNodesLogSyncSteady() {
         wait(allNodesLogSyncSteady, 0L);
     }
 
-    private final WaitPredicate allNodesSteadyAfterClientRequest = new AllNodesSteadyAfterClientRequest(this);
-    public void waitAllNodesSteadyAfterClientRequest() {wait(allNodesSteadyAfterClientRequest, 0L);}
 
     /**
      * The following predicates are specific to an event.
      */
 
-    // Should be called while holding a lock on controlMonitor
+
     private void waitResponseForClientRequest(ClientRequestEvent event) {
         final WaitPredicate responseForClientRequest = new ResponseForClientRequest(event);
         wait(responseForClientRequest, 0L);
     }
 
+    /***
+     * Pre-condition for scheduling the first event in the election
+     * @param nodeId
+     */
     private void waitFirstMessageOffered(final int nodeId) {
         final WaitPredicate firstMessageOffered = new FirstMessageOffered(this, nodeId);
         wait(firstMessageOffered, 0L);
@@ -1347,23 +1388,35 @@ public class TestingService implements TestingRemoteService {
         wait(newMessageOffered, 0L);
     }
 
+    /***
+     * Pre-condition for scheduling the message event
+     * Including: notification message in the election, leader-to-follower message, log message
+     * @param msgId
+     * @param sendingNodeId
+     */
     private void waitMessageReleased(final int msgId, final int sendingNodeId) {
         final WaitPredicate messageReleased = new MessageReleased(this, msgId, sendingNodeId);
         wait(messageReleased, 0L);
     }
 
+    /***
+     * Pre-condition for scheduling the log message event
+     * @param msgId
+     * @param syncNodeId
+     */
     private void waitLogRequestReleased(final int msgId, final int syncNodeId) {
         final WaitPredicate logRequestReleased = new LogRequestReleased(this, msgId, syncNodeId);
         wait(logRequestReleased, 0L);
     }
 
+    /***
+     * Pre-condition for scheduling the leader-to-follower message event
+     * @param addr
+     */
     private void waitFollowerSocketAddrRegistered(final String addr) {
         final WaitPredicate followerSocketAddrRegistered = new FollowerSocketAddrRegistered(this, addr);
         wait(followerSocketAddrRegistered, 0L);
     }
-
-
-    //------------------------
 
     private void wait(final WaitPredicate predicate, final long timeout) {
         LOG.debug("Waiting for {}\n\n\n", predicate.describe());

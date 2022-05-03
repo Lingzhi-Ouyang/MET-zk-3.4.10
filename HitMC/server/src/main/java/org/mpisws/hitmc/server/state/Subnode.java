@@ -1,5 +1,6 @@
 package org.mpisws.hitmc.server.state;
 
+import org.mpisws.hitmc.api.Phase;
 import org.mpisws.hitmc.api.SubnodeState;
 import org.mpisws.hitmc.api.SubnodeType;
 
