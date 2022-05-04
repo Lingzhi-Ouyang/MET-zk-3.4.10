@@ -11,14 +11,15 @@ public class ClientRequestEvent extends AbstractEvent{
     private static final Logger LOG = LoggerFactory.getLogger(ClientRequestEvent.class);
 
     private final ClientRequestType type;
-    private String data;
-    private String result;
+    private String data = null;
+    private String result = null;
 
     public ClientRequestEvent(final int id, ClientRequestType type, ClientRequestExecutor eventExecutor) {
         super(id, eventExecutor);
         this.type = type;
-        this.data = "-1";
-        this.result = null;
+        if (ClientRequestType.SET_DATA.equals(type)){
+            this.data = String.valueOf(id);
+        }
     }
 
     public ClientRequestType getType() {
