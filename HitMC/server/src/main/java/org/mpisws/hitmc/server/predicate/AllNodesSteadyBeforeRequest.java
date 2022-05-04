@@ -29,7 +29,7 @@ public class AllNodesSteadyBeforeRequest implements WaitPredicate{
             switch (nodeState) {
                 case STARTING:
                 case STOPPING:
-                    LOG.debug("------Not steady-----Node {} status: {}", nodeId, nodeState);
+                    LOG.debug("------Not steady-----Node {} status: {}\n", nodeId, nodeState);
                     return false;
                 case OFFLINE:
                     LOG.debug("-----------Node {} status: {}", nodeId, nodeState);

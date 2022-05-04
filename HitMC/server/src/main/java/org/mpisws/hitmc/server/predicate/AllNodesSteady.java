@@ -27,7 +27,7 @@ public class AllNodesSteady implements WaitPredicate {
         for (int nodeId = 0; nodeId < testingService.getSchedulerConfiguration().getNumNodes(); ++nodeId) {
             final NodeState nodeState = testingService.getNodeStates().get(nodeId);
             if (NodeState.STARTING.equals(nodeState) || NodeState.STOPPING.equals(nodeState)) {
-                LOG.debug("------Not steady-----Node {} status: {}",
+                LOG.debug("------Not steady-----Node {} status: {}\n",
                         nodeId, nodeState);
                 return false;
             }
@@ -37,7 +37,7 @@ public class AllNodesSteady implements WaitPredicate {
             }
             for (final Subnode subnode : testingService.getSubnodeSets().get(nodeId)) {
                 if (SubnodeState.PROCESSING.equals(subnode.getState())) {
-                    LOG.debug("------Not steady-----Node {} subnode {} status: {}, subnode type: {}",
+                    LOG.debug("------Not steady-----Node {} subnode {} status: {}, subnode type: {}\n",
                             nodeId, subnode.getId(), subnode.getState(), subnode.getSubnodeType());
                     return false;
                 }

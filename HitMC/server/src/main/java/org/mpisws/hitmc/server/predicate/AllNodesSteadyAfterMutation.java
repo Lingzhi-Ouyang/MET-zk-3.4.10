@@ -33,7 +33,7 @@ public class AllNodesSteadyAfterMutation implements WaitPredicate {
             switch (nodeState) {
                 case STARTING:
                 case STOPPING:
-                    LOG.debug("------Not steady-----Node {} status: {}", nodeId, nodeState);
+                    LOG.debug("------Not steady-----Node {} status: {}\n", nodeId, nodeState);
                     return false;
                 case OFFLINE:
                     LOG.debug("-----------Node {} status: {}", nodeId, nodeState);
@@ -70,7 +70,7 @@ public class AllNodesSteadyAfterMutation implements WaitPredicate {
                 syncExisted = true;
                 if (!SubnodeState.SENDING.equals(subnode.getState())) {
                     LOG.debug("------Not steady for leader's {} thread-----" +
-                                    "Node {} subnode {} status: {}",
+                                    "Node {} subnode {} status: {}\n",
                             subnode.getSubnodeType(), nodeId, subnode.getId(), subnode.getState());
                     return false;
                 }
@@ -78,13 +78,13 @@ public class AllNodesSteadyAfterMutation implements WaitPredicate {
                 learnerHandlerSenderExisted = true;
                 if (!SubnodeState.SENDING.equals(subnode.getState())) {
                     LOG.debug("------Not steady for leader's {} thread-----" +
-                                    "Node {} subnode {} status: {}",
+                                    "Node {} subnode {} status: {}\n",
                             subnode.getSubnodeType(), nodeId, subnode.getId(), subnode.getState());
                     return false;
                 }
             } else if (SubnodeState.PROCESSING.equals(subnode.getState())) {
                 LOG.debug("------Not steady for leader's {} thread-----" +
-                                "Node {} subnode {} status: {}",
+                                "Node {} subnode {} status: {}\n",
                         subnode.getSubnodeType(), nodeId, subnode.getId(), subnode.getState());
                 return false;
             }
@@ -102,7 +102,7 @@ public class AllNodesSteadyAfterMutation implements WaitPredicate {
                 syncExisted = true;
                 if (SubnodeState.PROCESSING.equals(subnode.getState())) {
                     LOG.debug("------Not steady for follower's {} thread-----" +
-                                    "Node {} subnode {} status: {}",
+                                    "Node {} subnode {} status: {}\n",
                             subnode.getSubnodeType(), nodeId, subnode.getId(), subnode.getState());
                     return false;
                 }
@@ -110,14 +110,14 @@ public class AllNodesSteadyAfterMutation implements WaitPredicate {
                 followerProcessorExisted = true;
                 if (SubnodeState.PROCESSING.equals(subnode.getState())) {
                     LOG.debug("------Not steady for follower's {} thread-----" +
-                                    "Node {} subnode {} status: {}",
+                                    "Node {} subnode {} status: {}\n",
                             subnode.getSubnodeType(), nodeId, subnode.getId(), subnode.getState());
                     return false;
                 }
             }
             if (SubnodeState.PROCESSING.equals(subnode.getState())) {
                 LOG.debug("------Not steady for follower's {} thread-----" +
-                                "Node {} subnode {} status: {}",
+                                "Node {} subnode {} status: {}\n",
                         subnode.getSubnodeType(), nodeId, subnode.getId(), subnode.getState());
                 return false;
             }
