@@ -14,43 +14,38 @@ import java.util.Set;
 public aspect LearnerAspect {
     private static final Logger LOG = LoggerFactory.getLogger(LearnerAspect.class);
 
-//    private final TestingRemoteService testingService;
-//
-//    public LearnerAspect() {
-//        try {
-//            final Registry registry = LocateRegistry.getRegistry(2599);
-//            testingService = (TestingRemoteService) registry.lookup(TestingRemoteService.REMOTE_NAME);
-//            LOG.debug("Found the remote testing service.");
-//        } catch (final RemoteException e) {
-//            LOG.error("Couldn't locate the RMI registry.", e);
-//            throw new RuntimeException(e);
-//        } catch (final NotBoundException e) {
-//            LOG.error("Couldn't bind the testing service.", e);
-//            throw new RuntimeException(e);
-//        }
-//    }
-//
-//
-//
-//    // Intercept FollowerZooKeeperServer.logRequest()
-//
-//    pointcut logRequest(Object header, Object record):
-//            withincode(* LearnerAspect.syncWithLeader(..))
-//            && call(* FollowerZooKeeperServer.logRequest(org.apache.zookeeper.txn.TxnHeader, org.apache.jute.Record))
-//            && if (header instanceof org.apache.zookeeper.txn.TxnHeader)
-//            && if (record instanceof org.apache.jute.Record)
-//            && args(header, record);
-//
-//    // TODO: only intercept PROPOSAL OF SET_DATA TYPE
-//    // TODO: get FOLLOWER NODE ID
-//    before(final Object header, final Object record):
-//            logRequest(header, record) {
-//        final Set<Integer> predecessorIds = new HashSet<>();
-//        LOG.debug("Before logRequest in FollowerZooKeeperServer. Header: {}, Record: {}", header, record);
-//    }
-//
-//
-//    public String constructPayload() {
-//        return "PROPOSAL";
-//    }
+    private final QuorumPeerAspect quorumPeerAspect = QuorumPeerAspect.aspectOf();
+
+    /***
+     * For follower's sync with leader process
+     * Related code: Learner.java
+     */
+    pointcut readPacketInSyncWithLeader(QuorumPacket packet):
+            withincode(* org.apache.zookeeper.server.quorum.Learner.syncWithLeader(..)) &&
+                    call(void org.apache.zookeeper.server.quorum.Learner.readPacket(QuorumPacket)) && args(packet);
+
+    after(QuorumPacket packet) returning: readPacketInSyncWithLeader(packet) {
+        final long threadId = Thread.currentThread().getId();
+        final String threadName = Thread.currentThread().getName();
+        LOG.debug("after receiveUPTODATE-------Thread: {}, {}------", threadId, threadName);
+
+        final String payload = quorumPeerAspect.packetToString(packet);
+        final int quorumPeerSubnodeId = quorumPeerAspect.getQuorumPeerSubnodeId();
+        LOG.debug("---------readPacket: ({}). Subnode: {}", payload, quorumPeerSubnodeId);
+        final int type =  packet.getType();
+        if (type == Leader.UPTODATE) {
+            try {
+                quorumPeerAspect.setSyncFinished(true);
+                quorumPeerAspect.getTestingService().readyForBroadcast(quorumPeerSubnodeId);
+                LOG.debug("-------receiving UPTODATE!!!!-------begin to serve clients");
+            } catch (RemoteException e) {
+                LOG.debug("Encountered a remote exception", e);
+                throw new RuntimeException(e);
+            }
+        }
+        if (!quorumPeerAspect.isSyncFinished()){
+            LOG.debug("-------still in sync!");
+            return;
+        }
+    }
 }

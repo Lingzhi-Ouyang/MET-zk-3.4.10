@@ -107,7 +107,7 @@ public aspect FollowerRequestProcessorAspect {
         if (request instanceof Request) {
 //            this.request = (Request) request;
             LOG.debug("It's a request!");
-            final String payload = quorumPeerAspect.constructSyncRequest((Request) request);
+            final String payload = quorumPeerAspect.constructRequest((Request) request);
             final int type =  ((Request) request).type;
             switch (type) {
                 case ZooDefs.OpCode.notification:

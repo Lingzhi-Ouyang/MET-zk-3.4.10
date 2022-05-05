@@ -149,7 +149,6 @@ public aspect QuorumPeerAspect {
         }
     }
 
-
     public QuorumPeerAspect() {
         try {
             final Registry registry = LocateRegistry.getRegistry(2599);
@@ -174,6 +173,14 @@ public aspect QuorumPeerAspect {
 
     public TestingRemoteService getTestingService() {
         return testingService;
+    }
+
+    public void setSyncFinished(boolean syncFinished) {
+        this.syncFinished = syncFinished;
+    }
+
+    public boolean isSyncFinished() {
+        return syncFinished;
     }
 
     // Identify the ID of this node
@@ -527,8 +534,8 @@ public aspect QuorumPeerAspect {
         }
     }
 
-    public String constructSyncRequest(final Request request) {
-        return "syncNode=" + myId +
+    public String constructRequest(final Request request) {
+        return "Node=" + myId +
                 ", sessionId=" + request.sessionId +
                 ", cxid=" + request.cxid +
                 ", type=" + request.type;
@@ -667,7 +674,7 @@ public aspect QuorumPeerAspect {
 
     // LearnerHandlerSenderAspect
 
-    public int registerSubnode(final long threadId, final String threadName, final SubnodeType type){
+    public SubnodeIntercepter registerSubnode(final long threadId, final String threadName, final SubnodeType type){
         try {
             TestingRemoteService testingService = createRmiConnection();
             LOG.debug("Found the remote testing service. Registering {} subnode", type);
@@ -676,7 +683,7 @@ public aspect QuorumPeerAspect {
             SubnodeIntercepter intercepter =
                     new SubnodeIntercepter(threadName, subnodeId, type, testingService);
             intercepterMap.put(threadId, intercepter);
-            return subnodeId;
+            return intercepter;
         } catch (final RemoteException e) {
             LOG.error("Encountered a remote exception.", e);
             throw new RuntimeException(e);
@@ -736,56 +743,9 @@ public aspect QuorumPeerAspect {
 //        LOG.debug("getLocalSocketAddress = {}", sock.getRemoteSocketAddress());
 //    }
 
-    // intercept when a follower is about to log request
-    pointcut followerLogRequest(Request r):
-            withincode(* org.apache.zookeeper.server.quorum.FollowerZooKeeperServer.logRequest(..)) &&
-                    call(void org.apache.zookeeper.server.SyncRequestProcessor.processRequest(Request)) && args(r);
-
-    after(Request r) returning: followerLogRequest(r) {
-        LOG.debug("----------followerLogRequest: {}", constructSyncRequest(r));
-        try {
-            testingService.setReceivingState(quorumPeerSubnodeId);
-        } catch (RemoteException e) {
-            LOG.debug("Encountered a remote exception", e);
-            throw new RuntimeException(e);
-        }
-    }
-
     // intercept the effects of network partition
 //    pointcut followerProcessPacket
 
-
-    /***
-     * For follower's sync with leader process
-     * Related code: Learner.java
-     */
-    pointcut receiveUPTODATE(QuorumPacket packet):
-            withincode(* org.apache.zookeeper.server.quorum.Learner.syncWithLeader(..)) &&
-            call(void org.apache.zookeeper.server.quorum.Learner.readPacket(QuorumPacket)) && args(packet);
-
-    after(QuorumPacket packet) returning: receiveUPTODATE(packet) {
-        final long threadId = Thread.currentThread().getId();
-        final String threadName = Thread.currentThread().getName();
-        LOG.debug("after receiveUPTODATE-------Thread: {}, {}------", threadId, threadName);
-
-        final String payload = packetToString(packet);
-        LOG.debug("---------readPacket: ({}). Subnode: {}", payload, quorumPeerSubnodeId);
-        final int type =  packet.getType();
-        if (type == Leader.UPTODATE) {
-            try {
-                syncFinished = true;
-                testingService.readyForBroadcast(quorumPeerSubnodeId);
-                LOG.debug("-------receiving UPTODATE!!!!-------begin to serve clients");
-            } catch (RemoteException e) {
-                LOG.debug("Encountered a remote exception", e);
-                throw new RuntimeException(e);
-            }
-        }
-        if (!syncFinished){
-            LOG.debug("-------still in sync!");
-            return;
-        }
-    }
 
     public String packetToString(QuorumPacket p) {
         String type = null;
