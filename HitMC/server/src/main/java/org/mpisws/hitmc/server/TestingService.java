@@ -50,7 +50,7 @@ public class TestingService implements TestingRemoteService {
 
     // Internal event executors
     private MessageExecutor messageExecutor; // for election
-    private LogRequestExecutor logRequestExecutor; // for logging
+    private RequestProcessorExecutor requestProcessorExecutor; // for logging
     private LearnerHandlerMessageExecutor learnerHandlerMessageExecutor; // for learnerHandler-follower
 
     private Statistics statistics;
@@ -347,7 +347,7 @@ public class TestingService implements TestingRemoteService {
 
         // Configure external event executors
         messageExecutor = new MessageExecutor(this);
-        logRequestExecutor = new LogRequestExecutor(this);
+        requestProcessorExecutor = new RequestProcessorExecutor(this);
         learnerHandlerMessageExecutor = new LearnerHandlerMessageExecutor(this);
 
         leaderElectionVerifier = new LeaderElectionVerifier(this, statistics);
@@ -694,8 +694,8 @@ public class TestingService implements TestingRemoteService {
                 // Step 2. leader log
                 startTime = System.currentTimeMillis();
                 event = schedulingStrategy.nextEvent();
-                while (!(event instanceof LogRequestEvent)){
-                    LOG.debug("-------need LogRequestEvent! get event: {}", event);
+                while (!(event instanceof RequestEvent)){
+                    LOG.debug("-------need RequestEvent! get event: {}", event);
                     addEvent(event);
                     event = schedulingStrategy.nextEvent();
                 }
@@ -747,6 +747,51 @@ public class TestingService implements TestingRemoteService {
                 // TODO: check DIFF
 
                 waitAllNodesSteadyBeforeRequest();
+
+                // waitFollowersGetUPTODATE
+
+
+                // Leader crashed
+
+
+                // Follower restart
+
+
+                //
+            }
+            statistics.endTimer();
+            // TODO: property check : S0 writes PROPOSAL T(zxid=1) to the datafile. Neither S1 or S2 receives PROPOSAL T(zxid=1).
+//            leaderElectionVerifier.verify();
+            statistics.reportTotalExecutedEvents(totalExecuted);
+            statisticsWriter.write(statistics.toString() + "\n\n");
+            LOG.info(statistics.toString() + "\n\n\n\n\n");
+
+
+
+            synchronized (controlMonitor){
+                long startTime = System.currentTimeMillis();
+                Event event = new ClientRequestEvent(generateEventId(),
+                        ClientRequestType.GET_DATA, clientRequestExecutor);
+                LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
+                LOG.debug("prepare to execute event: {}", event);
+                if (event.execute()) {
+                    ++totalExecuted;
+                    recordProperties(totalExecuted, startTime, event);
+                }
+
+                //
+                while (schedulingStrategy.hasNextEvent() && totalExecuted < 100) {
+                    startTime = System.currentTimeMillis();
+                    event = schedulingStrategy.nextEvent();
+                    LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted);
+                    LOG.debug("prepare to execute event: {}", event.toString());
+                    if (event.execute()) {
+                        ++totalExecuted;
+                        recordProperties(totalExecuted, startTime, event);
+                    }
+                }
+
+                waitAllNodesSteadyBeforeRequest();
                 // Step POST. client request SET_DATA
                 startTime = System.currentTimeMillis();
                 event = new ClientRequestEvent(generateEventId(),
@@ -768,16 +813,8 @@ public class TestingService implements TestingRemoteService {
                         recordProperties(totalExecuted, startTime, event);
                     }
                 }
+                LOG.debug("size: {}", getZkClient().getRequestQueue().size());
             }
-            statistics.endTimer();
-            // TODO: property check : S0 writes PROPOSAL T(zxid=1) to the datafile. Neither S1 or S2 receives PROPOSAL T(zxid=1).
-//            leaderElectionVerifier.verify();
-            statistics.reportTotalExecutedEvents(totalExecuted);
-            statisticsWriter.write(statistics.toString() + "\n\n");
-            LOG.info(statistics.toString() + "\n\n\n\n\n");
-//            synchronized (controlMonitor){
-//                waitAllNodesSteadyBeforeRequest();
-//            }
 
         } catch (IOException e) {
             e.printStackTrace();
@@ -925,33 +962,63 @@ public class TestingService implements TestingRemoteService {
     }
 
     @Override
-    public int logRequestMessage(int syncSubnodeId, String payload, int type) throws RemoteException {
+    public int RequestProcessorMessage(int subnodeId, SubnodeType subnodeType, String payload) throws RemoteException {
         if (!isClientInitializationDone) {
             LOG.debug("----client initialization is not done!---");
             return TestingDef.RetCode.CLIENT_INITIALIZATION_NOT_DONE;
         }
-        final Subnode syncSubnode = subnodes.get(syncSubnodeId);
-        final int syncNodeId = syncSubnode.getNodeId();
-//        getSubNodeByID.put(syncSubnodeId, syncNodeId);
+        final Subnode subnode = subnodes.get(subnodeId);
+        final int nodeId = subnode.getNodeId();
+//        getSubNodeByID.put(subnodeId, nodeId);
 
         int id = generateEventId();
-        final LogRequestEvent logRequestEvent = new LogRequestEvent(id, syncNodeId, syncSubnodeId, payload, logRequestExecutor);
+        final RequestEvent requestEvent =
+                new RequestEvent(id, nodeId, subnodeId, subnodeType, payload, requestProcessorExecutor);
         synchronized (controlMonitor) {
-            LOG.debug("Node {} is about to log a proposal ({}): msgId = {}, " +
-                    "set subnode {} to SENDING state", syncNodeId, payload, id, syncSubnodeId);
-            addEvent(logRequestEvent);
-            syncSubnode.setState(SubnodeState.SENDING);
+            LOG.debug("{} {} of Node {} is about to process the request ({}): msgId = {}, " +
+                    "set subnode {} to SENDING state", subnodeType, subnodeId, nodeId, payload, id, subnodeId);
+            addEvent(requestEvent);
+            subnode.setState(SubnodeState.SENDING);
             controlMonitor.notifyAll();
-//            waitLogRequestReleased(id, syncNodeId);
-            waitMessageReleased(id, syncNodeId);
+//            waitLogRequestReleased(id, nodeId);
+            waitMessageReleased(id, nodeId);
             // If this message is released due to the STOPPING node state, then set the id = -1
-            if (NodeState.STOPPING.equals(nodeStates.get(syncNodeId))) {
+            if (NodeState.STOPPING.equals(nodeStates.get(nodeId))) {
                 id = TestingDef.RetCode.NODE_CRASH;
-                logRequestEvent.setExecuted();
+                requestEvent.setExecuted();
             }
         }
         return id;
     }
+
+//    @Override
+//    public int commit(int commitSubnodeId, String payload, int requestType) throws RemoteException {
+//        if (!isClientInitializationDone) {
+//            LOG.debug("----client initialization is not done!---");
+//            return TestingDef.RetCode.CLIENT_INITIALIZATION_NOT_DONE;
+//        }
+//        final Subnode commitSubnode = subnodes.get(commitSubnodeId);
+//        final int commitNodeId = commitSubnode.getNodeId();
+////        getSubNodeByID.put(syncSubnodeId, syncNodeId);
+//
+//        int id = generateEventId();
+//        final RequestEvent requestEvent = new RequestEvent(id, commitNodeId, commitSubnodeId, payload, requestProcessorExecutor);
+//        synchronized (controlMonitor) {
+//            LOG.debug("Node {} is about to commit ({}): msgId = {}, " +
+//                    "set subnode {} to SENDING state", commitNodeId, payload, id, commitSubnodeId);
+//            addEvent(requestEvent);
+//            commitSubnode.setState(SubnodeState.SENDING);
+//            controlMonitor.notifyAll();
+////            waitLogRequestReleased(id, syncNodeId);
+//            waitMessageReleased(id, commitNodeId);
+//            // If this message is released due to the STOPPING node state, then set the id = -1
+//            if (NodeState.STOPPING.equals(nodeStates.get(commitNodeId))) {
+//                id = TestingDef.RetCode.NODE_CRASH;
+//                requestEvent.setExecuted();
+//            }
+//        }
+//        return id;
+//    }
 
     // Should be called while holding a lock on controlMonitor
     /***
@@ -1003,10 +1070,10 @@ public class TestingService implements TestingRemoteService {
      * set SYNC_PROCESSOR to PROCESSING
      * @param event
      */
-    public void releaseLogRequest(final LogRequestEvent event) {
+    public void releaseRequestProcessor(final RequestEvent event) {
 //        logRequestInFlight = event.getId();
         messageInFlight = event.getId();
-        final Subnode syncSubnode = subnodes.get(event.getSyncSubnodeId());
+        final Subnode syncSubnode = subnodes.get(event.getSubnodeId());
         // set the corresponding subnode to be PROCESSING
         syncSubnode.setState(SubnodeState.PROCESSING);
         controlMonitor.notifyAll();
@@ -1111,6 +1178,9 @@ public class TestingService implements TestingRemoteService {
         ensemble.startNode(nodeId);
         // 3. POST_EXECUTION: wait for the state to be stable
         // the started node will call for remote service of nodeOnline(..)
+        for (int id = 0; id < schedulerConfiguration.getNumNodes(); id++) {
+            LOG.debug("--------nodeid: {}: phase: {}", id, nodePhases.get(id));
+        }
     }
 
     /***
@@ -1146,6 +1216,9 @@ public class TestingService implements TestingRemoteService {
         nodeStates.set(nodeId, NodeState.OFFLINE);
         nodePhases.set(nodeId, Phase.NULL);
         nodeStateForClientRequests.set(nodeId, NodeStateForClientRequest.SET_DONE);
+        for (int id = 0; id < schedulerConfiguration.getNumNodes(); id++) {
+            LOG.debug("--------nodeid: {}: phase: {}", id, nodePhases.get(id));
+        }
 
         votes.set(nodeId, null);
         leaderElectionStates.set(nodeId, LeaderElectionState.NULL);
@@ -1242,6 +1315,9 @@ public class TestingService implements TestingRemoteService {
             } catch (final IOException e) {
                 LOG.debug("IO exception", e);
             }
+            for (int id = 0; id < schedulerConfiguration.getNumNodes(); id++) {
+                LOG.debug("--------nodeid: {}: phase: {}", id, nodePhases.get(id));
+            }
             controlMonitor.notifyAll();
         }
         LOG.debug("after setting Node {} state: {}", nodeId, state);
@@ -1300,6 +1376,10 @@ public class TestingService implements TestingRemoteService {
         synchronized (controlMonitor) {
             nodePhases.set(nodeId, Phase.BROADCAST);
             controlMonitor.notifyAll();
+
+            for (int id = 0; id < schedulerConfiguration.getNumNodes(); id++) {
+                LOG.debug("--------nodeid: {}: phase: {}", id, nodePhases.get(id));
+            }
         }
     }
 
@@ -1369,8 +1449,8 @@ public class TestingService implements TestingRemoteService {
      */
 
 
-    private void waitResponseForClientRequest(ClientRequestEvent event) {
-        final WaitPredicate responseForClientRequest = new ResponseForClientRequest(event);
+    public void waitResponseForClientRequest(ClientRequestEvent event) {
+        final WaitPredicate responseForClientRequest = new ResponseForClientRequest(this, event);
         wait(responseForClientRequest, 0L);
     }
 

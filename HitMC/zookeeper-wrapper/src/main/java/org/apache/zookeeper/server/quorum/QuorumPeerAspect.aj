@@ -79,6 +79,9 @@ public aspect QuorumPeerAspect {
     // Maintain a subnode list
     private final Map<Long, SubnodeIntercepter> intercepterMap = new HashMap<>();
 
+    /***
+     * THis structure is for subnodes that are multiple of one type in a node.
+     */
     public static class SubnodeIntercepter {
         private String threadName;
 
@@ -507,172 +510,39 @@ public aspect QuorumPeerAspect {
 
     // SyncProcessor
 
-    public int registerSyncProcessorSubnode() {
-        final int syncProcessorSubnodeId;
+    public int registerSubnode(final TestingRemoteService testingService, final SubnodeType type) {
         try {
-            LOG.debug("Registering SyncProcessor subnode");
-            syncProcessorSubnodeId = testingService.registerSubnode(myId, SubnodeType.SYNC_PROCESSOR);
-            LOG.debug("Registered SyncProcessor subnode: id = {}", syncProcessorSubnodeId);
-//            synchronized (nodeOnlineMonitor) {
-//                syncProcessorSubnodeRegistered = true;
-//            }
-            return syncProcessorSubnodeId;
-        } catch (final RemoteException e) {
-            LOG.debug("Encountered a remote exception", e);
-            throw new RuntimeException(e);
-        }
-    }
-
-    public void deregisterSyncProcessorSubnode(final int syncProcessorSubnodeId) {
-        try {
-            LOG.debug("De-registering SyncProcessor subnode");
-            testingService.deregisterSubnode(syncProcessorSubnodeId);
-            LOG.debug("De-registered SyncProcessor subnode");
-        } catch (final RemoteException e) {
-            LOG.debug("Encountered a remote exception", e);
-            throw new RuntimeException(e);
-        }
-    }
-
-    public String constructRequest(final Request request) {
-        return "Node=" + myId +
-                ", sessionId=" + request.sessionId +
-                ", cxid=" + request.cxid +
-                ", type=" + request.type;
-    }
-
-//    public void setSyncProcessorSending() {
-//        synchronized (nodeOnlineMonitor) {
-//            syncProcessorSending = true;
-//        }
-//    }
-//
-//    public void syncProcessorPostSend(final int subnodeId, final int msgId) throws RemoteException {
-//        synchronized (nodeOnlineMonitor) {
-//            syncProcessorSending = false;
-//            if (msgId == -1) {
-//                // Ensure that other threads are all finished
-//                // The last existing subnode is responsible to set the node state as offline
-//                if (!quorumPeerSending && !workerReceiverSending) {
-//                    testingService.nodeOffline(myId);
-//                }
-//                awaitShutdown(subnodeId);
-//            }
-//        }
-//    }
-
-    // LearnerHandler
-
-    public void registerLearnerHandlerSubnode(final long threadId, final String threadName){
-        try {
-            TestingRemoteService testingService = createRmiConnection();
-            LOG.debug("Found the remote testing service.");
-            LOG.debug("Registering LearnerHandler subnode");
-            final int subnodeId = testingService.registerSubnode(myId, SubnodeType.LEARNER_HANDLER);
-            LOG.debug("Finish registering LearnerHandler subnode: id = {}", subnodeId);
-
-            SubnodeIntercepter intercepter = new SubnodeIntercepter(threadName, subnodeId, SubnodeType.LEARNER_HANDLER, testingService);
-            intercepterMap.put(threadId, intercepter);
-
-            int learnerHandlerSubnodeId = -1;
-            try{
-                learnerHandlerSubnodeId = intercepterMap.get(threadId).getSubnodeId();
-                LOG.debug("this learnerHandlerSubnodeId: {}", learnerHandlerSubnodeId);
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
-
+            LOG.debug("Found the remote testing service. Registering {} subnode", type);
+            final int subnodeId = testingService.registerSubnode(myId, type);
+            LOG.debug("Finish registering {} subnode: id = {}", type, subnodeId);
+            return subnodeId;
         } catch (final RemoteException e) {
             LOG.error("Encountered a remote exception.", e);
             throw new RuntimeException(e);
         }
     }
 
-
-//    public int registerLearnerHandlerSubnode() {
-//        final int learnerHandlerSubnodeId;
-//        try {
-//            LOG.debug("Registering LearnerHandler subnode");
-//            learnerHandlerSubnodeId = testingService.registerSubnode(myId, SubnodeType.LEARNER_HANDLER);
-//            LOG.debug("Registered LearnerHandler subnode: id = {}", learnerHandlerSubnodeId);
-////            synchronized (nodeOnlineMonitor) {
-//////                learnerHandlerSubnodeRegistered = true;
-//////                learnerHandlerSendingMap.put(learnerHandlerSubnodeId, false);
-////            }
-//            return learnerHandlerSubnodeId;
-//        } catch (final RemoteException e) {
-//            LOG.debug("Encountered a remote exception", e);
-//            throw new RuntimeException(e);
-//        }
-//    }
-
-    public void deregisterLearnerHandlerSubnode(final long threadId) {
+    public void deregisterSubnode(final TestingRemoteService testingService, final int subnodeId, final SubnodeType type) {
         try {
-            LOG.debug("De-registering LearnerHandler subnode");
-            int subnodeId = intercepterMap.get(threadId).getSubnodeId();
+            LOG.debug("De-registering {} subnode {}", type, subnodeId);
             testingService.deregisterSubnode(subnodeId);
-            LOG.debug("Finish de-registering LearnerHandler subnode {}", subnodeId);
+            LOG.debug("Finish de-registering {} subnode {}", type, subnodeId);
         } catch (final RemoteException e) {
             LOG.debug("Encountered a remote exception", e);
             throw new RuntimeException(e);
         }
     }
 
-    public void addToQueuedPackets(final long threadId, final Object object) {
-        final AtomicInteger msgsInQueuedPackets = intercepterMap.get(threadId).getMsgsInQueue();
-        msgsInQueuedPackets.incrementAndGet();
-        final String payload = constructPacket((QuorumPacket) object);
-        LOG.debug("learnerHandlerSubnodeId: {}----------packet: {}", intercepterMap.get(threadId).getSubnodeId(), payload);
-        LOG.debug("----------addToQueuedPackets(). msgsInQueuedPackets.size: {}", msgsInQueuedPackets.get());
-    }
 
-    public String constructPacket(final QuorumPacket packet) {
-        return "learnerHandlerSenderWithinNode=" + myId +
-                ", type=" + packet.getType() +
-                ", zxid=0x" + Long.toHexString(packet.getZxid()) +
-                ", data=" + Arrays.toString(packet.getData()) +
-                ", authInfo=" + packet.getAuthinfo();
-    }
-
-
-
-//    public void setLearnerHandlerSending(final int subnodeId) {
-//        synchronized (nodeOnlineMonitor) {
-//            learnerHandlerSendingMap.put(subnodeId, true);
-//        }
-//    }
-//
-//    public void learnerHandlerPostSend(final int subnodeId, final int msgId) throws RemoteException {
-//        synchronized (nodeOnlineMonitor) {
-//            learnerHandlerSendingMap.put(subnodeId, false);
-//            if (msgId == -1) {
-//                // Ensure that other threads are all finished
-//                // The last existing subnode is responsible to set the node state as offline
-//                if (!quorumPeerSending && !workerReceiverSending) {
-//                    testingService.nodeOffline(myId);
-//                }
-//                awaitShutdown(subnodeId);
-//            }
-//        }
-//    }
-
-//    // Intercept starting the thread
-//    // This thread should only be run by the leader
-//
-//    pointcut runLearnerHandler(): execution(* LearnerHandler.run());
-//
-//    before(): runLearnerHandler() {
-//        LOG.debug("before runLearnerHandler");
-//        learnerHandlerSubnodeId = quorumPeerAspect.registerLearnerHandlerSubnode();
-//    }
-//
-//    after(): runLearnerHandler() {
-//        LOG.debug("after runLearnerHandler");
-//        quorumPeerAspect.deregisterLearnerHandlerSubnode(learnerHandlerSubnodeId);
-//    }
-
-
-    // LearnerHandlerSenderAspect
+    /***
+     * The following registerSubnode() and deregisterSubnode() methods are for threads that will be run more than one
+     * in a node such as LearnerHandler and LearnerHandlerSender
+     * These subnode info will be stored using the SubnodeInterceptor structure
+     * @param threadId
+     * @param threadName
+     * @param type
+     * @return
+     */
 
     public SubnodeIntercepter registerSubnode(final long threadId, final String threadName, final SubnodeType type){
         try {
@@ -746,6 +616,13 @@ public aspect QuorumPeerAspect {
     // intercept the effects of network partition
 //    pointcut followerProcessPacket
 
+    public void addToQueuedPackets(final long threadId, final Object object) {
+        final AtomicInteger msgsInQueuedPackets = intercepterMap.get(threadId).getMsgsInQueue();
+        msgsInQueuedPackets.incrementAndGet();
+        final String payload = constructPacket((QuorumPacket) object);
+        LOG.debug("learnerHandlerSubnodeId: {}----------packet: {}", intercepterMap.get(threadId).getSubnodeId(), payload);
+        LOG.debug("----------addToQueuedPackets(). msgsInQueuedPackets.size: {}", msgsInQueuedPackets.get());
+    }
 
     public String packetToString(QuorumPacket p) {
         String type = null;
@@ -806,6 +683,21 @@ public aspect QuorumPeerAspect {
                     + " " + constructPacket(p);
         }
         return entry;
+    }
+
+    public String constructRequest(final Request request) {
+        return "Node=" + myId +
+                ", sessionId=" + request.sessionId +
+                ", cxid=" + request.cxid +
+                ", type=" + request.type;
+    }
+
+    public String constructPacket(final QuorumPacket packet) {
+        return "learnerHandlerSenderWithinNode=" + myId +
+                ", type=" + packet.getType() +
+                ", zxid=0x" + Long.toHexString(packet.getZxid()) +
+                ", data=" + Arrays.toString(packet.getData()) +
+                ", authInfo=" + packet.getAuthinfo();
     }
 
 

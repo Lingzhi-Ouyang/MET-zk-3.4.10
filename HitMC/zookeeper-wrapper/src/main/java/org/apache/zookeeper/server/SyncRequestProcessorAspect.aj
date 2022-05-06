@@ -7,12 +7,8 @@ import org.mpisws.hitmc.api.TestingRemoteService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.rmi.NotBoundException;
 import java.rmi.RemoteException;
-import java.rmi.registry.LocateRegistry;
-import java.rmi.registry.Registry;
 import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.atomic.AtomicInteger;
 
 public aspect SyncRequestProcessorAspect {
 
@@ -20,9 +16,9 @@ public aspect SyncRequestProcessorAspect {
 
     private final QuorumPeerAspect quorumPeerAspect = QuorumPeerAspect.aspectOf();
 
-//    private final TestingRemoteService testingService;
+    private TestingRemoteService testingService;
 //
-//    private int syncProcessorSubnodeId;
+    private int subnodeId;
 //
 //    private Integer lastSyncRequestId = null;
 //
@@ -52,41 +48,41 @@ public aspect SyncRequestProcessorAspect {
 //            throw new RuntimeException(e);
 //        }
 //    }
-//
-//    public TestingRemoteService getTestingService() {
-//        return testingService;
-//    }
 
-//    // Intercept starting the SyncRequestProcessor thread
-//
-//    pointcut runSyncProcessor(): execution(* SyncRequestProcessor.run());
-//
-//    before(): runSyncProcessor() {
-//        LOG.debug("-------Thread: {}------", Thread.currentThread().getName());
-//        LOG.debug("before runSyncProcessor");
-//        syncProcessorSubnodeId = quorumPeerAspect.registerSyncProcessorSubnode();
-//    }
-//
-//    after(): runSyncProcessor() {
-//        LOG.debug("after runSyncProcessor");
-//        quorumPeerAspect.deregisterSyncProcessorSubnode(syncProcessorSubnodeId);
-//    }
+    public TestingRemoteService getTestingService() {
+        return testingService;
+    }
 
     // Intercept starting the SyncRequestProcessor thread
 
     pointcut runSyncProcessor(): execution(* SyncRequestProcessor.run());
 
     before(): runSyncProcessor() {
-        LOG.debug("-------before runSyncProcessor. Thread {}: {}------",Thread.currentThread().getId(), Thread.currentThread().getName());
-        LOG.debug("");
-        quorumPeerAspect.registerSubnode(
-                Thread.currentThread().getId(), Thread.currentThread().getName(), SubnodeType.SYNC_PROCESSOR);
+        testingService = quorumPeerAspect.createRmiConnection();
+        LOG.debug("-------Thread: {}------", Thread.currentThread().getName());
+        LOG.debug("before runSyncProcessor");
+        subnodeId = quorumPeerAspect.registerSubnode(testingService, SubnodeType.SYNC_PROCESSOR);
     }
 
     after(): runSyncProcessor() {
         LOG.debug("after runSyncProcessor");
-        quorumPeerAspect.deregisterSubnode(Thread.currentThread().getId());
+        quorumPeerAspect.deregisterSubnode(testingService, subnodeId, SubnodeType.SYNC_PROCESSOR);
     }
+
+    // Intercept starting the SyncRequestProcessor thread using the SubnodeInterceptor structure
+//    pointcut runSyncProcessor(): execution(* SyncRequestProcessor.run());
+//
+//    before(): runSyncProcessor() {
+//        LOG.debug("-------before runSyncProcessor. Thread {}: {}------",Thread.currentThread().getId(), Thread.currentThread().getName());
+//        QuorumPeerAspect.SubnodeIntercepter intercepter =quorumPeerAspect.registerSubnode(
+//                Thread.currentThread().getId(), Thread.currentThread().getName(), SubnodeType.SYNC_PROCESSOR);
+//        subnodeId = intercepter.getSubnodeId();
+//    }
+//
+//    after(): runSyncProcessor() {
+//        LOG.debug("after runSyncProcessor");
+//        quorumPeerAspect.deregisterSubnode(Thread.currentThread().getId());
+//    }
 
     // Intercept message processed within SyncRequestProcessor
     // candidate 1: processRequest() called by its previous processor
@@ -106,23 +102,16 @@ public aspect SyncRequestProcessorAspect {
         final String threadName = Thread.currentThread().getName();
         LOG.debug("before advice of sync-------Thread: {}, {}------", threadId, threadName);
 
-        QuorumPeerAspect.SubnodeIntercepter intercepter = quorumPeerAspect.getIntercepter(threadId);
-        int subnodeId;
-        try{
-            subnodeId = intercepter.getSubnodeId();
-        } catch (RuntimeException e) {
-            LOG.debug("--------catch exception: {}", e.toString());
-            throw new RuntimeException(e);
-        }
-        LOG.debug("--------------My queuedRequests has {} element. msgsInQueuedRequests has {}.",
-                queue.size(), intercepter.getMsgsInQueue().get());
-//        if (msgsInQueuedRequests.get() == 0) {
+//        QuorumPeerAspect.SubnodeIntercepter intercepter = quorumPeerAspect.getIntercepter(threadId);
+        LOG.debug("--------------My queuedRequests has {} element. syncProcessorSubnodeId: {}.",
+                queue.size(), subnodeId);
         if (queue.isEmpty()) {
             // Going to block here. Better notify the scheduler
             LOG.debug("--------------Checked! My toSync queuedRequests has {} element. Go to RECEIVING state." +
                     " Will be blocked until some request enqueues when nothing to flush", queue.size());
             try {
-                intercepter.getTestingService().setReceivingState(subnodeId);
+//                intercepter.getTestingService().setReceivingState(subnodeId);
+                testingService.setReceivingState(subnodeId);
             } catch (final RemoteException e) {
                 LOG.debug("Encountered a remote exception", e);
                 throw new RuntimeException(e);
@@ -136,21 +125,11 @@ public aspect SyncRequestProcessorAspect {
         final String threadName = Thread.currentThread().getName();
         LOG.debug("after advice of sync-------Thread: {}, {}------", threadId, threadName);
 
-        QuorumPeerAspect.SubnodeIntercepter intercepter = quorumPeerAspect.getIntercepter(threadId);
+//        QuorumPeerAspect.SubnodeIntercepter intercepter = quorumPeerAspect.getIntercepter(threadId);
 
-        AtomicInteger msgsInQueuedRequests = intercepter.getMsgsInQueue();
-        final int toBeSyncNum = msgsInQueuedRequests.get();
-        LOG.debug("--------------My queuedRequests has {} element left after takeOrPollFromQueueRequest. " +
-                "msgsInQueuedRequests has {} element.", queue.size(), toBeSyncNum);
-//        if (toBeSyncNum > 0){
-//            LOG.debug("------Using take() and be blocked just now");
-//        } else {
-//            LOG.debug("------Using poll() and flush now");
-//            if (request == null){
-//                LOG.debug("------It's not a request! Using poll() and flush now");
-//                return;
-//            }
-//        }
+        LOG.debug("--------------My queuedRequests has {} element. syncProcessorSubnodeId: {}.",
+                queue.size(), subnodeId);
+
         if (request == null){
             LOG.debug("------It's not a request! Using poll() and flush now");
             return;
@@ -158,7 +137,7 @@ public aspect SyncRequestProcessorAspect {
         if (request instanceof Request) {
 //            this.request = (Request) request;
             LOG.debug("It's a request!");
-            final String payload = quorumPeerAspect.constructSyncRequest((Request) request);
+            final String payload = quorumPeerAspect.constructRequest((Request) request);
             final int type =  ((Request) request).type;
             switch (type) {
                 case ZooDefs.OpCode.notification:
@@ -177,22 +156,15 @@ public aspect SyncRequestProcessorAspect {
                 case ZooDefs.OpCode.closeSession:
                 case ZooDefs.OpCode.setWatches:
                     LOG.debug("---------Taking the request ({}) from queued requests. Won't intercept.", payload);
-                    msgsInQueuedRequests.decrementAndGet();
                     return;
                 default:
             };
             try {
-                int subnodeId;
-                try{
-                    subnodeId = intercepter.getSubnodeId();
-                } catch (RuntimeException e) {
-                    LOG.debug("--------catch exception when acquiring subnode id: {}", e.toString());
-                    throw new RuntimeException(e);
-                }
-
                 // before offerMessage: increase sendingSubnodeNum
                 quorumPeerAspect.setSubnodeSending();
-                int lastSyncRequestId = intercepter.getTestingService().logRequestMessage(subnodeId, payload, type);
+//                int lastSyncRequestId = intercepter.getTestingService().logRequestMessage(subnodeId, payload, type);
+                final int lastSyncRequestId =
+                        testingService.RequestProcessorMessage(subnodeId, SubnodeType.SYNC_PROCESSOR, payload);
                 LOG.debug("lastSyncRequestId = {}", lastSyncRequestId);
                 // after offerMessage: decrease sendingSubnodeNum and shutdown this node if sendingSubnodeNum == 0
                 quorumPeerAspect.postSend(subnodeId, lastSyncRequestId);

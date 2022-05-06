@@ -3,7 +3,6 @@ package org.mpisws.hitmc.server.executor;
 import org.mpisws.hitmc.server.event.*;
 import sun.reflect.generics.reflectiveObjects.NotImplementedException;
 
-import java.io.FileWriter;
 import java.io.IOException;
 
 public class BaseEventExecutor {
@@ -24,7 +23,7 @@ public class BaseEventExecutor {
         throw new NotImplementedException();
     }
 
-    public boolean execute(final LogRequestEvent event) throws IOException {
+    public boolean execute(final RequestEvent event) throws IOException {
         throw new NotImplementedException();
     }
 

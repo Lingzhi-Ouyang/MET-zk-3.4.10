@@ -79,7 +79,15 @@ public interface TestingRemoteService extends Remote {
      *
      * @return The scheduler generates and returns a unique identifier of the current message
      */
-    int logRequestMessage(int syncSubnodeId, String payload, int type) throws RemoteException;
+    int RequestProcessorMessage(int subnodeId, SubnodeType subnodeType, String payload) throws RemoteException;
+
+//    /**
+//     * Indicates a subnode is about to commit a request. Change its state to <code>{@link SubnodeState.SENDING}</code>,
+//     * and blocks execution until the scheduler decides to release the message.
+//     *
+//     * @return The scheduler generates and returns a unique identifier of the current message
+//     */
+//    int commit(int commitSubnodeId, String payload, int type) throws RemoteException;
 
 
     /**

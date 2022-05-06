@@ -3,10 +3,14 @@ package org.apache.zookeeper.server.quorum;
 import org.apache.zookeeper.ZooDefs;
 import org.apache.zookeeper.server.Request;
 import org.mpisws.hitmc.api.SubnodeType;
+import org.mpisws.hitmc.api.TestingRemoteService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.rmi.NotBoundException;
 import java.rmi.RemoteException;
+import java.rmi.registry.LocateRegistry;
+import java.rmi.registry.Registry;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -19,22 +23,41 @@ public aspect FollowerRequestProcessorAspect {
 
     private final QuorumPeerAspect quorumPeerAspect = QuorumPeerAspect.aspectOf();
 
+    private TestingRemoteService testingService;
+
+    private int subnodeId;
+
+
+
     // Intercept starting the FollowerRequestProcessor thread
 
     pointcut runFollowerRequestProcessor(): execution(* FollowerRequestProcessor.run());
 
     before(): runFollowerRequestProcessor() {
+        testingService = quorumPeerAspect.createRmiConnection();
         LOG.debug("-------Thread {}: {}------",Thread.currentThread().getId(), Thread.currentThread().getName());
         LOG.debug("before runFollowerRequestProcessor");
-        quorumPeerAspect.registerSubnode(
-                Thread.currentThread().getId(), Thread.currentThread().getName(), SubnodeType.FOLLOWER_PROCESSOR);
-
+        subnodeId = quorumPeerAspect.registerSubnode(testingService, SubnodeType.FOLLOWER_PROCESSOR);
     }
 
     after(): runFollowerRequestProcessor() {
         LOG.debug("after runFollowerRequestProcessor");
-        quorumPeerAspect.deregisterSubnode(Thread.currentThread().getId());
+        quorumPeerAspect.deregisterSubnode(testingService, subnodeId, SubnodeType.FOLLOWER_PROCESSOR);
     }
+
+//    before(): runFollowerRequestProcessor() {
+//        LOG.debug("-------Thread {}: {}------",Thread.currentThread().getId(), Thread.currentThread().getName());
+//        LOG.debug("before runFollowerRequestProcessor");
+//        QuorumPeerAspect.SubnodeIntercepter intercepter =quorumPeerAspect.registerSubnode(
+//                Thread.currentThread().getId(), Thread.currentThread().getName(), SubnodeType.FOLLOWER_PROCESSOR);
+//        subnodeId = intercepter.getSubnodeId();
+//
+//    }
+//
+//    after(): runFollowerRequestProcessor() {
+//        LOG.debug("after runFollowerRequestProcessor");
+//        quorumPeerAspect.deregisterSubnode(Thread.currentThread().getId());
+//    }
 
     // Intercept client request within FollowerRequestProcessor
     pointcut takeOrPollFromQueue(LinkedBlockingQueue queue):
@@ -49,23 +72,16 @@ public aspect FollowerRequestProcessorAspect {
         final String threadName = Thread.currentThread().getName();
         LOG.debug("before advice of FollowerRequestProcessor-------Thread: {}, {}------", threadId, threadName);
 
-        QuorumPeerAspect.SubnodeIntercepter intercepter = quorumPeerAspect.getIntercepter(threadId);
-        int subnodeId;
-        try{
-            subnodeId = intercepter.getSubnodeId();
-        } catch (RuntimeException e) {
-            LOG.debug("--------catch exception: {}", e.toString());
-            throw new RuntimeException(e);
-        }
-        LOG.debug("--------------My FollowerRequestProcessor queuedRequests has {} element. msgsInQueuedRequests has {}.",
-                queue.size(), intercepter.getMsgsInQueue().get());
-//        if (msgsInQueuedRequests.get() == 0) {
+//        QuorumPeerAspect.SubnodeIntercepter intercepter = quorumPeerAspect.getIntercepter(threadId);
+        LOG.debug("--------------My FollowerRequestProcessor queuedRequests has {} element. FollowerRequestProcessor subnode: {}.",
+                queue.size(), subnodeId);
         if (queue.isEmpty()) {
             // Going to block here. Better notify the scheduler
             LOG.debug("--------------Checked! My FollowerRequestProcessor queuedRequests has {} element. Go to RECEIVING state." +
                     " Will be blocked until some request enqueues", queue.size());
             try {
-                intercepter.getTestingService().setReceivingState(subnodeId);
+//                intercepter.getTestingService().setReceivingState(subnodeId);
+                testingService.setReceivingState(subnodeId);
             } catch (final RemoteException e) {
                 LOG.debug("Encountered a remote exception", e);
                 throw new RuntimeException(e);
@@ -79,18 +95,9 @@ public aspect FollowerRequestProcessorAspect {
         final String threadName = Thread.currentThread().getName();
         LOG.debug("after advice of FollowerRequestProcessor-------Thread: {}, {}------", threadId, threadName);
 
-        QuorumPeerAspect.SubnodeIntercepter intercepter = quorumPeerAspect.getIntercepter(threadId);
-        int subnodeId;
-        try{
-            subnodeId = intercepter.getSubnodeId();
-        } catch (RuntimeException e) {
-            LOG.debug("--------catch exception: {}", e.toString());
-            throw new RuntimeException(e);
-        }
-        AtomicInteger msgsInQueuedRequests = intercepter.getMsgsInQueue();
-        final int toBeTransferredNum = msgsInQueuedRequests.get();
-        LOG.debug("--------------My FollowerRequestProcessor queuedRequests has {} element left after takeOrPollFromQueueRequest. " +
-                "msgsInQueuedRequests has {} element.", queue.size(), toBeTransferredNum);
+//        QuorumPeerAspect.SubnodeIntercepter intercepter = quorumPeerAspect.getIntercepter(threadId);
+        LOG.debug("--------------My FollowerRequestProcessor queuedRequests has {} element. FollowerRequestProcessor subnode: {}.",
+                queue.size(), subnodeId);
 //        if (toBeTransferredNum > 0){
 //            LOG.debug("------Using take() and be blocked just now");
 //        } else {

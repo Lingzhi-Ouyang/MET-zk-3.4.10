@@ -6,6 +6,9 @@ import org.slf4j.LoggerFactory;
 
 import java.rmi.RemoteException;
 
+/***
+ * ensure this is executed by the QuorumPeer thread
+ */
 public aspect FollowerZooKeeperServerAspect {
     private static final Logger LOG = LoggerFactory.getLogger(FollowerZooKeeperServerAspect.class);
 

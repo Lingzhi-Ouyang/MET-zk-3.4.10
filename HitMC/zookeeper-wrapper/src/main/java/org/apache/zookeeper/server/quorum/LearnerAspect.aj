@@ -11,6 +11,9 @@ import java.rmi.registry.Registry;
 import java.util.HashSet;
 import java.util.Set;
 
+/***
+ * ensure this is executed by the QuorumPeer thread
+ */
 public aspect LearnerAspect {
     private static final Logger LOG = LoggerFactory.getLogger(LearnerAspect.class);
 
