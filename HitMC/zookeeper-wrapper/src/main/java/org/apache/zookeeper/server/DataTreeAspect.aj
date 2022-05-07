@@ -56,8 +56,8 @@ public aspect DataTreeAspect {
     after(final long zxid): setMyLastProcessedZxid(zxid) {
         myLastProcessedZxid = zxid;
         try {
-            LOG.debug("-------nodeId: {}, Set myLastProcessedZxid = {}", myId, myLastProcessedZxid);
-            testingService.updateProperties(myId, myLastProcessedZxid);
+            LOG.debug("-------nodeId: {}, Set myLastProcessedZxid = 0x{}", myId, Long.toHexString(myLastProcessedZxid));
+            testingService.updateLastProcessedZxid(myId, myLastProcessedZxid);
         } catch (final RemoteException e) {
             LOG.error("Encountered a remote exception", e);
             throw new RuntimeException(e);

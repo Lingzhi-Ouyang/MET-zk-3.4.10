@@ -17,18 +17,30 @@ public class ZooKeeperClient {
     private static final String ZNODE_PATH = "/test";
     private static final String INITIAL_VAL = "0";
 
-    private static final CountDownLatch countDownLatch = new CountDownLatch(1);
+    private static CountDownLatch countDownLatch;
 
     private boolean isSyncConnected;
 
     private Watcher watcher = new Watcher() {
         @Override
         public void process(WatchedEvent event) {
-            LOG.debug(">>>>>> event.getPath: " + event.getPath() + " >>>>>> event.getType: " + event.getType());
+            LOG.debug(">>>>>> event.getPath: " + event.getPath() +
+                    " >>>>>> event.getType: " + event.getType() +
+                    " >>>>>> event.getState: " + event.getState());
             if (Watcher.Event.KeeperState.SyncConnected.equals(event.getState())){
                 LOG.debug("connected successfully!");
                 countDownLatch.countDown();
                 isSyncConnected = true;
+            } else {
+                try {
+                    LOG.debug("非SyncConnected状态！将断开连接！");
+                    countDownLatch = new CountDownLatch(1);
+                    isSyncConnected = false;
+                    zk.close();
+                } catch (InterruptedException e) {
+                    LOG.debug("----caught InterruptedException: {} ", e.toString());
+                    e.printStackTrace();
+                }
             }
         }
     };
@@ -44,6 +56,7 @@ public class ZooKeeperClient {
     private ZooKeeper zk;
 
     public ZooKeeperClient() throws IOException, InterruptedException, KeeperException {
+        countDownLatch = new CountDownLatch(1);
         isSyncConnected = false;
         zk = new ZooKeeper(CONNECT_STRING, SESSION_TIME_OUT, watcher);
     }

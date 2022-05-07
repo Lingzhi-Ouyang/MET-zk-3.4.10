@@ -42,7 +42,7 @@ public aspect CommitProcessorAspect {
     }
 
     // intercept getting the request from the queue committedRequests
-    // This method is called by other threads like quorumPeer
+    // This method is called by the quorumPeer thread
 
     pointcut commit(LinkedList queue, Request request):
             withincode(void CommitProcessor.commit(Request))
@@ -61,10 +61,10 @@ public aspect CommitProcessorAspect {
             quorumPeerAspect.setSubnodeSending();
             final String payload = quorumPeerAspect.constructRequest(request);
             final int type = request.type;
-            LOG.debug("-----before getting this pointcut in the synchronized method: " + subnodeId + payload + type);
+            LOG.debug("-----before getting this pointcut in the synchronized method: " + request);
 //            int lastCommitRequestId = intercepter.getTestingService().commit(subnodeId, payload, type);
             final int lastCommitRequestId =
-                    testingService.RequestProcessorMessage(subnodeId, SubnodeType.COMMIT_PROCESSOR, payload);
+                    testingService.offerRequestProcessorMessage(subnodeId, SubnodeType.COMMIT_PROCESSOR, payload);
             LOG.debug("lastCommitRequestId = {}", lastCommitRequestId);
             // after offerMessage: decrease sendingSubnodeNum and shutdown this node if sendingSubnodeNum == 0
             quorumPeerAspect.postSend(subnodeId, lastCommitRequestId);

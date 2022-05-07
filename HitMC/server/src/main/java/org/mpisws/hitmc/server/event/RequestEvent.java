@@ -12,19 +12,27 @@ public class RequestEvent extends AbstractEvent{
 
     private final int nodeId;
     private final int subnodeId;
-    private final SubnodeType type;
+    private final SubnodeType subnodeType;
     private final String payload;
 
-    public RequestEvent(final int id, final int nodeId, final int subnodeId, final SubnodeType type,
+    public RequestEvent(final int id, final int nodeId, final int subnodeId, final SubnodeType subnodeType,
                         final String payload, final RequestProcessorExecutor requestProcessorExecutor) {
         super(id, requestProcessorExecutor);
         this.nodeId = nodeId;
         this.subnodeId = subnodeId;
-        this.type = type;
+        this.subnodeType = subnodeType;
         this.payload = payload;
     }
 
+    public int getNodeId() {
+        return nodeId;
+    }
+
     public int getSubnodeId() { return subnodeId; }
+
+    public SubnodeType getSubnodeType() {
+        return subnodeType;
+    }
 
     @Override
     public boolean execute() throws IOException {
@@ -37,7 +45,7 @@ public class RequestEvent extends AbstractEvent{
                 "id=" + getId() +
                 ", nodeId=" + nodeId +
                 ", subnodeId=" + subnodeId +
-                ", type=" + type +
+                ", subnodeType=" + subnodeType +
                 ", " + payload +
                 getLabelString() +
                 '}';

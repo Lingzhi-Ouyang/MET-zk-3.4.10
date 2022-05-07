@@ -82,7 +82,7 @@ public class TestingService implements TestingRemoteService {
     private final List<NodeStateForClientRequest> nodeStateForClientRequests = new ArrayList<>();
 
     // properties
-    private final List<Long> nodeProperties = new ArrayList<>();
+    private final List<Long> lastProcessedZxids = new ArrayList<>();
 
     private final AtomicInteger eventIdGenerator = new AtomicInteger();
 
@@ -109,6 +109,10 @@ public class TestingService implements TestingRemoteService {
 
     public Object getControlMonitor() {
         return controlMonitor;
+    }
+
+    public long getLastProcessedZxid(int nodeId) {
+        return lastProcessedZxids.get(nodeId);
     }
 
     public List<NodeStateForClientRequest> getNodeStateForClientRequests() {
@@ -211,6 +215,10 @@ public class TestingService implements TestingRemoteService {
             totalExecuted = triggerDiff(totalExecuted);
 
             // 2. phantom read
+            // Reconfigure executors
+            nodeStartExecutor = new NodeStartExecutor(this, 2);
+            nodeCrashExecutor = new NodeCrashExecutor(this, 3);
+            totalExecuted = phantomRead(totalExecuted);
 
             clientProxy.deregister();
             ensemble.stopEnsemble();
@@ -353,7 +361,7 @@ public class TestingService implements TestingRemoteService {
         leaderElectionVerifier = new LeaderElectionVerifier(this, statistics);
 
         // Configure nodes and subnodes
-        nodeProperties.clear();
+        lastProcessedZxids.clear();
         nodeStates.clear();
         nodePhases.clear();
 
@@ -366,7 +374,7 @@ public class TestingService implements TestingRemoteService {
             nodeStates.add(NodeState.STARTING);
             nodePhases.add(Phase.DISCOVERY);
             subnodeSets.add(new HashSet<Subnode>());
-            nodeProperties.add(0L);
+            lastProcessedZxids.add(0L);
             nodeStateForClientRequests.add(NodeStateForClientRequest.SET_DONE);
             followerSocketAddressBook.add(null);
         }
@@ -559,7 +567,7 @@ public class TestingService implements TestingRemoteService {
                 waitAllNodesSteadyBeforeRequest();
                 LOG.debug("All Nodes steady for client requests");
                 for (int nodeId = 0; nodeId < schedulerConfiguration.getNumNodes(); nodeId++) {
-                    executionWriter.write(nodeProperties.get(nodeId).toString() + " # ");
+                    executionWriter.write(lastProcessedZxids.get(nodeId).toString() + " # ");
                 }
                 for (int i = 1; i <= schedulerConfiguration.getNumClientRequests() ; i++) {
                     long begintime = System.currentTimeMillis();
@@ -576,7 +584,7 @@ public class TestingService implements TestingRemoteService {
                         executionWriter.write("-----cost_time: " + costTime + "\n");
                         // Property verification
                         for (int nodeId = 0; nodeId < schedulerConfiguration.getNumNodes(); nodeId++) {
-                            executionWriter.write(nodeProperties.get(nodeId).toString() + " # ");
+                            executionWriter.write(lastProcessedZxids.get(nodeId).toString() + " # ");
                         }
                     }
                 }
@@ -644,7 +652,9 @@ public class TestingService implements TestingRemoteService {
     }
 
     /***
-     * the steps to trigger DIFF
+     * steps to trigger DIFF
+     * @param totalExecuted the first step sequence number
+     * @return the last step sequence number
      */
     private int triggerDiff(int totalExecuted) {
         try {
@@ -741,37 +751,35 @@ public class TestingService implements TestingRemoteService {
                 }
                 // wait whenever an election ends
                 waitAllNodesVoted();
-                // check election results
-                leaderElectionVerifier.verify();
-                // TODO: check the original leader becomes the new leader again. o.w. repeat Step 4-5
-                // TODO: check DIFF
-
+//                leaderElectionVerifier.verify();
                 waitAllNodesSteadyBeforeRequest();
-
-                // waitFollowersGetUPTODATE
-
-
-                // Leader crashed
-
-
-                // Follower restart
-
-
-                //
             }
             statistics.endTimer();
-            // TODO: property check : S0 writes PROPOSAL T(zxid=1) to the datafile. Neither S1 or S2 receives PROPOSAL T(zxid=1).
-//            leaderElectionVerifier.verify();
+            // check election results
+            leaderElectionVerifier.verify();
             statistics.reportTotalExecutedEvents(totalExecuted);
             statisticsWriter.write(statistics.toString() + "\n\n");
             LOG.info(statistics.toString() + "\n\n\n\n\n");
 
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return totalExecuted;
+    }
 
-
+    /***
+     * steps to trigger phantom read
+     * @param totalExecuted the first step sequence number
+     * @return the last step sequence number
+     */
+    private int phantomRead(int totalExecuted) {
+        try {
+            Event event;
             synchronized (controlMonitor){
                 long startTime = System.currentTimeMillis();
-                Event event = new ClientRequestEvent(generateEventId(),
-                        ClientRequestType.GET_DATA, clientRequestExecutor);
+
+                // follower 0 crash
+                event = new NodeCrashEvent(generateEventId(), 0, nodeCrashExecutor);
                 LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
                 LOG.debug("prepare to execute event: {}", event);
                 if (event.execute()) {
@@ -779,42 +787,99 @@ public class TestingService implements TestingRemoteService {
                     recordProperties(totalExecuted, startTime, event);
                 }
 
-                //
+                // follower 0 restart
+                event = new NodeStartEvent(generateEventId(), 0, nodeStartExecutor);
+                LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
+                LOG.debug("prepare to execute event: {}", event);
+                if (event.execute()) {
+                    ++totalExecuted;
+                    recordProperties(totalExecuted, startTime, event);
+                }
+
+                // follower 1 crash
+                event = new NodeCrashEvent(generateEventId(), 1, nodeCrashExecutor);
+                LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
+                LOG.debug("prepare to execute event: {}", event);
+                if (event.execute()) {
+                    ++totalExecuted;
+                    recordProperties(totalExecuted, startTime, event);
+                }
+
+                // follower 1 restart
+                event = new NodeStartEvent(generateEventId(), 1, nodeStartExecutor);
+                LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
+                LOG.debug("prepare to execute event: {}", event);
+                if (event.execute()) {
+                    ++totalExecuted;
+                    recordProperties(totalExecuted, startTime, event);
+                }
+
+                // leader 2 crash
+                event = new NodeCrashEvent(generateEventId(), 2, nodeCrashExecutor);
+                LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
+                LOG.debug("prepare to execute event: {}", event);
+                if (event.execute()) {
+                    ++totalExecuted;
+                    recordProperties(totalExecuted, startTime, event);
+                }
+
+
                 while (schedulingStrategy.hasNextEvent() && totalExecuted < 100) {
                     startTime = System.currentTimeMillis();
                     event = schedulingStrategy.nextEvent();
-                    LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted);
+                    LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
                     LOG.debug("prepare to execute event: {}", event.toString());
+//                    if (event instanceof NodeStartEvent) {
+//                        final int nodeId = ((NodeStartEvent) event).getNodeId();
+//                        if (nodeId == 2) {
+//                            ((NodeStartEvent) event).setExecuted();
+//                            LOG.debug("----pass this event---------\n\n\n");
+//                            continue;
+//                        }
+//                    }
                     if (event.execute()) {
                         ++totalExecuted;
                         recordProperties(totalExecuted, startTime, event);
                     }
                 }
-
+                // wait whenever an election ends
+                waitAllNodesVoted();
                 waitAllNodesSteadyBeforeRequest();
-                // Step POST. client request SET_DATA
-                startTime = System.currentTimeMillis();
-                event = new ClientRequestEvent(generateEventId(),
-                        ClientRequestType.GET_DATA, clientRequestExecutor);
-                LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
-                LOG.debug("prepare to execute event: {}", event);
-                if (event.execute()) {
-                    ++totalExecuted;
-                    recordProperties(totalExecuted, startTime, event);
-                }
-
-                while (schedulingStrategy.hasNextEvent() && totalExecuted < 100) {
-                    startTime = System.currentTimeMillis();
-                    event = schedulingStrategy.nextEvent();
-                    LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted);
-                    LOG.debug("prepare to execute event: {}", event.toString());
-                    if (event.execute()) {
-                        ++totalExecuted;
-                        recordProperties(totalExecuted, startTime, event);
-                    }
-                }
-                LOG.debug("size: {}", getZkClient().getRequestQueue().size());
             }
+            statistics.endTimer();
+            // check election results
+            leaderElectionVerifier.verify();
+            statistics.reportTotalExecutedEvents(totalExecuted);
+            statisticsWriter.write(statistics.toString() + "\n\n");
+            LOG.info(statistics.toString() + "\n\n\n\n\n");
+
+//            synchronized (controlMonitor){
+//                long startTime = System.currentTimeMillis();
+//                Event event = new ClientRequestEvent(generateEventId(),
+//                        ClientRequestType.GET_DATA, clientRequestExecutor);
+//                LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
+//                LOG.debug("prepare to execute event: {}", event);
+//                if (event.execute()) {
+//                    ++totalExecuted;
+//                    recordProperties(totalExecuted, startTime, event);
+//                }
+//
+//                //
+//                while (schedulingStrategy.hasNextEvent() && totalExecuted < 100) {
+//                    startTime = System.currentTimeMillis();
+//                    event = schedulingStrategy.nextEvent();
+//                    LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted);
+//                    LOG.debug("prepare to execute event: {}", event.toString());
+//                    if (event.execute()) {
+//                        ++totalExecuted;
+//                        recordProperties(totalExecuted, startTime, event);
+//                    }
+//                }
+//
+//                waitAllNodesSteadyBeforeRequest();
+//
+//                LOG.debug("size: {}", getZkClient().getRequestQueue().size());
+//            }
 
         } catch (IOException e) {
             e.printStackTrace();
@@ -824,30 +889,6 @@ public class TestingService implements TestingRemoteService {
 
     public void addEvent(final Event event) {
         schedulingStrategy.add(event);
-
-        /*try {
-            vectorClockWriter.write("Added " + event.toString() + "\n");
-        }
-        catch (final IOException e) {
-            LOG.debug("IO exception", e);
-        }
-        if (event instanceof MessageEvent)
-        {
-            LOG.debug(getSubNodeByID.get(((MessageEvent) event).getSendingSubnodeId()) + " " + ((MessageEvent) event).getSendingSubnodeId());
-            vectorClock[getSubNodeByID.get(((MessageEvent) event).getSendingSubnodeId())][getSubNodeByID.get(((MessageEvent) event).getSendingSubnodeId())]++;
-            List <Integer> tmp = new ArrayList<Integer>();
-            tmp.add(vectorClock[getSubNodeByID.get(((MessageEvent) event).getSendingSubnodeId())][0]);
-            tmp.add(vectorClock[getSubNodeByID.get(((MessageEvent) event).getSendingSubnodeId())][1]);
-            tmp.add(vectorClock[getSubNodeByID.get(((MessageEvent) event).getSendingSubnodeId())][2]);
-            vectorClockEvent.put(event, tmp);
-            try {
-                vectorClockWriter.write(vectorClock[getSubNodeByID.get(((MessageEvent) event).getSendingSubnodeId())][0] + " " +
-                        vectorClock[getSubNodeByID.get(((MessageEvent) event).getSendingSubnodeId())][1] + " " + vectorClock[getSubNodeByID.get(((MessageEvent) event).getSendingSubnodeId())][2] + "\n");
-            }
-            catch (final IOException e) {
-                LOG.debug("IO exception", e);
-            }
-        }*/
     }
 
     @Override
@@ -962,7 +1003,7 @@ public class TestingService implements TestingRemoteService {
     }
 
     @Override
-    public int RequestProcessorMessage(int subnodeId, SubnodeType subnodeType, String payload) throws RemoteException {
+    public int offerRequestProcessorMessage(int subnodeId, SubnodeType subnodeType, String payload) throws RemoteException {
         if (!isClientInitializationDone) {
             LOG.debug("----client initialization is not done!---");
             return TestingDef.RetCode.CLIENT_INITIALIZATION_NOT_DONE;
@@ -990,35 +1031,6 @@ public class TestingService implements TestingRemoteService {
         }
         return id;
     }
-
-//    @Override
-//    public int commit(int commitSubnodeId, String payload, int requestType) throws RemoteException {
-//        if (!isClientInitializationDone) {
-//            LOG.debug("----client initialization is not done!---");
-//            return TestingDef.RetCode.CLIENT_INITIALIZATION_NOT_DONE;
-//        }
-//        final Subnode commitSubnode = subnodes.get(commitSubnodeId);
-//        final int commitNodeId = commitSubnode.getNodeId();
-////        getSubNodeByID.put(syncSubnodeId, syncNodeId);
-//
-//        int id = generateEventId();
-//        final RequestEvent requestEvent = new RequestEvent(id, commitNodeId, commitSubnodeId, payload, requestProcessorExecutor);
-//        synchronized (controlMonitor) {
-//            LOG.debug("Node {} is about to commit ({}): msgId = {}, " +
-//                    "set subnode {} to SENDING state", commitNodeId, payload, id, commitSubnodeId);
-//            addEvent(requestEvent);
-//            commitSubnode.setState(SubnodeState.SENDING);
-//            controlMonitor.notifyAll();
-////            waitLogRequestReleased(id, syncNodeId);
-//            waitMessageReleased(id, commitNodeId);
-//            // If this message is released due to the STOPPING node state, then set the id = -1
-//            if (NodeState.STOPPING.equals(nodeStates.get(commitNodeId))) {
-//                id = TestingDef.RetCode.NODE_CRASH;
-//                requestEvent.setExecuted();
-//            }
-//        }
-//        return id;
-//    }
 
     // Should be called while holding a lock on controlMonitor
     /***
@@ -1337,15 +1349,15 @@ public class TestingService implements TestingRemoteService {
     }
 
     @Override
-    public void updateProperties(int nodeId, long lastProcessedZxid) throws RemoteException{
+    public void updateLastProcessedZxid(int nodeId, long lastProcessedZxid) throws RemoteException{
         synchronized (controlMonitor) {
-            nodeProperties.set(nodeId, lastProcessedZxid);
+            lastProcessedZxids.set(nodeId, lastProcessedZxid);
             nodeStateForClientRequests.set(nodeId, NodeStateForClientRequest.SET_DONE);
             try {
                 executionWriter.write(
                         "\nnodeId: " + nodeId + " lastProcessedZxid: 0x" + Long.toHexString(lastProcessedZxid));
                 for (int i = 0; i < schedulerConfiguration.getNumNodes(); i++) {
-                    executionWriter.write(" # " + Long.toHexString(nodeProperties.get(i)));
+                    executionWriter.write(" # " + Long.toHexString(lastProcessedZxids.get(i)));
                 }
                 executionWriter.write("\n");
                 controlMonitor.notifyAll();
@@ -1361,7 +1373,7 @@ public class TestingService implements TestingRemoteService {
         executionWriter.write("\nlastProcessedZxid: 0x");
         // Property verification
         for (int nodeId = 0; nodeId < schedulerConfiguration.getNumNodes(); nodeId++) {
-            executionWriter.write(Long.toHexString(nodeProperties.get(nodeId)) + " # ");
+            executionWriter.write(Long.toHexString(lastProcessedZxids.get(nodeId)) + " # ");
         }
         executionWriter.write("\ntime/ms: " + (System.currentTimeMillis() - startTime) + "\n");
         executionWriter.flush();
@@ -1488,6 +1500,19 @@ public class TestingService implements TestingRemoteService {
         final WaitPredicate logRequestReleased = new LogRequestReleased(this, msgId, syncNodeId);
         wait(logRequestReleased, 0L);
     }
+
+    /***
+     * Post-condition for scheduling the log message event
+     * @param msgId
+     * @param nodeId
+     */
+    public void waitCommitProcessorDone(final int msgId, final int nodeId) {
+        final long zxid = lastProcessedZxids.get(nodeId);
+        final WaitPredicate commitProcessorDone = new CommitProcessorDone(this, msgId, nodeId, zxid);
+        wait(commitProcessorDone, 0L);
+    }
+
+
 
     /***
      * Pre-condition for scheduling the leader-to-follower message event

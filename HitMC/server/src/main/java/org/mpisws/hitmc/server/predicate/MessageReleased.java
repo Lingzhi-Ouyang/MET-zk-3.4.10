@@ -26,7 +26,6 @@ public class MessageReleased implements WaitPredicate {
 
     @Override
     public boolean isTrue() {
-        LOG.debug("-------------message released: {}", msgId);
         return testingService.getMessageInFlight() == msgId ||
                 NodeState.STOPPING.equals(testingService.getNodeStates().get(sendingNodeId));
     }

@@ -12,6 +12,7 @@ import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.rmi.RemoteException;
+import java.util.Map;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -543,14 +544,13 @@ public aspect LearnerHandlerAspect {
         LOG.debug("before advice of learner handler-------Thread: {}, {}------", threadId, threadName);
 
         QuorumPeerAspect.SubnodeIntercepter intercepter = quorumPeerAspect.getIntercepter(threadId);
-        int subnodeId;
+        int subnodeId = -1;
         try{
             subnodeId = intercepter.getSubnodeId();
         } catch (RuntimeException e) {
             LOG.debug("--------catch exception: {}", e.toString());
             throw new RuntimeException(e);
         }
-
         QuorumPacket packet = (QuorumPacket) r;
         final String payload = quorumPeerAspect.packetToString(packet);
 

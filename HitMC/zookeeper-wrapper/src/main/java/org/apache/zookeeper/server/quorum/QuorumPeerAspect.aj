@@ -22,6 +22,7 @@ import java.rmi.RemoteException;
 import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -77,7 +78,7 @@ public aspect QuorumPeerAspect {
     private final AtomicInteger sendingSubnodeNum = new AtomicInteger(0);
 
     // Maintain a subnode list
-    private final Map<Long, SubnodeIntercepter> intercepterMap = new HashMap<>();
+    private final Map<Long, SubnodeIntercepter> intercepterMap = new ConcurrentHashMap();
 
     /***
      * THis structure is for subnodes that are multiple of one type in a node.
@@ -137,6 +138,10 @@ public aspect QuorumPeerAspect {
 
     public SubnodeIntercepter getIntercepter(long threadId) {
         return intercepterMap.get(threadId);
+    }
+
+    public Map<Long, SubnodeIntercepter> getIntercepterMap() {
+        return intercepterMap;
     }
 
     public TestingRemoteService createRmiConnection() {
@@ -510,11 +515,11 @@ public aspect QuorumPeerAspect {
 
     // SyncProcessor
 
-    public int registerSubnode(final TestingRemoteService testingService, final SubnodeType type) {
+    public int registerSubnode(final TestingRemoteService testingService, final SubnodeType subnodeType) {
         try {
-            LOG.debug("Found the remote testing service. Registering {} subnode", type);
-            final int subnodeId = testingService.registerSubnode(myId, type);
-            LOG.debug("Finish registering {} subnode: id = {}", type, subnodeId);
+            LOG.debug("Found the remote testing service. Registering {} subnode", subnodeType);
+            final int subnodeId = testingService.registerSubnode(myId, subnodeType);
+            LOG.debug("Finish registering {} subnode: id = {}", subnodeType, subnodeId);
             return subnodeId;
         } catch (final RemoteException e) {
             LOG.error("Encountered a remote exception.", e);
@@ -522,11 +527,11 @@ public aspect QuorumPeerAspect {
         }
     }
 
-    public void deregisterSubnode(final TestingRemoteService testingService, final int subnodeId, final SubnodeType type) {
+    public void deregisterSubnode(final TestingRemoteService testingService, final int subnodeId, final SubnodeType subnodeType) {
         try {
-            LOG.debug("De-registering {} subnode {}", type, subnodeId);
+            LOG.debug("De-registering {} subnode {}", subnodeType, subnodeId);
             testingService.deregisterSubnode(subnodeId);
-            LOG.debug("Finish de-registering {} subnode {}", type, subnodeId);
+            LOG.debug("Finish de-registering {} subnode {}", subnodeType, subnodeId);
         } catch (final RemoteException e) {
             LOG.debug("Encountered a remote exception", e);
             throw new RuntimeException(e);
@@ -540,18 +545,18 @@ public aspect QuorumPeerAspect {
      * These subnode info will be stored using the SubnodeInterceptor structure
      * @param threadId
      * @param threadName
-     * @param type
+     * @param subnodeType
      * @return
      */
 
-    public SubnodeIntercepter registerSubnode(final long threadId, final String threadName, final SubnodeType type){
+    public SubnodeIntercepter registerSubnode(final long threadId, final String threadName, final SubnodeType subnodeType){
         try {
             TestingRemoteService testingService = createRmiConnection();
-            LOG.debug("Found the remote testing service. Registering {} subnode", type);
-            final int subnodeId = testingService.registerSubnode(myId, type);
-            LOG.debug("Finish registering {} subnode: id = {}", type, subnodeId);
+            LOG.debug("Found the remote testing service. Registering {} subnode", subnodeType);
+            final int subnodeId = testingService.registerSubnode(myId, subnodeType);
+            LOG.debug("Finish registering {} subnode: id = {}", subnodeType, subnodeId);
             SubnodeIntercepter intercepter =
-                    new SubnodeIntercepter(threadName, subnodeId, type, testingService);
+                    new SubnodeIntercepter(threadName, subnodeId, subnodeType, testingService);
             intercepterMap.put(threadId, intercepter);
             return intercepter;
         } catch (final RemoteException e) {
@@ -563,11 +568,11 @@ public aspect QuorumPeerAspect {
     public void deregisterSubnode(final long threadId) {
         try {
             SubnodeIntercepter intercepter = intercepterMap.get(threadId);
-            final SubnodeType type = intercepter.getSubnodeType();
+            final SubnodeType subnodeType = intercepter.getSubnodeType();
             final int subnodeId = intercepter.getSubnodeId();
-            LOG.debug("De-registering {} subnode {}", type, subnodeId);
+            LOG.debug("De-registering {} subnode {}", subnodeType, subnodeId);
             testingService.deregisterSubnode(subnodeId);
-            LOG.debug("Finish de-registering {} subnode {}", type, subnodeId);
+            LOG.debug("Finish de-registering {} subnode {}", subnodeType, subnodeId);
         } catch (final RemoteException e) {
             LOG.debug("Encountered a remote exception", e);
             throw new RuntimeException(e);
@@ -619,15 +624,15 @@ public aspect QuorumPeerAspect {
     public void addToQueuedPackets(final long threadId, final Object object) {
         final AtomicInteger msgsInQueuedPackets = intercepterMap.get(threadId).getMsgsInQueue();
         msgsInQueuedPackets.incrementAndGet();
-        final String payload = constructPacket((QuorumPacket) object);
+        final String payload = packetToString((QuorumPacket) object);
         LOG.debug("learnerHandlerSubnodeId: {}----------packet: {}", intercepterMap.get(threadId).getSubnodeId(), payload);
         LOG.debug("----------addToQueuedPackets(). msgsInQueuedPackets.size: {}", msgsInQueuedPackets.get());
     }
 
     public String packetToString(QuorumPacket p) {
         String type = null;
-        String mess = null;
-        Record txn = null;
+//        String mess = null;
+//        Record txn = null;
 
         switch (p.getType()) {
             case Leader.ACK:
@@ -647,27 +652,27 @@ public aspect QuorumPeerAspect {
                 break;
             case Leader.PROPOSAL:
                 type = "PROPOSAL";
-                TxnHeader hdr = new TxnHeader();
-                try {
-                    txn = SerializeUtils.deserializeTxn(p.getData(), hdr);
-                    // mess = "transaction: " + txn.toString();
-                } catch (IOException e) {
-                    LOG.warn("Unexpected exception",e);
-                }
+//                TxnHeader hdr = new TxnHeader();
+//                try {
+//                    txn = SerializeUtils.deserializeTxn(p.getData(), hdr);
+//                    // mess = "transaction: " + txn.toString();
+//                } catch (IOException e) {
+//                    LOG.warn("Unexpected exception",e);
+//                }
                 break;
             case Leader.REQUEST:
                 type = "REQUEST";
                 break;
             case Leader.REVALIDATE:
                 type = "REVALIDATE";
-                ByteArrayInputStream bis = new ByteArrayInputStream(p.getData());
-                DataInputStream dis = new DataInputStream(bis);
-                try {
-                    long id = dis.readLong();
-                    mess = " sessionid = " + id;
-                } catch (IOException e) {
-                    LOG.warn("Unexpected exception", e);
-                }
+//                ByteArrayInputStream bis = new ByteArrayInputStream(p.getData());
+//                DataInputStream dis = new DataInputStream(bis);
+//                try {
+//                    long id = dis.readLong();
+//                    mess = " sessionid = " + id;
+//                } catch (IOException e) {
+//                    LOG.warn("Unexpected exception", e);
+//                }
 
                 break;
             case Leader.UPTODATE:
@@ -679,8 +684,10 @@ public aspect QuorumPeerAspect {
         String entry = null;
         if (type != null) {
             // TODO: acquire receivign node from remote socket
-            entry = type + " " + Long.toHexString(p.getZxid()) + " " + mess
-                    + " " + constructPacket(p);
+            entry = "type=" + type +
+                    ", typeNo=" + p.getType() +
+                    ", learnerHandlerSenderWithinNode=" + myId +
+                    ", zxid=0x" + Long.toHexString(p.getZxid());
         }
         return entry;
     }
@@ -690,14 +697,6 @@ public aspect QuorumPeerAspect {
                 ", sessionId=" + request.sessionId +
                 ", cxid=" + request.cxid +
                 ", type=" + request.type;
-    }
-
-    public String constructPacket(final QuorumPacket packet) {
-        return "learnerHandlerSenderWithinNode=" + myId +
-                ", type=" + packet.getType() +
-                ", zxid=0x" + Long.toHexString(packet.getZxid()) +
-                ", data=" + Arrays.toString(packet.getData()) +
-                ", authInfo=" + packet.getAuthinfo();
     }
 
 

@@ -79,16 +79,7 @@ public interface TestingRemoteService extends Remote {
      *
      * @return The scheduler generates and returns a unique identifier of the current message
      */
-    int RequestProcessorMessage(int subnodeId, SubnodeType subnodeType, String payload) throws RemoteException;
-
-//    /**
-//     * Indicates a subnode is about to commit a request. Change its state to <code>{@link SubnodeState.SENDING}</code>,
-//     * and blocks execution until the scheduler decides to release the message.
-//     *
-//     * @return The scheduler generates and returns a unique identifier of the current message
-//     */
-//    int commit(int commitSubnodeId, String payload, int type) throws RemoteException;
-
+    int offerRequestProcessorMessage(int subnodeId, SubnodeType subnodeType, String payload) throws RemoteException;
 
     /**
      * If the subnode is in the state <code>{@link SubnodeState.RECEIVING}</code>, change it to
@@ -124,7 +115,7 @@ public interface TestingRemoteService extends Remote {
 
     void initializeLeaderElectionState(int nodeId, LeaderElectionState state) throws RemoteException;
 
-    void updateProperties(int nodeId, long lastProcessedZxid) throws RemoteException;
+    void updateLastProcessedZxid(int nodeId, long lastProcessedZxid) throws RemoteException;
 
     void registerFollowerSocketInfo(int node, String socketAddress) throws RemoteException;
 

@@ -19,14 +19,22 @@ public class RequestProcessorExecutor extends BaseEventExecutor{
     @Override
     public boolean execute(final RequestEvent event) throws IOException {
         if (event.isExecuted()) {
-            LOG.info("Skipping an executed log event: {}", event.toString());
+            LOG.info("Skipping an executed request processor event: {}", event.toString());
             return false;
         }
-        LOG.debug("Logging request: {}", event.toString());
+        LOG.debug("Processing request: {}", event.toString());
         testingService.releaseRequestProcessor(event);
-        testingService.waitAllNodesSteady();
+        switch (event.getSubnodeType()) {
+            case SYNC_PROCESSOR:
+                testingService.waitAllNodesSteady();
+                break;
+            case COMMIT_PROCESSOR:
+                testingService.waitCommitProcessorDone(event.getId(), event.getNodeId());
+                testingService.waitAllNodesSteady();
+                break;
+        }
         event.setExecuted();
-        LOG.debug("LogRequest executed: {}", event.toString());
+        LOG.debug("Request processor event executed: {}", event.toString());
         return true;
     }
 }
