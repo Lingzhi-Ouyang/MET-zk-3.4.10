@@ -210,6 +210,9 @@ public class TestingService implements TestingRemoteService {
             // PRE: first election
             totalExecuted = scheduleFirstElection(totalExecuted);
 
+            // Only the success of the last verification will lead to the following test
+            // o.w. just report bug
+
             // 1. trigger DIFF
             configureAfterElection();
             totalExecuted = triggerDiff(totalExecuted);

@@ -62,12 +62,13 @@ public class AllNodesSteadyAfterMutation implements WaitPredicate {
     }
 
     private boolean leaderSteadyAfterMutation(final int nodeId) {
-        boolean syncExisted = false;
+        boolean syncProcessorExisted = false;
+        boolean commitProcessorExisted = false;
         // Note: learnerHandlerSender is created by learnerHandler so here we do not make a flag for learnerHandler
         boolean learnerHandlerSenderExisted = false;
         for (final Subnode subnode : testingService.getSubnodeSets().get(nodeId)) {
             if (SubnodeType.SYNC_PROCESSOR.equals(subnode.getSubnodeType())) {
-                syncExisted = true;
+                syncProcessorExisted = true;
                 if (!SubnodeState.SENDING.equals(subnode.getState())) {
                     LOG.debug("------Not steady for leader's {} thread-----" +
                                     "Node {} subnode {} status: {}\n",
@@ -82,7 +83,15 @@ public class AllNodesSteadyAfterMutation implements WaitPredicate {
                             subnode.getSubnodeType(), nodeId, subnode.getId(), subnode.getState());
                     return false;
                 }
-            } else if (SubnodeState.PROCESSING.equals(subnode.getState())) {
+            } else if (SubnodeType.COMMIT_PROCESSOR.equals(subnode.getSubnodeType())) {
+                commitProcessorExisted = true;
+                if (SubnodeState.PROCESSING.equals(subnode.getState())) {
+                    LOG.debug("------Not steady for leader's {} thread-----" +
+                                    "Node {} subnode {} status: {}\n",
+                            subnode.getSubnodeType(), nodeId, subnode.getId(), subnode.getState());
+                    return false;
+                }
+            }else if (SubnodeState.PROCESSING.equals(subnode.getState())) {
                 LOG.debug("------Not steady for leader's {} thread-----" +
                                 "Node {} subnode {} status: {}\n",
                         subnode.getSubnodeType(), nodeId, subnode.getId(), subnode.getState());
@@ -91,29 +100,25 @@ public class AllNodesSteadyAfterMutation implements WaitPredicate {
             LOG.debug("-----------Leader node {} subnode {} status: {}, subnode type: {}",
                         nodeId, subnode.getId(), subnode.getState(), subnode.getSubnodeType());
         }
-        return syncExisted && learnerHandlerSenderExisted;
+        return syncProcessorExisted && commitProcessorExisted && learnerHandlerSenderExisted;
     }
 
     private boolean followerSteadyAfterMutation(final int nodeId) {
-        boolean syncExisted = false;
+        boolean syncProcessorExisted = false;
+        boolean commitProcessorExisted = false;
         boolean followerProcessorExisted = false;
         for (final Subnode subnode : testingService.getSubnodeSets().get(nodeId)) {
-            if (SubnodeType.SYNC_PROCESSOR.equals(subnode.getSubnodeType())) {
-                syncExisted = true;
-                if (SubnodeState.PROCESSING.equals(subnode.getState())) {
-                    LOG.debug("------Not steady for follower's {} thread-----" +
-                                    "Node {} subnode {} status: {}\n",
-                            subnode.getSubnodeType(), nodeId, subnode.getId(), subnode.getState());
-                    return false;
-                }
-            } else if (SubnodeType.FOLLOWER_PROCESSOR.equals(subnode.getSubnodeType())) {
-                followerProcessorExisted = true;
-                if (SubnodeState.PROCESSING.equals(subnode.getState())) {
-                    LOG.debug("------Not steady for follower's {} thread-----" +
-                                    "Node {} subnode {} status: {}\n",
-                            subnode.getSubnodeType(), nodeId, subnode.getId(), subnode.getState());
-                    return false;
-                }
+            switch (subnode.getSubnodeType()) {
+                case SYNC_PROCESSOR:
+                    syncProcessorExisted = true;
+                    break;
+                case COMMIT_PROCESSOR:
+                    commitProcessorExisted = true;
+                    break;
+                case FOLLOWER_PROCESSOR:
+                    followerProcessorExisted = true;
+                    break;
+                default:
             }
             if (SubnodeState.PROCESSING.equals(subnode.getState())) {
                 LOG.debug("------Not steady for follower's {} thread-----" +
@@ -124,6 +129,6 @@ public class AllNodesSteadyAfterMutation implements WaitPredicate {
             LOG.debug("-----------Follower node {} subnode {} status: {}, subnode type: {}",
                     nodeId, subnode.getId(), subnode.getState(), subnode.getSubnodeType());
         }
-        return syncExisted && followerProcessorExisted;
+        return syncProcessorExisted && commitProcessorExisted && followerProcessorExisted;
     }
 }
