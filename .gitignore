@@ -2,3 +2,5 @@
 *.iml
 
 HitMC/test/*/
+HitMC/tmp/**
+zookeeper-3.4.13/**
