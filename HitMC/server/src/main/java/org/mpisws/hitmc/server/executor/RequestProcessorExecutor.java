@@ -34,7 +34,7 @@ public class RequestProcessorExecutor extends BaseEventExecutor{
                 break;
         }
         event.setExecuted();
-        LOG.debug("Request processor event executed: {}", event.toString());
+        LOG.debug("Request processor event executed: {}\n\n\n", event.toString());
         return true;
     }
 }

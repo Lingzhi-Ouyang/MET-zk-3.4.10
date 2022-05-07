@@ -28,7 +28,7 @@ public class MessageExecutor extends BaseEventExecutor {
         testingService.releaseMessage(event);
         testingService.waitAllNodesSteady();
         event.setExecuted();
-        LOG.debug("Message executed: {}", event.toString());
+        LOG.debug("Message executed: {}\n\n\n", event.toString());
         return true;
     }
 }

@@ -54,7 +54,7 @@ public class RandomWalkStrategy implements SchedulingStrategy {
 
     private void prepareNextEvent() {
         final List<Event> enabled = new ArrayList<>();
-        LOG.debug("\nprepareNextEvent: events.size: {}", events.size());
+        LOG.debug("prepareNextEvent: events.size: {}", events.size());
         for (final Event event : events) {
             if (event.isEnabled()) {
                 LOG.debug("enabled : {}", event.toString());

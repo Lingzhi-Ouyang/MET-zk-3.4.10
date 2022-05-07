@@ -28,7 +28,7 @@ public class LearnerHandlerMessageExecutor extends BaseEventExecutor {
         testingService.releaseMessageToFollower(event);
         testingService.waitAllNodesSteady();
         event.setExecuted();
-        LOG.debug("Message executed: {}", event.toString());
+        LOG.debug("Learner handler message executed: {}\n\n\n", event.toString());
         return true;
     }
 }
