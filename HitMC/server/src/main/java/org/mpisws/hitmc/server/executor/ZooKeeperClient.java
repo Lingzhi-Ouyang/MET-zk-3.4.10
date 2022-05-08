@@ -65,6 +65,7 @@ public class ZooKeeperClient {
         return zk.exists(ZNODE_PATH, watcher) != null;
     }
 
+    // In the test, the create request is only used in the session initialization phase
     public String create(boolean deleteFlag) throws KeeperException, InterruptedException {
         Stat stat = zk.exists(ZNODE_PATH, watcher);
         if (stat != null && deleteFlag) {

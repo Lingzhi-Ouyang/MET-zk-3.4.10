@@ -214,7 +214,10 @@ public class TestingService implements TestingRemoteService {
             // o.w. just report bug
 
             // 1. trigger DIFF
-            configureAfterElection();
+//            configureAfterElection();
+            createClient();
+            nodeStartExecutor = new NodeStartExecutor(this, 1);
+            nodeCrashExecutor = new NodeCrashExecutor(this, 1);
             totalExecuted = triggerDiff(totalExecuted);
 
             // 2. phantom read
@@ -780,6 +783,8 @@ public class TestingService implements TestingRemoteService {
             Event event;
             synchronized (controlMonitor){
                 long startTime = System.currentTimeMillis();
+
+                // TODO: add shareVariable lastRole
 
                 // follower 0 crash
                 event = new NodeCrashEvent(generateEventId(), 0, nodeCrashExecutor);
