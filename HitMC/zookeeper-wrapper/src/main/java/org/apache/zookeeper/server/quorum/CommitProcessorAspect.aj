@@ -1,5 +1,6 @@
 package org.apache.zookeeper.server.quorum;
 
+import org.apache.zookeeper.ZooDefs;
 import org.apache.zookeeper.server.Request;
 import org.mpisws.hitmc.api.SubnodeType;
 import org.mpisws.hitmc.api.TestingRemoteService;
@@ -54,13 +55,33 @@ public aspect CommitProcessorAspect {
         final String threadName = Thread.currentThread().getName();
         LOG.debug("before advice of CommitProcessor.commit()-------QuorumPeer Thread: {}, {}------", threadId, threadName);
 //        QuorumPeerAspect.SubnodeIntercepter intercepter = quorumPeerAspect.getIntercepter(threadId);
-        LOG.debug("--------------Before adding commit request: My commitRequests has {} element. commitSubnode: {}",
-                queue.size(), subnodeId);
+        LOG.debug("--------------Before adding commit request {}: My commitRequests has {} element. commitSubnode: {}",
+                request.type, queue.size(), subnodeId);
+        final int type =  request.type;
+        switch (type) {
+            case ZooDefs.OpCode.notification:
+            case ZooDefs.OpCode.create:
+            case ZooDefs.OpCode.delete:
+            case ZooDefs.OpCode.createSession:
+            case ZooDefs.OpCode.exists:
+            case ZooDefs.OpCode.check:
+            case ZooDefs.OpCode.multi:
+            case ZooDefs.OpCode.sync:
+            case ZooDefs.OpCode.getACL:
+            case ZooDefs.OpCode.setACL:
+            case ZooDefs.OpCode.getChildren:
+            case ZooDefs.OpCode.getChildren2:
+            case ZooDefs.OpCode.ping:
+            case ZooDefs.OpCode.closeSession:
+            case ZooDefs.OpCode.setWatches:
+                LOG.debug("Won't intercept commit request: {} ", request);
+                return;
+            default:
+        }
         try {
             // before offerMessage: increase sendingSubnodeNum
             quorumPeerAspect.setSubnodeSending();
             final String payload = quorumPeerAspect.constructRequest(request);
-            final int type = request.type;
             LOG.debug("-----before getting this pointcut in the synchronized method: " + request);
 //            int lastCommitRequestId = intercepter.getTestingService().commit(subnodeId, payload, type);
             final int lastCommitRequestId =
