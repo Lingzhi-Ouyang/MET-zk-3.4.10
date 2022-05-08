@@ -155,10 +155,10 @@ public aspect SyncRequestProcessorAspect {
                 case ZooDefs.OpCode.ping:
                 case ZooDefs.OpCode.closeSession:
                 case ZooDefs.OpCode.setWatches:
-                    LOG.debug("---------Taking the request ({}) from queued requests. Won't intercept.", payload);
+                    LOG.debug("Won't intercept log request: {} ", request);
                     return;
                 default:
-            };
+            }
             try {
                 // before offerMessage: increase sendingSubnodeNum
                 quorumPeerAspect.setSubnodeSending();
