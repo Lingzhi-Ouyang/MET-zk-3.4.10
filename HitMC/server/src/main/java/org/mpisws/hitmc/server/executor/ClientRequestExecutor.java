@@ -56,10 +56,10 @@ public class ClientRequestExecutor extends BaseEventExecutor {
 //                for (int i = 0 ; i < schedulerConfiguration.getNumNodes(); i++) {
 //                    nodeStateForClientRequests.set(i, NodeStateForClientRequest.SET_PROCESSING);
 //                }
-                testingService.getZkClient().getRequestQueue().offer(event);
+                testingService.getRequestQueue().offer(event);
                 // notifyAll() should be called after related states have been changed
                 testingService.getControlMonitor().notifyAll();
-                testingService.waitAllNodesSteady();
+                testingService.waitResponseForClientRequest(event);
 
                 /***
                  * use responseQueue for acquiring the result
@@ -88,7 +88,7 @@ public class ClientRequestExecutor extends BaseEventExecutor {
 
                 String data = String.valueOf(event.getId());
                 event.setData(data);
-                testingService.getZkClient().getRequestQueue().offer(event);
+                testingService.getRequestQueue().offer(event);
                 // notifyAll() should be called after related states have been changed
                 testingService. getControlMonitor().notifyAll();
                 testingService.waitAllNodesSteadyAfterMutation();

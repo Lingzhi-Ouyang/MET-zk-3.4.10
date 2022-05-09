@@ -66,7 +66,7 @@ public aspect CommitProcessorAspect {
             case ZooDefs.OpCode.notification:
             case ZooDefs.OpCode.create:
             case ZooDefs.OpCode.delete:
-            case ZooDefs.OpCode.createSession:
+            case ZooDefs.OpCode.getData:
             case ZooDefs.OpCode.exists:
             case ZooDefs.OpCode.check:
             case ZooDefs.OpCode.multi:
@@ -76,6 +76,7 @@ public aspect CommitProcessorAspect {
             case ZooDefs.OpCode.getChildren:
             case ZooDefs.OpCode.getChildren2:
             case ZooDefs.OpCode.ping:
+            case ZooDefs.OpCode.createSession:
             case ZooDefs.OpCode.closeSession:
             case ZooDefs.OpCode.setWatches:
                 LOG.debug("Won't intercept toProcess request: {} ", request);

@@ -25,6 +25,7 @@ import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
 import java.rmi.server.UnicastRemoteObject;
 import java.util.*;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class TestingService implements TestingRemoteService {
@@ -159,15 +160,13 @@ public class TestingService implements TestingRemoteService {
         return nodeCrashExecutor;
     }
 
-    public ClientRequestExecutor getClientRequestExecutor() {
-        return clientRequestExecutor;
+    public LinkedBlockingQueue<ClientRequestEvent> getRequestQueue() {
+        return clientProxy.getRequestQueue();
     }
 
-    public Ensemble getEnsemble() {
-        return ensemble;
+    public LinkedBlockingQueue<ClientRequestEvent> getResponseQueue() {
+        return clientProxy.getResponseQueue();
     }
-
-    public ClientProxy getZkClient() { return clientProxy; }
 
     public SchedulerConfiguration getSchedulerConfiguration() {
         return schedulerConfiguration;
@@ -642,7 +641,7 @@ public class TestingService implements TestingRemoteService {
      *      or the initialization will fail.
      */
     private void createClient() {
-        clientProxy = new ClientProxy();
+        clientProxy = new ClientProxy(this);
         LOG.debug("------------------start the client session initialization------------------");
 
         if (clientProxy.init(true)) {
@@ -664,18 +663,30 @@ public class TestingService implements TestingRemoteService {
      */
     private int triggerDiff(int totalExecuted) {
         try {
+            long startTime;
+            Event event;
             synchronized (controlMonitor) {
                 // last event executor has waited for all nodes steady
                 // waitAllNodesSteady();
 
                 // PRE
+                // >> client get request
+                startTime = System.currentTimeMillis();
+                event = new ClientRequestEvent(generateEventId(),
+                        ClientRequestType.GET_DATA, clientRequestExecutor);
+                LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
+                LOG.debug("prepare to execute event: {}", event);
+                if (event.execute()) {
+                    ++totalExecuted;
+                    recordProperties(totalExecuted, startTime, event);
+                }
+
                 // >> client set request
-                long startTime = System.currentTimeMillis();
-                Event event = new ClientRequestEvent(generateEventId(),
+                startTime = System.currentTimeMillis();
+                event = new ClientRequestEvent(generateEventId(),
                         ClientRequestType.SET_DATA, clientRequestExecutor);
                 LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
                 LOG.debug("prepare to execute event: {}", event);
-
                 if (event.execute()) {
                     ++totalExecuted;
                     recordProperties(totalExecuted, startTime, event);

@@ -1,6 +1,7 @@
 package org.mpisws.hitmc.server.executor;
 
 import org.apache.zookeeper.*;
+import org.mpisws.hitmc.server.TestingService;
 import org.mpisws.hitmc.server.event.ClientRequestEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,18 +16,18 @@ public class ClientProxy extends Thread{
 
     private static int count = 0;
 
+    private final Object controlMonitor;
+
     volatile boolean stop;
-    private final Object eventMonitor = new Object();
+
     private ZooKeeperClient zooKeeperClient;
     LinkedBlockingQueue<ClientRequestEvent> requestQueue = new LinkedBlockingQueue<>();
     LinkedBlockingQueue<ClientRequestEvent> responseQueue = new LinkedBlockingQueue<>();
 
-    public ClientProxy(){
-        count++;
-        this.setName("ZooKeeperClient-" + count);
-        this.stop = true;
-        requestQueue.clear();
-        responseQueue.clear();
+    public ClientProxy(final TestingService testingService){
+        this.controlMonitor = testingService.getControlMonitor();
+        this.requestQueue.clear();
+        this.responseQueue.clear();
     }
 
     public boolean isStop() {
@@ -34,6 +35,10 @@ public class ClientProxy extends Thread{
     }
 
     public boolean init(boolean deleteFlag) {
+        count++;
+        this.setName("ZooKeeperClient-" + count);
+        this.stop = true;
+
         int retry = 5;
         while (retry > 0) {
             try {
@@ -87,8 +92,13 @@ public class ClientProxy extends Thread{
         switch (event.getType()) {
             case GET_DATA:
                 String result = zooKeeperClient.getData();
-                LOG.debug("after getData");
-                event.setResult(result);
+                synchronized (controlMonitor) {
+                    event.setResult(result);
+                    responseQueue.offer(event);
+                    LOG.debug("-------GET_DATA result: {}", event.getResult());
+                    controlMonitor.notifyAll();
+                }
+
 //                    responseQueue.offer(event);
                 break;
             case SET_DATA:
@@ -96,6 +106,7 @@ public class ClientProxy extends Thread{
                 // TODO: will it be blocked?
                 LOG.debug("after setData");
                 event.setResult(event.getData());
+                LOG.debug("-------GET_DATA: {}", event.getResult());
                 break;
         }
     }
