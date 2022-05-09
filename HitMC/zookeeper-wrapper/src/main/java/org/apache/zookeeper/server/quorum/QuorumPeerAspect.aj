@@ -319,23 +319,29 @@ public aspect QuorumPeerAspect {
 //    }
 
     public void setSubnodeSending() {
-        sendingSubnodeNum.incrementAndGet();
+        synchronized (nodeOnlineMonitor) {
+            sendingSubnodeNum.incrementAndGet();
+            LOG.debug("sendingSubnodeNum: {}", sendingSubnodeNum.get());
+        }
     }
 
     public void postSend(final int subnodeId, final int msgId) throws RemoteException {
-        sendingSubnodeNum.decrementAndGet();
-        if (msgId == TestingDef.RetCode.NODE_CRASH) {
-            // The last existing subnode is responsible to set the node state as offline
-            if (sendingSubnodeNum.get() == 0) {
-                testingService.nodeOffline(myId);
+        synchronized (nodeOnlineMonitor) {
+            final int existingSendingSubnodeNum = sendingSubnodeNum.decrementAndGet();
+            if (msgId == TestingDef.RetCode.NODE_CRASH) {
+                // The last existing subnode is responsible to set the node state as offline
+                LOG.debug("-----subnodeId: {}, msgId: {}, existingSendingSubnodeNum: {}", subnodeId, msgId, existingSendingSubnodeNum);
+                if (existingSendingSubnodeNum == 0) {
+                    testingService.nodeOffline(myId);
+                }
+                awaitShutdown(subnodeId);
             }
-            awaitShutdown(subnodeId);
         }
     }
 
     public void awaitShutdown(final int subnodeId) {
         try {
-            LOG.debug("De-registering subnode {}", subnodeId);
+            LOG.debug("awaitShutdown. to deregister subnode {}", subnodeId);
             testingService.deregisterSubnode(subnodeId);
             // Going permanently to the wait queue
             nodeOnlineMonitor.wait();

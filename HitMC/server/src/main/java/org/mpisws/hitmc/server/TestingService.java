@@ -742,7 +742,15 @@ public class TestingService implements TestingRemoteService {
                 }
 
                 // Step 4. Leader restart
-                // >> This is the only enabled event now
+                startTime = System.currentTimeMillis();
+                event = new NodeStartEvent(generateEventId(), leader, nodeStartExecutor);
+                LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
+                LOG.debug("prepare to execute event: {}", event);
+                if (event.execute()) {
+                    ++totalExecuted;
+                    recordProperties(totalExecuted, startTime, event);
+                }
+
                 // Step 5. re-election and becomes leader
                 // >> This part is also for random test
                 while (schedulingStrategy.hasNextEvent() && totalExecuted < 100) {
@@ -781,13 +789,61 @@ public class TestingService implements TestingRemoteService {
     private int phantomRead(int totalExecuted) {
         try {
             Event event;
+            long startTime;
             synchronized (controlMonitor){
-                long startTime = System.currentTimeMillis();
+                // follower crash and restart first, then leader crash
+                // distinguish leader and followers
+                int leader = -1;
+                List<Integer> followersId = new ArrayList<>();
+                for (int nodeId = 0; nodeId < schedulerConfiguration.getNumNodes(); ++nodeId) {
+                    switch (leaderElectionStates.get(nodeId)) {
+                        case LEADING:
+                            leader = nodeId;
+                            LOG.debug("-----current leader: {}", nodeId);
+                            break;
+                        case FOLLOWING:
+                            LOG.debug("-----find a follower: {}", nodeId);
+                            followersId.add(nodeId);
+                    }
+                }
 
-                // TODO: add shareVariable lastRole
+                // each follower crash and restart
+                for (int followerId: followersId) {
+                    startTime = System.currentTimeMillis();
+                    event = new NodeCrashEvent(generateEventId(), followerId, nodeCrashExecutor);
+                    LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
+                    LOG.debug("prepare to execute event: {}", event);
+                    if (event.execute()) {
+                        ++totalExecuted;
+                        recordProperties(totalExecuted, startTime, event);
+                    }
 
-                // follower 0 crash
-                event = new NodeCrashEvent(generateEventId(), 0, nodeCrashExecutor);
+                    startTime = System.currentTimeMillis();
+                    event = schedulingStrategy.nextEvent();
+                    while (true) {
+                        if (event instanceof NodeStartEvent) {
+                            final int nodeId = ((NodeStartEvent) event).getNodeId();
+                            LeaderElectionState RoleOfCrashNode = leaderElectionStates.get(nodeId);
+                            LOG.debug("----previous role of this crashed node {}: {}---------", nodeId, RoleOfCrashNode);
+                            if (nodeId == followerId){
+                                break;
+                            }
+                        }
+                        LOG.debug("-------need NodeStartEvent of the previous crashed follower! add this event back: {}", event);
+                        addEvent(event);
+                        event = schedulingStrategy.nextEvent();
+                    }
+                    LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
+                    LOG.debug("prepare to execute event: {}", event);
+                    if (event.execute()) {
+                        ++totalExecuted;
+                        recordProperties(totalExecuted, startTime, event);
+                    }
+                }
+
+                // leader crash
+                startTime = System.currentTimeMillis();
+                event = new NodeCrashEvent(generateEventId(), leader, nodeCrashExecutor);
                 LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
                 LOG.debug("prepare to execute event: {}", event);
                 if (event.execute()) {
@@ -795,56 +851,22 @@ public class TestingService implements TestingRemoteService {
                     recordProperties(totalExecuted, startTime, event);
                 }
 
-                // follower 0 restart
-                event = new NodeStartEvent(generateEventId(), 0, nodeStartExecutor);
-                LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
-                LOG.debug("prepare to execute event: {}", event);
-                if (event.execute()) {
-                    ++totalExecuted;
-                    recordProperties(totalExecuted, startTime, event);
-                }
-
-                // follower 1 crash
-                event = new NodeCrashEvent(generateEventId(), 1, nodeCrashExecutor);
-                LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
-                LOG.debug("prepare to execute event: {}", event);
-                if (event.execute()) {
-                    ++totalExecuted;
-                    recordProperties(totalExecuted, startTime, event);
-                }
-
-                // follower 1 restart
-                event = new NodeStartEvent(generateEventId(), 1, nodeStartExecutor);
-                LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
-                LOG.debug("prepare to execute event: {}", event);
-                if (event.execute()) {
-                    ++totalExecuted;
-                    recordProperties(totalExecuted, startTime, event);
-                }
-
-                // leader 2 crash
-                event = new NodeCrashEvent(generateEventId(), 2, nodeCrashExecutor);
-                LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
-                LOG.debug("prepare to execute event: {}", event);
-                if (event.execute()) {
-                    ++totalExecuted;
-                    recordProperties(totalExecuted, startTime, event);
-                }
-
-
+                // Do not let the crashed leader restart
                 while (schedulingStrategy.hasNextEvent() && totalExecuted < 100) {
                     startTime = System.currentTimeMillis();
                     event = schedulingStrategy.nextEvent();
                     LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
                     LOG.debug("prepare to execute event: {}", event.toString());
-//                    if (event instanceof NodeStartEvent) {
-//                        final int nodeId = ((NodeStartEvent) event).getNodeId();
-//                        if (nodeId == 2) {
-//                            ((NodeStartEvent) event).setExecuted();
-//                            LOG.debug("----pass this event---------\n\n\n");
-//                            continue;
-//                        }
-//                    }
+                    if (event instanceof NodeStartEvent) {
+                        final int nodeId = ((NodeStartEvent) event).getNodeId();
+                        LeaderElectionState RoleOfCrashNode = leaderElectionStates.get(nodeId);
+                        LOG.debug("----previous role of this crashed node {}: {}---------", nodeId, RoleOfCrashNode);
+                        if ( LeaderElectionState.LEADING.equals(RoleOfCrashNode)){
+                            ((NodeStartEvent) event).setExecuted();
+                            LOG.debug("----Do not let the previous leader restart here! So pass this event---------\n\n\n");
+                            continue;
+                        }
+                    }
                     if (event.execute()) {
                         ++totalExecuted;
                         recordProperties(totalExecuted, startTime, event);
@@ -1033,6 +1055,7 @@ public class TestingService implements TestingRemoteService {
             waitMessageReleased(id, nodeId);
             // If this message is released due to the STOPPING node state, then set the id = -1
             if (NodeState.STOPPING.equals(nodeStates.get(nodeId))) {
+                LOG.debug("----------setting requestEvent executed. {}", requestEvent);
                 id = TestingDef.RetCode.NODE_CRASH;
                 requestEvent.setExecuted();
             }
@@ -1118,6 +1141,8 @@ public class TestingService implements TestingRemoteService {
             final Subnode subnode = subnodes.get(subnodeId);
             subnodeSets.get(subnode.getNodeId()).remove(subnode);
             if (!SubnodeState.UNREGISTERED.equals(subnode.getState())) {
+                LOG.debug("---in deregisterSubnode, set {} {} of node {} UNREGISTERED",
+                        subnode.getSubnodeType(), subnode.getId(), subnode.getNodeId());
                 subnode.setState(SubnodeState.UNREGISTERED);
                 // All subnodes may have become steady; give the scheduler a chance to make progress
                 controlMonitor.notifyAll();
@@ -1212,6 +1237,8 @@ public class TestingService implements TestingRemoteService {
         boolean hasSending = false;
         for (final Subnode subnode : subnodeSets.get(nodeId)) {
             if (SubnodeState.SENDING.equals(subnode.getState())) {
+                LOG.debug("----Node {}'s subnode {} {}: {}",
+                        nodeId, subnode.getSubnodeType(), subnode.getId(), subnode.getState());
                 hasSending = true;
                 break;
             }
@@ -1241,7 +1268,8 @@ public class TestingService implements TestingRemoteService {
         }
 
         votes.set(nodeId, null);
-        leaderElectionStates.set(nodeId, LeaderElectionState.NULL);
+        // still keep the role info before crash, this is for further property check
+//        leaderElectionStates.set(nodeId, LeaderElectionState.NULL);
 
         // 2. EXECUTION
         ensemble.stopNode(nodeId);

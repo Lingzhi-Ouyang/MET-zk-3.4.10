@@ -43,7 +43,9 @@ public aspect CommitProcessorAspect {
     }
 
     // intercept getting the request from the queue committedRequests
-    // This method is called by the quorumPeer thread
+    // This method is called by
+    // For follower: QuorumPeer
+    // For leader: LearnerHandler / SyncRequestProcessor
 
     pointcut commit(LinkedList queue, Request request):
             withincode(void CommitProcessor.commit(Request))

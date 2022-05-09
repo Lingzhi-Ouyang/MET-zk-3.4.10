@@ -38,8 +38,6 @@ public class LeaderElectionVerifier {
                     isLeading(nodeId), isObservingOrFollowing(nodeId),
                     isObservingOrFollowing(nodeId, leader), testingService.getVotes().get(nodeId)
             );
-        }
-        for (int nodeId = 0; nodeId < testingService.getSchedulerConfiguration().getNumNodes(); ++nodeId) {
             if (NodeState.OFFLINE.equals(testingService.getNodeStates().get(nodeId))) {
 //                LOG.debug("NodeState.OFFLINE.equals(nodeStates.get(nodeId))");
                 continue;

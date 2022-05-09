@@ -21,7 +21,7 @@ public class LearnerHandlerMessageExecutor extends BaseEventExecutor {
     @Override
     public boolean execute(final LearnerHandlerMessageEvent event) throws IOException {
         if (event.isExecuted()) {
-            LOG.info("Skipping an executed message event: {}", event.toString());
+            LOG.info("Skipping an executed learner handler message event: {}", event.toString());
             return false;
         }
         LOG.debug("Releasing message: {}", event.toString());
