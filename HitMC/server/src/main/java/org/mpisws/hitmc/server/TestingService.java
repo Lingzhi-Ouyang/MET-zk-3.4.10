@@ -1256,7 +1256,7 @@ public class TestingService implements TestingRemoteService {
         boolean hasSending = false;
         for (final Subnode subnode : subnodeSets.get(nodeId)) {
             if (SubnodeState.SENDING.equals(subnode.getState())) {
-                LOG.debug("----Node {}'s subnode {} {}: {}",
+                LOG.debug("----Node {} still has SENDING subnode {} {}: {}",
                         nodeId, subnode.getSubnodeType(), subnode.getId(), subnode.getState());
                 hasSending = true;
                 break;
@@ -1276,6 +1276,7 @@ public class TestingService implements TestingRemoteService {
             subnode.setState(SubnodeState.UNREGISTERED);
         }
         subnodeSets.get(nodeId).clear();
+        LOG.debug("-------Node {} 's subnodes has been cleared.", nodeId);
 
         // If hasSending == true, the node has been set OFFLINE when the last intercepted subnode is shutdown
         // o.w. set OFFLINE here anyway.

@@ -332,6 +332,7 @@ public aspect QuorumPeerAspect {
                 // The last existing subnode is responsible to set the node state as offline
                 LOG.debug("-----subnodeId: {}, msgId: {}, existingSendingSubnodeNum: {}", subnodeId, msgId, existingSendingSubnodeNum);
                 if (existingSendingSubnodeNum == 0) {
+                    LOG.debug("-----going to set nodeOffline by subnodeId: {}, msgId: {}", subnodeId, msgId);
                     testingService.nodeOffline(myId);
                 }
                 awaitShutdown(subnodeId);
