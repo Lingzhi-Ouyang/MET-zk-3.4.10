@@ -44,6 +44,11 @@ public class TAPCTstrategy implements SchedulingStrategy {
     private Event nextEvent;
 
     @Override
+    public void remove(Event event) {
+        LOG.warn("Not implementation of removing event: {}", event.toString());
+    }
+
+    @Override
     public boolean hasNextEvent() {
         if (!nextEventPrepared) {
             prepareNextEvent();

@@ -6,6 +6,8 @@ public interface SchedulingStrategy {
 
     void add(Event event);
 
+    void remove(Event event);
+
     boolean hasNextEvent();
 
     Event nextEvent();

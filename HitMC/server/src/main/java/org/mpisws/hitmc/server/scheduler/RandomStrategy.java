@@ -23,6 +23,15 @@ public class RandomStrategy implements SchedulingStrategy {
     }
 
     @Override
+    public void remove(Event event) {
+        LOG.debug("Removing event: {}", event.toString());
+        events.remove(event);
+        if (nextEventPrepared) {
+            nextEventPrepared = false;
+        }
+    }
+
+    @Override
     public void add(final Event event) {
         LOG.debug("Adding event: {}", event.toString());
         events.add(event);

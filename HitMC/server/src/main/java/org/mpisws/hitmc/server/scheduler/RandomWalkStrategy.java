@@ -31,6 +31,15 @@ public class RandomWalkStrategy implements SchedulingStrategy {
         }
     }
 
+    @Override
+    public void remove(Event event) {
+        LOG.debug("Removing event: {}", event.toString());
+        events.remove(event);
+        if (nextEventPrepared) {
+            nextEventPrepared = false;
+        }
+    }
+
     private boolean nextEventPrepared = false;
     private Event nextEvent = null;
 
