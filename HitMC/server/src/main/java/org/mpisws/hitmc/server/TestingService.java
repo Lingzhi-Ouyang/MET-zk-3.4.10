@@ -743,7 +743,20 @@ public class TestingService implements TestingRemoteService {
 
                 // Step 4. Leader restart
                 startTime = System.currentTimeMillis();
-                event = new NodeStartEvent(generateEventId(), leader, nodeStartExecutor);
+                event = schedulingStrategy.nextEvent();
+                while (true) {
+                    if (event instanceof NodeStartEvent) {
+                        final int nodeId = ((NodeStartEvent) event).getNodeId();
+                        LeaderElectionState RoleOfCrashNode = leaderElectionStates.get(nodeId);
+                        LOG.debug("----previous role of this crashed node {}: {}---------", nodeId, RoleOfCrashNode);
+                        if (nodeId == leader){
+                            break;
+                        }
+                    }
+                    LOG.debug("-------need NodeStartEvent of the previous crashed leader! add this event back: {}", event);
+                    addEvent(event);
+                    event = schedulingStrategy.nextEvent();
+                }
                 LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
                 LOG.debug("prepare to execute event: {}", event);
                 if (event.execute()) {
@@ -863,6 +876,7 @@ public class TestingService implements TestingRemoteService {
                         LOG.debug("----previous role of this crashed node {}: {}---------", nodeId, RoleOfCrashNode);
                         if ( LeaderElectionState.LEADING.equals(RoleOfCrashNode)){
                             ((NodeStartEvent) event).setExecuted();
+                            schedulingStrategy.remove(event);
                             LOG.debug("----Do not let the previous leader restart here! So pass this event---------\n\n\n");
                             continue;
                         }
@@ -966,12 +980,14 @@ public class TestingService implements TestingRemoteService {
             if (NodeState.STOPPING.equals(nodeStates.get(sendingNodeId))) {
                 id = TestingDef.RetCode.NODE_CRASH;
                 messageEvent.setExecuted();
+                schedulingStrategy.remove(messageEvent);
             }
             // case 2: this event is released when the network partition occurs
             // todo: to confirm (tricky part: do not release this event until it is scheduled)
             else if (partitionMap.get(sendingNodeId).get(receivingNodeId)) {
                 id = TestingDef.RetCode.NODE_PAIR_IN_PARTITION;
                 messageEvent.setExecuted();
+                schedulingStrategy.remove(messageEvent);
             }
 
         }
@@ -1021,12 +1037,14 @@ public class TestingService implements TestingRemoteService {
             if (NodeState.STOPPING.equals(nodeStates.get(sendingNodeId))) {
                 id = TestingDef.RetCode.NODE_CRASH;
                 messageEvent.setExecuted();
+                schedulingStrategy.remove(messageEvent);
             }
             // case 2: this event is released when the network partition occurs
             // todo: to confirm (tricky part: do not release this event until it is scheduled)
             else if (partitionMap.get(sendingNodeId).get(receivingNodeId)) {
                 id = TestingDef.RetCode.NODE_PAIR_IN_PARTITION;
                 messageEvent.setExecuted();
+                schedulingStrategy.remove(messageEvent);
             }
         }
         return id;
@@ -1058,6 +1076,7 @@ public class TestingService implements TestingRemoteService {
                 LOG.debug("----------setting requestEvent executed. {}", requestEvent);
                 id = TestingDef.RetCode.NODE_CRASH;
                 requestEvent.setExecuted();
+                schedulingStrategy.remove(requestEvent);
             }
         }
         return id;
