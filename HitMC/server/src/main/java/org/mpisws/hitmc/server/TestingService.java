@@ -45,6 +45,7 @@ public class TestingService implements TestingRemoteService {
     // External event executors
     private NodeStartExecutor nodeStartExecutor;
     private NodeCrashExecutor nodeCrashExecutor;
+    private ClientRequestExecutor clientRequestWaitingResponseExecutor;
     private ClientRequestExecutor clientRequestExecutor;
     private PartitionStartExecutor partitionStartExecutor;
     private PartitionStopExecutor partitionStopExecutor;
@@ -354,6 +355,7 @@ public class TestingService implements TestingRemoteService {
         // Configure external event executors
         nodeStartExecutor = new NodeStartExecutor(this, schedulerConfiguration.getNumReboots());
         nodeCrashExecutor = new NodeCrashExecutor(this, schedulerConfiguration.getNumCrashes());
+        clientRequestWaitingResponseExecutor = new ClientRequestExecutor(this, true);
         clientRequestExecutor = new ClientRequestExecutor(this);
         partitionStartExecutor = new PartitionStartExecutor(this);
         partitionStopExecutor = new PartitionStopExecutor(this);

@@ -16,8 +16,15 @@ public class ClientRequestExecutor extends BaseEventExecutor {
 
     private int count = 5;
 
+    private boolean waitForResponse = false;
+
     public ClientRequestExecutor(final TestingService testingService) {
         this.testingService = testingService;
+    }
+
+    public ClientRequestExecutor(final TestingService testingService, boolean waitForResponse) {
+        this.testingService = testingService;
+        this.waitForResponse = waitForResponse;
     }
 
     @Override
@@ -56,22 +63,21 @@ public class ClientRequestExecutor extends BaseEventExecutor {
 //                    nodeStateForClientRequests.set(i, NodeStateForClientRequest.SET_PROCESSING);
 //                }
                 testingService.getRequestQueue().offer(event);
-
-                // notifyAll() should be called after related states have been changed
                 testingService.getControlMonitor().notifyAll();
 
-                // If we want to get the result immediately, then use the following predicate
-//                testingService.waitResponseForClientRequest(event);
-
-                testingService.waitAllNodesSteady();
-
-                // TODO: add later GET_DATA event
+                if (waitForResponse) {
+                    // When we want to get the result immediately
+                    testingService.waitResponseForClientRequest(event);
+                }
+                // Note: the client request event may lead to deadlock easily
+                //          when scheduled between some RequestProcessorEvents
                 if (count > 0) {
                     final ClientRequestEvent clientRequestEvent = new ClientRequestEvent(testingService.generateEventId(),
                             ClientRequestType.GET_DATA, this);
                     testingService.addEvent(clientRequestEvent);
                     count--;
                 }
+                testingService.waitAllNodesSteady();
                 break;
             case SET_DATA:
                 for (int i = 0 ; i < testingService.getSchedulerConfiguration().getNumNodes(); i++) {
