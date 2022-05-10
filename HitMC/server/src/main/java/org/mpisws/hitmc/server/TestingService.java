@@ -66,7 +66,7 @@ public class TestingService implements TestingRemoteService {
     private final Object controlMonitor = new Object();
 
     // For indication of client initialization
-    private boolean isClientInitializationDone = false;
+    private boolean clientInitializationDone = false;
 
     // For network partition
     private List<List<Boolean>> partitionMap = new ArrayList<>();
@@ -219,16 +219,20 @@ public class TestingService implements TestingRemoteService {
 
             // 1. trigger DIFF
 //            configureAfterElection();
-            createClient();
+            createClient(true);
             nodeStartExecutor = new NodeStartExecutor(this, 1);
             nodeCrashExecutor = new NodeCrashExecutor(this, 1);
             totalExecuted = triggerDiff(totalExecuted);
 
             // 2. phantom read
             // Reconfigure executors
+
             nodeStartExecutor = new NodeStartExecutor(this, 2);
             nodeCrashExecutor = new NodeCrashExecutor(this, 3);
             totalExecuted = phantomRead(totalExecuted);
+
+            createClient(true);
+            totalExecuted = getDataTest(totalExecuted);
 
             clientProxy.shutdown();
             ensemble.stopEnsemble();
@@ -359,12 +363,15 @@ public class TestingService implements TestingRemoteService {
         // Configure external event executors
         nodeStartExecutor = new NodeStartExecutor(this, schedulerConfiguration.getNumReboots());
         nodeCrashExecutor = new NodeCrashExecutor(this, schedulerConfiguration.getNumCrashes());
+
+        clientProxy = new ClientProxy(this);
         clientRequestWaitingResponseExecutor = new ClientRequestExecutor(this, true);
         clientRequestExecutor = new ClientRequestExecutor(this);
+
         partitionStartExecutor = new PartitionStartExecutor(this);
         partitionStopExecutor = new PartitionStopExecutor(this);
 
-        // Configure external event executors
+        // Configure internal event executors
         messageExecutor = new MessageExecutor(this);
         requestProcessorExecutor = new RequestProcessorExecutor(this);
         learnerHandlerMessageExecutor = new LearnerHandlerMessageExecutor(this);
@@ -432,7 +439,7 @@ public class TestingService implements TestingRemoteService {
      */
     private void configureAfterElection() {
 //        // Initialize zkClients
-        createClient();
+        createClient(true);
 
 //        // provide initial client requests
 //        final ClientRequestEvent getDataEvent = new ClientRequestEvent(generateEventId(),
@@ -628,7 +635,10 @@ public class TestingService implements TestingRemoteService {
      * Note: when client is initializing, servers are better not allowed to be intercepted
      *      or the initialization will fail.
      */
-    private void createClient() {
+    private void createClient(boolean resetConnectionState) {
+        if (resetConnectionState) {
+            clientInitializationDone = false;
+        }
         clientProxy = new ClientProxy(this);
         LOG.debug("------------------start the client session initialization------------------");
 
@@ -637,7 +647,9 @@ public class TestingService implements TestingRemoteService {
             controlMonitor.notifyAll();
             waitClientSessionReady();
         }
+        clientInitializationDone = true;
 
+        // wait for specific time
 //        while (!clientProxy.isReady()) {
 //            LOG.debug("------------------still initializing the client session------------------");
 //            try {
@@ -645,16 +657,6 @@ public class TestingService implements TestingRemoteService {
 //            } catch (Exception e) {
 //                e.printStackTrace();
 //            }
-//        }
-
-//        if (clientProxy.init(true)) {
-//            LOG.debug("------------------create the client session successfully------------------");
-//            clientProxy.start();
-//            isClientInitializationDone = true;
-//        } else {
-//            LOG.warn("----- caught exception during client session initialization");
-//            // TODO: confirm this
-//            isClientInitializationDone = false;
 //        }
         LOG.debug("------------------finish the client session initialization------------------\n");
     }
@@ -956,6 +958,47 @@ public class TestingService implements TestingRemoteService {
         return totalExecuted;
     }
 
+    /***
+     * only issue GET_DATA
+     * @param event
+     */
+    private int getDataTest(int totalExecuted) {
+        try {
+            long startTime;
+            Event event;
+            synchronized (controlMonitor) {
+                // last event executor has waited for all nodes steady
+                // waitAllNodesSteady();
+
+                // PRE
+                // >> client get request
+                startTime = System.currentTimeMillis();
+                event = new ClientRequestEvent(generateEventId(),
+                        ClientRequestType.GET_DATA, clientRequestWaitingResponseExecutor);
+                LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
+                LOG.debug("prepare to execute event: {}", event);
+                if (event.execute()) {
+                    ++totalExecuted;
+                    recordProperties(totalExecuted, startTime, event);
+                }
+
+                // wait whenever an election ends
+                waitAllNodesVoted();
+//                leaderElectionVerifier.verify();
+                waitAllNodesSteadyBeforeRequest();
+            }
+            statistics.endTimer();
+            // check election results
+            leaderElectionVerifier.verify();
+            statistics.reportTotalExecutedEvents(totalExecuted);
+            statisticsWriter.write(statistics.toString() + "\n\n");
+            LOG.info(statistics.toString() + "\n\n\n\n\n");
+
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return totalExecuted;
+    }
     public void addEvent(final Event event) {
         schedulingStrategy.add(event);
     }
@@ -1022,7 +1065,7 @@ public class TestingService implements TestingRemoteService {
 
     @Override
     public int offerMessageToFollower(int sendingSubnodeId, String receivingAddr, String payload, int type) throws RemoteException {
-        if (!clientProxy.isReady()) {
+        if (!clientInitializationDone) {
             LOG.debug("----client initialization is not done!---");
             return TestingDef.RetCode.CLIENT_INITIALIZATION_NOT_DONE;
         }
@@ -1077,7 +1120,7 @@ public class TestingService implements TestingRemoteService {
 
     @Override
     public int offerRequestProcessorMessage(int subnodeId, SubnodeType subnodeType, String payload) throws RemoteException {
-        if (!clientProxy.isReady()) {
+        if (!clientInitializationDone) {
             LOG.debug("----client initialization is not done!---");
             return TestingDef.RetCode.CLIENT_INITIALIZATION_NOT_DONE;
         }

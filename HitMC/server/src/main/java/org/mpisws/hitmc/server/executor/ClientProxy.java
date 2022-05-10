@@ -18,11 +18,17 @@ public class ClientProxy extends Thread{
 
     volatile boolean ready;
 
+    volatile boolean stop;
+
+    private static int count = 0;
+
     private ZooKeeperClient zooKeeperClient;
     LinkedBlockingQueue<ClientRequestEvent> requestQueue = new LinkedBlockingQueue<>();
     LinkedBlockingQueue<ClientRequestEvent> responseQueue = new LinkedBlockingQueue<>();
 
     public ClientProxy(final TestingService testingService){
+        this.ready = false;
+        this.stop = true;
         this.testingService = testingService;
         this.requestQueue.clear();
         this.responseQueue.clear();
@@ -32,10 +38,14 @@ public class ClientProxy extends Thread{
         return ready;
     }
 
-    public boolean init(boolean deleteFlag) {
-//        count++;
-//        this.setName("ZooKeeperClient-" + count);
-//        this.stop = true;
+    public boolean isStop() {
+        return stop;
+    }
+
+    public boolean init() {
+        count++;
+        this.setName("ZooKeeperClient-" + count);
+        this.ready = false;
 
         int retry = 5;
         while (retry > 0) {
@@ -44,7 +54,7 @@ public class ClientProxy extends Thread{
                 zooKeeperClient.getCountDownLatch().await();
 
                 LOG.debug("----------create /test-------");
-                zooKeeperClient.create(deleteFlag);
+                zooKeeperClient.create();
 
                 return true;
             } catch (InterruptedException | KeeperException | IOException e) {
@@ -57,7 +67,9 @@ public class ClientProxy extends Thread{
     }
 
     public void shutdown(){
+        LOG.debug("---shutting down zookeeper client proxy");
         this.ready = false;
+        this.stop = true;
     }
 
     public LinkedBlockingQueue<ClientRequestEvent> getRequestQueue() {
@@ -70,26 +82,60 @@ public class ClientProxy extends Thread{
 
     @Override
     public void run() {
-        if (init(true)) {
-            this.ready = true;
-        }
-        LOG.info("Thread {} begins to work", currentThread().getName());
-        synchronized (testingService.getControlMonitor()) {
-            testingService.getControlMonitor().notifyAll();
-        }
-        while (ready) {
-            try {
-                ClientRequestEvent m = requestQueue.poll(3000, TimeUnit.MILLISECONDS);
-                if(m == null) continue;
-                process(m);
-            } catch (InterruptedException | KeeperException e) {
-                e.printStackTrace();
-                break;
+        stop = false;
+        while (!stop) {
+            if (init()) {
+                this.ready = true;
+                LOG.info("Thread {} is ready", currentThread().getName());
+            } else {
+                LOG.info("Something wrong during Thread {} initializing ZooKeeper client.", currentThread().getName());
+                return;
             }
+            synchronized (testingService.getControlMonitor()) {
+                testingService.getControlMonitor().notifyAll();
+            }
+            while (ready) {
+                try {
+                    ClientRequestEvent m = requestQueue.poll(3000, TimeUnit.MILLISECONDS);
+                    if(m == null) continue;
+                    process(m);
+                } catch (InterruptedException | KeeperException e) {
+                    e.printStackTrace();
+                    break;
+                }
+            }
+            LOG.info("Thread {} is stopping", currentThread().getName());
+            this.ready = false;
+            this.stop = true;
         }
-        LOG.info("Thread {} is stopping", currentThread().getName());
-        this.ready = false;
     }
+
+//    @Override
+//    public void run() {
+//        boolean deleteFlag = count == 1;
+//        if (init(deleteFlag)) {
+//            this.ready = true;
+//            LOG.info("Thread {} is ready", currentThread().getName());
+//        } else {
+//            LOG.info("Something wrong during Thread {} initializing ZooKeeper client.", currentThread().getName());
+//            return;
+//        }
+//        synchronized (testingService.getControlMonitor()) {
+//            testingService.getControlMonitor().notifyAll();
+//        }
+//        while (ready) {
+//            try {
+//                ClientRequestEvent m = requestQueue.poll(3000, TimeUnit.MILLISECONDS);
+//                if(m == null) continue;
+//                process(m);
+//            } catch (InterruptedException | KeeperException e) {
+//                e.printStackTrace();
+//                break;
+//            }
+//        }
+//        LOG.info("Thread {} is stopping", currentThread().getName());
+//        this.ready = false;
+//    }
 
     private void process(ClientRequestEvent event) throws InterruptedException, KeeperException {
         switch (event.getType()) {

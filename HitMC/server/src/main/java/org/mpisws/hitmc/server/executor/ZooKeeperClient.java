@@ -17,8 +17,6 @@ public class ZooKeeperClient extends Thread{
     private static final String ZNODE_PATH = "/test";
     private static final String INITIAL_VAL = "0";
 
-    private static int count = 0;
-
     private static CountDownLatch countDownLatch;
 
     private boolean isSyncConnected;
@@ -58,11 +56,11 @@ public class ZooKeeperClient extends Thread{
     private ZooKeeper zk;
 
     public ZooKeeperClient() throws IOException, InterruptedException, KeeperException {
-        count++;
-        this.setName("ZooKeeperClient-" + count);
         countDownLatch = new CountDownLatch(1);
         isSyncConnected = false;
+        LOG.debug("---to get new ZooKeeperClient!");
         zk = new ZooKeeper(CONNECT_STRING, SESSION_TIME_OUT, watcher);
+        LOG.debug("---new ZooKeeperClient got!");
     }
 
     public boolean existTestPath() throws KeeperException, InterruptedException {
@@ -70,10 +68,10 @@ public class ZooKeeperClient extends Thread{
     }
 
     // In the test, the create request is only used in the session initialization phase
-    public String create(boolean deleteFlag) throws KeeperException, InterruptedException {
+    public String create() throws KeeperException, InterruptedException {
         Stat stat = zk.exists(ZNODE_PATH, watcher);
-        if (stat != null && deleteFlag) {
-            zk.delete(ZNODE_PATH, -1);
+        if (stat != null) {
+            return null;
         }
         String createdPath = zk.create(ZNODE_PATH, INITIAL_VAL.getBytes(), ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.EPHEMERAL);
         LOG.debug("CREATE PATH {}: {}", createdPath, INITIAL_VAL);
