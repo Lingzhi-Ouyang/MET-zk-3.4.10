@@ -703,6 +703,17 @@ public class TestingService implements TestingRemoteService {
                     }
                 }
 
+//                // >> client get request
+//                startTime = System.currentTimeMillis();
+//                event = new ClientRequestEvent(generateEventId(),
+//                        ClientRequestType.GET_DATA, clientRequestExecutor);
+//                LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
+//                LOG.debug("prepare to execute event: {}", event);
+//                if (event.execute()) {
+//                    ++totalExecuted;
+//                    recordProperties(totalExecuted, startTime, event);
+//                }
+
                 // TODO: check quorum nodes has updated lastProcessedZxid whenever a client mutation is done
 //                waitQuorumZxidUpdated();
 
@@ -1422,10 +1433,10 @@ public class TestingService implements TestingRemoteService {
             nodeStateForClientRequests.set(nodeId, NodeStateForClientRequest.SET_DONE);
             try {
                 executionWriter.write(
-                        "\nnodeId: " + nodeId + " lastProcessedZxid: 0x" + Long.toHexString(lastProcessedZxid));
-                for (int i = 0; i < schedulerConfiguration.getNumNodes(); i++) {
-                    executionWriter.write(" # " + Long.toHexString(lastProcessedZxids.get(i)));
-                }
+                        "\n---Update Node " + nodeId + "'s lastProcessedZxid: 0x" + Long.toHexString(lastProcessedZxid));
+//                for (int i = 0; i < schedulerConfiguration.getNumNodes(); i++) {
+//                    executionWriter.write(" # " + Long.toHexString(lastProcessedZxids.get(i)));
+//                }
                 executionWriter.write("\n");
                 controlMonitor.notifyAll();
             } catch (final IOException e) {
@@ -1443,6 +1454,12 @@ public class TestingService implements TestingRemoteService {
             executionWriter.write(Long.toHexString(lastProcessedZxids.get(nodeId)) + " # ");
         }
         executionWriter.write("\ntime/ms: " + (System.currentTimeMillis() - startTime) + "\n");
+        executionWriter.flush();
+    }
+
+    public void updateResponseForClientRequest(ClientRequestEvent event) throws IOException {
+        executionWriter.write("\n---Get response of " + event.getType() + ": ");
+        executionWriter.write(event.toString() + "\n");
         executionWriter.flush();
     }
 

@@ -16,7 +16,7 @@ public class ClientProxy extends Thread{
 
     private static int count = 0;
 
-    private final Object controlMonitor;
+    private final TestingService testingService;
 
     volatile boolean stop;
 
@@ -25,7 +25,7 @@ public class ClientProxy extends Thread{
     LinkedBlockingQueue<ClientRequestEvent> responseQueue = new LinkedBlockingQueue<>();
 
     public ClientProxy(final TestingService testingService){
-        this.controlMonitor = testingService.getControlMonitor();
+        this.testingService = testingService;
         this.requestQueue.clear();
         this.responseQueue.clear();
     }
@@ -92,22 +92,22 @@ public class ClientProxy extends Thread{
         switch (event.getType()) {
             case GET_DATA:
                 String result = zooKeeperClient.getData();
-                synchronized (controlMonitor) {
-                    event.setResult(result);
-                    responseQueue.offer(event);
-                    LOG.debug("-------GET_DATA result: {}", event.getResult());
-                    controlMonitor.notifyAll();
-                }
-
-//                    responseQueue.offer(event);
+                event.setResult(result);
                 break;
             case SET_DATA:
                 zooKeeperClient.setData(event.getData());
-                // TODO: will it be blocked?
-                LOG.debug("after setData");
                 event.setResult(event.getData());
-                LOG.debug("-------GET_DATA: {}", event.getResult());
                 break;
+        }
+        synchronized (testingService.getControlMonitor()) {
+//            responseQueue.offer(event);
+            LOG.debug("-------{} result: {}", event.getType(), event.getResult());
+            try {
+                testingService.updateResponseForClientRequest(event);
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+            testingService.getControlMonitor().notifyAll();
         }
     }
 }

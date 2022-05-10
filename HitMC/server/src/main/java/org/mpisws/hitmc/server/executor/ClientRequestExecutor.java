@@ -1,6 +1,7 @@
 package org.mpisws.hitmc.server.executor;
 
 import org.mpisws.hitmc.api.NodeStateForClientRequest;
+import org.mpisws.hitmc.api.state.ClientRequestType;
 import org.mpisws.hitmc.server.event.ClientRequestEvent;
 import org.mpisws.hitmc.server.TestingService;
 import org.slf4j.Logger;
@@ -12,6 +13,8 @@ public class ClientRequestExecutor extends BaseEventExecutor {
     private static final Logger LOG = LoggerFactory.getLogger(ClientRequestExecutor.class);
 
     private final TestingService testingService;
+
+    private int count = 5;
 
     public ClientRequestExecutor(final TestingService testingService) {
         this.testingService = testingService;
@@ -27,10 +30,6 @@ public class ClientRequestExecutor extends BaseEventExecutor {
         releaseClientRequest(event);
         // waitPredicate has moved to the above method
 
-        // TODO: add later event
-//        final ClientRequestEvent clientRequestEvent = new ClientRequestEvent(testingService.generateEventId(),
-//                event.getType(), testingService.getClientRequestExecutor());
-//        testingService.addEvent(clientRequestEvent);
         event.setExecuted();
         LOG.debug("Client request executed: {}", event.toString());
         return true;
@@ -57,26 +56,22 @@ public class ClientRequestExecutor extends BaseEventExecutor {
 //                    nodeStateForClientRequests.set(i, NodeStateForClientRequest.SET_PROCESSING);
 //                }
                 testingService.getRequestQueue().offer(event);
+
                 // notifyAll() should be called after related states have been changed
                 testingService.getControlMonitor().notifyAll();
-                testingService.waitResponseForClientRequest(event);
 
-                /***
-                 * use responseQueue for acquiring the result
-                 */
-//                while(true){
-//                    try {
-//                        ClientRequestEvent m = responseQueue.poll(3000, TimeUnit.MILLISECONDS);
-//                        if (m == null) {
-//                            Thread.sleep(500);
-//                            continue;
-//                        }
-//                        break;
-//                    } catch (InterruptedException e){
-//                        e.printStackTrace();
-//                        break;
-//                    }
-//                }
+                // If we want to get the result immediately, then use the following predicate
+//                testingService.waitResponseForClientRequest(event);
+
+                testingService.waitAllNodesSteady();
+
+                // TODO: add later GET_DATA event
+                if (count > 0) {
+                    final ClientRequestEvent clientRequestEvent = new ClientRequestEvent(testingService.generateEventId(),
+                            ClientRequestType.GET_DATA, this);
+                    testingService.addEvent(clientRequestEvent);
+                    count--;
+                }
                 break;
             case SET_DATA:
                 for (int i = 0 ; i < testingService.getSchedulerConfiguration().getNumNodes(); i++) {
@@ -90,10 +85,9 @@ public class ClientRequestExecutor extends BaseEventExecutor {
                 event.setData(data);
                 testingService.getRequestQueue().offer(event);
                 // notifyAll() should be called after related states have been changed
-                testingService. getControlMonitor().notifyAll();
+                testingService.getControlMonitor().notifyAll();
                 testingService.waitAllNodesSteadyAfterMutation();
                 break;
         }
     }
-
 }
