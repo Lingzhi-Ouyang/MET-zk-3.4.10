@@ -9,13 +9,15 @@ import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 
-public class ZooKeeperClient {
+public class ZooKeeperClient extends Thread{
     private static final Logger LOG = LoggerFactory.getLogger(ZooKeeperClient.class);
 
     private static final int SESSION_TIME_OUT = 1000000;
-    private static final String CONNECT_STRING = "127.0.0.1:4002";
+    private static final String CONNECT_STRING = "127.0.0.1:4002,127.0.0.1:4001,127.0.0.1:4000";
     private static final String ZNODE_PATH = "/test";
     private static final String INITIAL_VAL = "0";
+
+    private static int count = 0;
 
     private static CountDownLatch countDownLatch;
 
@@ -56,6 +58,8 @@ public class ZooKeeperClient {
     private ZooKeeper zk;
 
     public ZooKeeperClient() throws IOException, InterruptedException, KeeperException {
+        count++;
+        this.setName("ZooKeeperClient-" + count);
         countDownLatch = new CountDownLatch(1);
         isSyncConnected = false;
         zk = new ZooKeeper(CONNECT_STRING, SESSION_TIME_OUT, watcher);

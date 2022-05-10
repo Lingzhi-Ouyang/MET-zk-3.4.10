@@ -161,6 +161,10 @@ public class TestingService implements TestingRemoteService {
         return nodeCrashExecutor;
     }
 
+    public ClientProxy getClientProxy() {
+        return clientProxy;
+    }
+
     public LinkedBlockingQueue<ClientRequestEvent> getRequestQueue() {
         return clientProxy.getRequestQueue();
     }
@@ -226,7 +230,7 @@ public class TestingService implements TestingRemoteService {
             nodeCrashExecutor = new NodeCrashExecutor(this, 3);
             totalExecuted = phantomRead(totalExecuted);
 
-            clientProxy.deregister();
+            clientProxy.shutdown();
             ensemble.stopEnsemble();
 
 
@@ -428,25 +432,7 @@ public class TestingService implements TestingRemoteService {
      */
     private void configureAfterElection() {
 //        // Initialize zkClients
-//        // Attention: do not intercept any event during the initialization process
-//        clientProxy = new ClientProxy();
-//        LOG.debug("------------------start the client session initialization------------------");
-//
-//        if (clientProxy.init(true)) {
-//            LOG.debug("------------------create the client session successfully------------------");
-//            clientProxy.start();
-//            isClientInitializationDone = true;
-//        } else {
-//            LOG.warn("----- caught exception during client session initialization");
-//            // TODO: confirm this
-//            isClientInitializationDone = false;
-//        }
         createClient();
-//
-//
-//
-//        LOG.debug("------------------finish the client session initialization------------------\n");
-
 
 //        // provide initial client requests
 //        final ClientRequestEvent getDataEvent = new ClientRequestEvent(generateEventId(),
@@ -646,15 +632,30 @@ public class TestingService implements TestingRemoteService {
         clientProxy = new ClientProxy(this);
         LOG.debug("------------------start the client session initialization------------------");
 
-        if (clientProxy.init(true)) {
-            LOG.debug("------------------create the client session successfully------------------");
-            clientProxy.start();
-            isClientInitializationDone = true;
-        } else {
-            LOG.warn("----- caught exception during client session initialization");
-            // TODO: confirm this
-            isClientInitializationDone = false;
+        clientProxy.start();
+        synchronized (controlMonitor) {
+            controlMonitor.notifyAll();
+            waitClientSessionReady();
         }
+
+//        while (!clientProxy.isReady()) {
+//            LOG.debug("------------------still initializing the client session------------------");
+//            try {
+//                Thread.sleep(100);
+//            } catch (Exception e) {
+//                e.printStackTrace();
+//            }
+//        }
+
+//        if (clientProxy.init(true)) {
+//            LOG.debug("------------------create the client session successfully------------------");
+//            clientProxy.start();
+//            isClientInitializationDone = true;
+//        } else {
+//            LOG.warn("----- caught exception during client session initialization");
+//            // TODO: confirm this
+//            isClientInitializationDone = false;
+//        }
         LOG.debug("------------------finish the client session initialization------------------\n");
     }
 
@@ -1021,7 +1022,7 @@ public class TestingService implements TestingRemoteService {
 
     @Override
     public int offerMessageToFollower(int sendingSubnodeId, String receivingAddr, String payload, int type) throws RemoteException {
-        if (!isClientInitializationDone) {
+        if (!clientProxy.isReady()) {
             LOG.debug("----client initialization is not done!---");
             return TestingDef.RetCode.CLIENT_INITIALIZATION_NOT_DONE;
         }
@@ -1076,7 +1077,7 @@ public class TestingService implements TestingRemoteService {
 
     @Override
     public int offerRequestProcessorMessage(int subnodeId, SubnodeType subnodeType, String payload) throws RemoteException {
-        if (!isClientInitializationDone) {
+        if (!clientProxy.isReady()) {
             LOG.debug("----client initialization is not done!---");
             return TestingDef.RetCode.CLIENT_INITIALIZATION_NOT_DONE;
         }
@@ -1486,6 +1487,14 @@ public class TestingService implements TestingRemoteService {
      * The following predicates are general to some type of events.
      * Should be called while holding a lock on controlMonitor
      */
+
+    /***
+     * wait for client session initialization finished
+     */
+    private final WaitPredicate clientSessionReady = new ClientSessionReady(this);
+    public void waitClientSessionReady() {
+        wait(clientSessionReady, 0L);
+    }
 
     /***
      * General pre-/post-condition

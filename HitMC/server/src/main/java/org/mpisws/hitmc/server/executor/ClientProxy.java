@@ -14,11 +14,9 @@ public class ClientProxy extends Thread{
 
     private static final Logger LOG = LoggerFactory.getLogger(ClientProxy.class);
 
-    private static int count = 0;
-
     private final TestingService testingService;
 
-    volatile boolean stop;
+    volatile boolean ready;
 
     private ZooKeeperClient zooKeeperClient;
     LinkedBlockingQueue<ClientRequestEvent> requestQueue = new LinkedBlockingQueue<>();
@@ -30,14 +28,14 @@ public class ClientProxy extends Thread{
         this.responseQueue.clear();
     }
 
-    public boolean isStop() {
-        return stop;
+    public boolean isReady() {
+        return ready;
     }
 
     public boolean init(boolean deleteFlag) {
-        count++;
-        this.setName("ZooKeeperClient-" + count);
-        this.stop = true;
+//        count++;
+//        this.setName("ZooKeeperClient-" + count);
+//        this.stop = true;
 
         int retry = 5;
         while (retry > 0) {
@@ -58,8 +56,8 @@ public class ClientProxy extends Thread{
         return false;
     }
 
-    public void deregister(){
-        this.stop = true;
+    public void shutdown(){
+        this.ready = false;
     }
 
     public LinkedBlockingQueue<ClientRequestEvent> getRequestQueue() {
@@ -72,9 +70,14 @@ public class ClientProxy extends Thread{
 
     @Override
     public void run() {
-        this.stop = false;
+        if (init(true)) {
+            this.ready = true;
+        }
         LOG.info("Thread {} begins to work", currentThread().getName());
-        while (!stop) {
+        synchronized (testingService.getControlMonitor()) {
+            testingService.getControlMonitor().notifyAll();
+        }
+        while (ready) {
             try {
                 ClientRequestEvent m = requestQueue.poll(3000, TimeUnit.MILLISECONDS);
                 if(m == null) continue;
@@ -85,7 +88,7 @@ public class ClientProxy extends Thread{
             }
         }
         LOG.info("Thread {} is stopping", currentThread().getName());
-        this.stop = true;
+        this.ready = false;
     }
 
     private void process(ClientRequestEvent event) throws InterruptedException, KeeperException {
