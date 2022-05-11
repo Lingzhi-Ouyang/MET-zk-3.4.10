@@ -67,11 +67,12 @@ public class ClientRequestExecutor extends BaseEventExecutor {
 
                 if (waitForResponse) {
                     // When we want to get the result immediately
+                    // This will not generate later events automatically
                     testingService.waitResponseForClientRequest(event);
                 }
                 // Note: the client request event may lead to deadlock easily
                 //          when scheduled between some RequestProcessorEvents
-                if (count > 0) {
+                else if (count > 0) {
                     final ClientRequestEvent clientRequestEvent = new ClientRequestEvent(testingService.generateEventId(),
                             ClientRequestType.GET_DATA, this);
                     testingService.addEvent(clientRequestEvent);

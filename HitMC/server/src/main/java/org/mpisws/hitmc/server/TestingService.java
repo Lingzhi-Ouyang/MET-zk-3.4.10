@@ -219,19 +219,22 @@ public class TestingService implements TestingRemoteService {
 
             // 1. trigger DIFF
 //            configureAfterElection();
-            createClient(true);
+            createClient(true, "127.0.0.1:4002");
             nodeStartExecutor = new NodeStartExecutor(this, 1);
             nodeCrashExecutor = new NodeCrashExecutor(this, 1);
             totalExecuted = triggerDiff(totalExecuted);
 
+            totalExecuted = scheduleFirstElection(totalExecuted);
+            createClient(true, "127.0.0.1:4002");
+            totalExecuted = getDataTest(totalExecuted);
+
             // 2. phantom read
             // Reconfigure executors
-
             nodeStartExecutor = new NodeStartExecutor(this, 2);
             nodeCrashExecutor = new NodeCrashExecutor(this, 3);
             totalExecuted = phantomRead(totalExecuted);
 
-            createClient(true);
+            createClient(true, "127.0.0.1:4001");
             totalExecuted = getDataTest(totalExecuted);
 
             clientProxy.shutdown();
@@ -364,7 +367,6 @@ public class TestingService implements TestingRemoteService {
         nodeStartExecutor = new NodeStartExecutor(this, schedulerConfiguration.getNumReboots());
         nodeCrashExecutor = new NodeCrashExecutor(this, schedulerConfiguration.getNumCrashes());
 
-        clientProxy = new ClientProxy(this);
         clientRequestWaitingResponseExecutor = new ClientRequestExecutor(this, true);
         clientRequestExecutor = new ClientRequestExecutor(this);
 
@@ -437,9 +439,9 @@ public class TestingService implements TestingRemoteService {
     /***
      * Configure all testing metadata after election
      */
-    private void configureAfterElection() {
+    private void configureAfterElection(String serverList) {
 //        // Initialize zkClients
-        createClient(true);
+        createClient(true, serverList);
 
 //        // provide initial client requests
 //        final ClientRequestEvent getDataEvent = new ClientRequestEvent(generateEventId(),
@@ -635,11 +637,11 @@ public class TestingService implements TestingRemoteService {
      * Note: when client is initializing, servers are better not allowed to be intercepted
      *      or the initialization will fail.
      */
-    private void createClient(boolean resetConnectionState) {
+    private void createClient(boolean resetConnectionState, String serverList) {
         if (resetConnectionState) {
             clientInitializationDone = false;
         }
-        clientProxy = new ClientProxy(this);
+        clientProxy = new ClientProxy(this, serverList);
         LOG.debug("------------------start the client session initialization------------------");
 
         clientProxy.start();
@@ -741,7 +743,7 @@ public class TestingService implements TestingRemoteService {
                 startTime = System.currentTimeMillis();
                 event = schedulingStrategy.nextEvent();
                 while (!(event instanceof RequestEvent)){
-                    LOG.debug("-------need RequestEvent! get event: {}", event);
+                    LOG.debug("-------need SyncRequestEvent! get event: {}", event);
                     addEvent(event);
                     event = schedulingStrategy.nextEvent();
                 }
@@ -810,6 +812,7 @@ public class TestingService implements TestingRemoteService {
                 waitAllNodesVoted();
 //                leaderElectionVerifier.verify();
                 waitAllNodesSteadyBeforeRequest();
+
             }
             statistics.endTimer();
             // check election results
@@ -970,9 +973,6 @@ public class TestingService implements TestingRemoteService {
             long startTime;
             Event event;
             synchronized (controlMonitor) {
-                // last event executor has waited for all nodes steady
-                // waitAllNodesSteady();
-
                 // PRE
                 // >> client get request
                 startTime = System.currentTimeMillis();

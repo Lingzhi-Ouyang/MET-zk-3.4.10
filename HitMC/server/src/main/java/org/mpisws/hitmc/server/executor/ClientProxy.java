@@ -22,6 +22,8 @@ public class ClientProxy extends Thread{
 
     private static int count = 0;
 
+    private String serverList = "127.0.0.1:4002,127.0.0.1:4001,127.0.0.1:4000";
+
     private ZooKeeperClient zooKeeperClient;
     LinkedBlockingQueue<ClientRequestEvent> requestQueue = new LinkedBlockingQueue<>();
     LinkedBlockingQueue<ClientRequestEvent> responseQueue = new LinkedBlockingQueue<>();
@@ -30,6 +32,15 @@ public class ClientProxy extends Thread{
         this.ready = false;
         this.stop = true;
         this.testingService = testingService;
+        this.requestQueue.clear();
+        this.responseQueue.clear();
+    }
+
+    public ClientProxy(final TestingService testingService, final String serverList){
+        this.ready = false;
+        this.stop = true;
+        this.testingService = testingService;
+        this.serverList = serverList;
         this.requestQueue.clear();
         this.responseQueue.clear();
     }
@@ -50,7 +61,7 @@ public class ClientProxy extends Thread{
         int retry = 5;
         while (retry > 0) {
             try {
-                zooKeeperClient = new ZooKeeperClient();
+                zooKeeperClient = new ZooKeeperClient(serverList);
                 zooKeeperClient.getCountDownLatch().await();
 
                 LOG.debug("----------create /test-------");

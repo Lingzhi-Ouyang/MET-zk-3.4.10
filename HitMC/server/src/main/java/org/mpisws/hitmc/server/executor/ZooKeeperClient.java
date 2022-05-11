@@ -55,11 +55,12 @@ public class ZooKeeperClient extends Thread{
 
     private ZooKeeper zk;
 
-    public ZooKeeperClient() throws IOException, InterruptedException, KeeperException {
+    public ZooKeeperClient(String serverList) throws IOException, InterruptedException, KeeperException {
         countDownLatch = new CountDownLatch(1);
         isSyncConnected = false;
         LOG.debug("---to get new ZooKeeperClient!");
-        zk = new ZooKeeper(CONNECT_STRING, SESSION_TIME_OUT, watcher);
+//        zk = new ZooKeeper(CONNECT_STRING, SESSION_TIME_OUT, watcher);
+        zk = new ZooKeeper(serverList, SESSION_TIME_OUT, watcher);
         LOG.debug("---new ZooKeeperClient got!");
     }
 
