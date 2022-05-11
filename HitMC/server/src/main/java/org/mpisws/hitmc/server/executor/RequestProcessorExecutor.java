@@ -26,6 +26,7 @@ public class RequestProcessorExecutor extends BaseEventExecutor{
         testingService.releaseRequestProcessor(event);
         switch (event.getSubnodeType()) {
             case SYNC_PROCESSOR:
+                // TODO: to check whether quorum nodes have synced
                 testingService.waitAllNodesSteady();
                 break;
             case COMMIT_PROCESSOR:

@@ -688,13 +688,13 @@ public class TestingService implements TestingRemoteService {
 
                 // >> client set request
                 startTime = System.currentTimeMillis();
-                event = new ClientRequestEvent(generateEventId(),
+                ClientRequestEvent mutationEvent = new ClientRequestEvent(generateEventId(),
                         ClientRequestType.SET_DATA, clientRequestExecutor);
                 LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
-                LOG.debug("prepare to execute event: {}", event);
-                if (event.execute()) {
+                LOG.debug("prepare to execute event: {}", mutationEvent);
+                if (mutationEvent.execute()) {
                     ++totalExecuted;
-                    recordProperties(totalExecuted, startTime, event);
+                    recordProperties(totalExecuted, startTime, mutationEvent);
                 }
 
                 while (schedulingStrategy.hasNextEvent() && totalExecuted < 100) {
@@ -721,6 +721,9 @@ public class TestingService implements TestingRemoteService {
 
                 // TODO: check quorum nodes has updated lastProcessedZxid whenever a client mutation is done
 //                waitQuorumZxidUpdated();
+
+                // in case the previous COMMIT REQUEST EVENT blocked the later execution
+                waitResponseForClientRequest(mutationEvent);
 
                 // make DIFF: client set >> leader log >> leader restart >> re-election
                 // Step 1. client request SET_DATA
@@ -999,6 +1002,7 @@ public class TestingService implements TestingRemoteService {
         }
         return totalExecuted;
     }
+
     public void addEvent(final Event event) {
         schedulingStrategy.add(event);
     }
