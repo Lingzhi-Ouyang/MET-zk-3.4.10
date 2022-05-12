@@ -169,7 +169,7 @@ public class TestingService implements TestingRemoteService {
         return clientProxy.getRequestQueue();
     }
 
-    public LinkedBlockingQueue<ClientRequestEvent> getResponseQueue() {
+    public LinkedBlockingQueue<String> getResponseQueue() {
         return clientProxy.getResponseQueue();
     }
 
@@ -220,12 +220,19 @@ public class TestingService implements TestingRemoteService {
             // 1. trigger DIFF
 //            configureAfterElection();
             createClient(true, "127.0.0.1:4002");
-            nodeStartExecutor = new NodeStartExecutor(this, 1);
-            nodeCrashExecutor = new NodeCrashExecutor(this, 1);
-            totalExecuted = triggerDiff(totalExecuted);
 
-            totalExecuted = scheduleFirstElection(totalExecuted);
-            createClient(true, "127.0.0.1:4002");
+            // Restart the leader will disconnect the client session!
+//            nodeStartExecutor = new NodeStartExecutor(this, 1);
+//            nodeCrashExecutor = new NodeCrashExecutor(this, 1);
+//            totalExecuted = triggerDiffByLeaderRestart(totalExecuted);
+
+            nodeStartExecutor = new NodeStartExecutor(this, 2);
+            nodeCrashExecutor = new NodeCrashExecutor(this, 2);
+            totalExecuted = triggerDiffByFollowersRestart(totalExecuted);
+
+//            totalExecuted = scheduleFirstElection(totalExecuted);
+//            createClient(true, "127.0.0.1:4002");
+            // Ensure client session still in connection!
             totalExecuted = getDataTest(totalExecuted);
 
             // 2. phantom read
@@ -367,8 +374,8 @@ public class TestingService implements TestingRemoteService {
         nodeStartExecutor = new NodeStartExecutor(this, schedulerConfiguration.getNumReboots());
         nodeCrashExecutor = new NodeCrashExecutor(this, schedulerConfiguration.getNumCrashes());
 
-        clientRequestWaitingResponseExecutor = new ClientRequestExecutor(this, true);
-        clientRequestExecutor = new ClientRequestExecutor(this);
+        clientRequestWaitingResponseExecutor = new ClientRequestExecutor(this, true, 0);
+        clientRequestExecutor = new ClientRequestExecutor(this, false, 0);
 
         partitionStartExecutor = new PartitionStartExecutor(this);
         partitionStopExecutor = new PartitionStopExecutor(this);
@@ -668,14 +675,11 @@ public class TestingService implements TestingRemoteService {
      * @param totalExecuted the first step sequence number
      * @return the last step sequence number
      */
-    private int triggerDiff(int totalExecuted) {
+    private int triggerDiffByLeaderRestart(int totalExecuted) {
         try {
             long startTime;
             Event event;
             synchronized (controlMonitor) {
-                // last event executor has waited for all nodes steady
-                // waitAllNodesSteady();
-
                 // PRE
                 // >> client get request
                 startTime = System.currentTimeMillis();
@@ -827,6 +831,176 @@ public class TestingService implements TestingRemoteService {
         return totalExecuted;
     }
 
+    private int triggerDiffByFollowersRestart(int totalExecuted) {
+        try {
+            long startTime;
+            Event event;
+            synchronized (controlMonitor) {
+                // make DIFF: client set >> leader log >> leader restart >> re-election
+                // Step 1. client request SET_DATA
+                startTime = System.currentTimeMillis();
+                event = new ClientRequestEvent(generateEventId(),
+                        ClientRequestType.SET_DATA, clientRequestExecutor);
+                LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
+                LOG.debug("prepare to execute event: {}", event);
+                if (event.execute()) {
+                    ++totalExecuted;
+                    recordProperties(totalExecuted, startTime, event);
+                }
+
+                // Step 2. leader log
+                startTime = System.currentTimeMillis();
+                event = schedulingStrategy.nextEvent();
+                while (!(event instanceof RequestEvent)){
+                    LOG.debug("-------need SyncRequestEvent! get event: {}", event);
+                    addEvent(event);
+                    event = schedulingStrategy.nextEvent();
+                }
+                LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
+                LOG.debug("prepare to execute event: {}", event);
+                if (event.execute()) {
+                    ++totalExecuted;
+                    recordProperties(totalExecuted, startTime, event);
+                }
+
+                // follower crash and restart first, then leader crash
+                // distinguish leader and followers
+                int leader = -1;
+                List<Integer> followersId = new ArrayList<>();
+                for (int nodeId = 0; nodeId < schedulerConfiguration.getNumNodes(); ++nodeId) {
+                    switch (leaderElectionStates.get(nodeId)) {
+                        case LEADING:
+                            leader = nodeId;
+                            LOG.debug("-----current leader: {}", nodeId);
+                            break;
+                        case FOLLOWING:
+                            LOG.debug("-----find a follower: {}", nodeId);
+                            followersId.add(nodeId);
+                    }
+                }
+
+                // Step 3. each follower crash and restart
+                for (int followerId: followersId) {
+
+                    // follower crash
+                    startTime = System.currentTimeMillis();
+                    event = new NodeCrashEvent(generateEventId(), followerId, nodeCrashExecutor);
+                    LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
+                    LOG.debug("prepare to execute event: {}", event);
+                    if (event.execute()) {
+                        ++totalExecuted;
+                        recordProperties(totalExecuted, startTime, event);
+                    }
+
+                    // follower restart
+                    startTime = System.currentTimeMillis();
+                    event = schedulingStrategy.nextEvent();
+                    while (true) {
+                        if (event instanceof NodeStartEvent) {
+                            final int nodeId = ((NodeStartEvent) event).getNodeId();
+                            LeaderElectionState RoleOfCrashNode = leaderElectionStates.get(nodeId);
+                            LOG.debug("----previous role of this crashed node {}: {}---------", nodeId, RoleOfCrashNode);
+                            if (nodeId == followerId) {
+                                break;
+                            }
+                        }
+                        LOG.debug("-------need NodeStartEvent of the previous crashed follower! add this event back: {}", event);
+                        addEvent(event);
+                        event = schedulingStrategy.nextEvent();
+                    }
+                    LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
+                    LOG.debug("prepare to execute event: {}", event);
+                    if (event.execute()) {
+                        ++totalExecuted;
+                        recordProperties(totalExecuted, startTime, event);
+                    }
+
+//                    //restart follower: LOOKING -> FOLLOWING
+//                    while (schedulingStrategy.hasNextEvent() && totalExecuted < 100) {
+//                        startTime = System.currentTimeMillis();
+//                        event = schedulingStrategy.nextEvent();
+//                        LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
+//                        LOG.debug("prepare to execute event: {}", event.toString());
+//                        if (event instanceof LearnerHandlerMessageEvent) {
+//                            final int sendingSubnodeId = ((LearnerHandlerMessageEvent) event).getSendingSubnodeId();
+//                            // confirm this works / use partition / let
+//                            deregisterSubnode(sendingSubnodeId);
+//                            ((LearnerHandlerMessageEvent) event).setExecuted();
+//
+////                        schedulingStrategy.remove(event);
+//                            LOG.debug("----Do not let the previous learner handler message occur here! So pass this event---------\n\n\n");
+//                            continue;
+//                        }
+//                        else if (!(event instanceof MessageEvent)) {
+//                            LOG.debug("not message event: {}, " +
+//                                    "which means this follower begins to sync", event.toString());
+//                            addEvent(event);
+//                            if (leaderElectionStates.get(followerId).equals(LeaderElectionState.FOLLOWING)){
+//                                break;
+//                            }
+//                        }
+//                        else if (event.execute()) {
+//                            ++totalExecuted;
+//                            recordProperties(totalExecuted, startTime, event);
+//                        }
+//                    }
+                }
+
+                // wait Leader becomes LOOKING state
+                waitLeaderInLookingState(leader);
+
+                // Step 4. re-election and becomes leader again
+                // >> This part allows random schedulers
+                while (schedulingStrategy.hasNextEvent() && totalExecuted < 100) {
+                    startTime = System.currentTimeMillis();
+                    event = schedulingStrategy.nextEvent();
+                    LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
+                    LOG.debug("prepare to execute event: {}", event.toString());
+                    if (event instanceof LearnerHandlerMessageEvent) {
+                        final int sendingSubnodeId = ((LearnerHandlerMessageEvent) event).getSendingSubnodeId();
+                        // confirm this works / use partition / let
+                        deregisterSubnode(sendingSubnodeId);
+                        ((LearnerHandlerMessageEvent) event).setExecuted();
+                        LOG.debug("----Do not let the previous learner handler message occur here! So pass this event---------\n\n\n");
+                        continue;
+                    }
+//                    else if (event instanceof MessageEvent) {
+//                        MessageEvent event1 = (MessageEvent) event;
+//                        final int sendingSubnodeId = event1.getSendingSubnodeId();
+//                        final int receivingNodeId = event1.getReceivingNodeId();
+//                        final Subnode sendingSubnode = subnodes.get(sendingSubnodeId);
+//                        final int sendingNodeId = sendingSubnode.getNodeId();
+//                        if (sendingNodeId != leader) {
+//                            LOG.debug("need leader message event: {}", event.toString());
+//                            addEvent(event);
+//                            continue;
+//                        }
+//                    }
+                    if (event.execute()) {
+                        ++totalExecuted;
+                        recordProperties(totalExecuted, startTime, event);
+                    }
+                }
+                // wait whenever an election ends
+                waitAllNodesVoted();
+//                leaderElectionVerifier.verify();
+                waitAllNodesSteadyBeforeRequest();
+
+            }
+            statistics.endTimer();
+            // check election results
+            leaderElectionVerifier.verify();
+            statistics.reportTotalExecutedEvents(totalExecuted);
+            statisticsWriter.write(statistics.toString() + "\n\n");
+            LOG.info(statistics.toString() + "\n\n\n\n\n");
+
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return totalExecuted;
+    }
+
+
     /***
      * steps to trigger phantom read
      * @param totalExecuted the first step sequence number
@@ -909,7 +1083,7 @@ public class TestingService implements TestingRemoteService {
                         LOG.debug("----previous role of this crashed node {}: {}---------", nodeId, RoleOfCrashNode);
                         if ( LeaderElectionState.LEADING.equals(RoleOfCrashNode)){
                             ((NodeStartEvent) event).setExecuted();
-                            schedulingStrategy.remove(event);
+//                            schedulingStrategy.remove(event);
                             LOG.debug("----Do not let the previous leader restart here! So pass this event---------\n\n\n");
                             continue;
                         }
@@ -968,6 +1142,41 @@ public class TestingService implements TestingRemoteService {
      * only issue GET_DATA
      * @param event
      */
+    private int getDataTestNoWait(int totalExecuted) {
+        try {
+            long startTime;
+            Event event;
+            synchronized (controlMonitor) {
+                // PRE
+                // >> client get request
+                startTime = System.currentTimeMillis();
+                event = new ClientRequestEvent(generateEventId(),
+                        ClientRequestType.GET_DATA, clientRequestExecutor);
+                LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
+                LOG.debug("prepare to execute event: {}", event);
+                if (event.execute()) {
+                    ++totalExecuted;
+                    recordProperties(totalExecuted, startTime, event);
+                }
+
+                // wait whenever an election ends
+                waitAllNodesVoted();
+//                leaderElectionVerifier.verify();
+                waitAllNodesSteadyBeforeRequest();
+            }
+            statistics.endTimer();
+            // check election results
+            leaderElectionVerifier.verify();
+            statistics.reportTotalExecutedEvents(totalExecuted);
+            statisticsWriter.write(statistics.toString() + "\n\n");
+            LOG.info(statistics.toString() + "\n\n\n\n\n");
+
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return totalExecuted;
+    }
+
     private int getDataTest(int totalExecuted) {
         try {
             long startTime;
@@ -1663,6 +1872,12 @@ public class TestingService implements TestingRemoteService {
     private void waitFollowerSocketAddrRegistered(final String addr) {
         final WaitPredicate followerSocketAddrRegistered = new FollowerSocketAddrRegistered(this, addr);
         wait(followerSocketAddrRegistered, 0L);
+    }
+
+    private void waitLeaderInLookingState(final int leaderId) {
+        final WaitPredicate leaderInLookingState = new LeaderInLookingState(this, leaderId);
+        wait(leaderInLookingState, 0L);
+
     }
 
     private void wait(final WaitPredicate predicate, final long timeout) {
