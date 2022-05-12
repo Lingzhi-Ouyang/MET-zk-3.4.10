@@ -22,9 +22,10 @@ public class ClientRequestExecutor extends BaseEventExecutor {
         this.testingService = testingService;
     }
 
-    public ClientRequestExecutor(final TestingService testingService, boolean waitForResponse) {
+    public ClientRequestExecutor(final TestingService testingService, boolean waitForResponse, final int count) {
         this.testingService = testingService;
         this.waitForResponse = waitForResponse;
+        this.count = count;
     }
 
     @Override
@@ -72,7 +73,7 @@ public class ClientRequestExecutor extends BaseEventExecutor {
                 }
                 // Note: the client request event may lead to deadlock easily
                 //          when scheduled between some RequestProcessorEvents
-                else if (count > 0) {
+                if (count > 0) {
                     final ClientRequestEvent clientRequestEvent = new ClientRequestEvent(testingService.generateEventId(),
                             ClientRequestType.GET_DATA, this);
                     testingService.addEvent(clientRequestEvent);
