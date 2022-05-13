@@ -183,6 +183,7 @@ public class TestingService implements TestingRemoteService {
 
     /***
      * The core process the scheduler
+     * steps of ZK-3911
      * @throws SchedulerConfigurationException
      * @throws IOException
      */
@@ -211,6 +212,7 @@ public class TestingService implements TestingRemoteService {
             // Start the timer for recoding statistics
             statistics.startTimer();
 
+            // TODO: refactor the steps
             // PRE: first election
             totalExecuted = scheduleFirstElection(totalExecuted);
 
