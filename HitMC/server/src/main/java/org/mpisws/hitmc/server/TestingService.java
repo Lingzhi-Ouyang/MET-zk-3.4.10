@@ -214,7 +214,7 @@ public class TestingService implements TestingRemoteService {
 
             // TODO: refactor the steps
             // PRE: first election
-            totalExecuted = scheduleFirstElection(totalExecuted);
+            totalExecuted = scheduleElection(totalExecuted);
 
             // Only the success of the last verification will lead to the following test
             // o.w. just report bug
@@ -474,13 +474,17 @@ public class TestingService implements TestingRemoteService {
     }
 
     /***
-     * The schedule process from the beginning to the end of the first round of election
+     * The schedule process of leader election
+     * Pre-condition: all nodes steady
+     * Post-condition: all nodes voted & all nodes steady before request
+     * Property check: one leader has been elected
      * @param totalExecuted the number of previous executed events
      * @return the number of executed events
      */
-    private int scheduleFirstElection(int totalExecuted) {
+    private int scheduleElection(int totalExecuted) {
         try{
             synchronized (controlMonitor) {
+                // pre-condition
                 waitAllNodesSteady();
                 while (schedulingStrategy.hasNextEvent() && totalExecuted < 100) {
                     long begintime = System.currentTimeMillis();
