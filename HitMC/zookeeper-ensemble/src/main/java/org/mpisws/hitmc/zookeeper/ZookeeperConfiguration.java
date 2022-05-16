@@ -113,8 +113,6 @@ public class ZookeeperConfiguration implements SchedulerConfiguration {
         numWriters = Integer.parseInt(properties.getProperty("numWriters", DEFAULT_NUM_WRITERS));
         numClientRequests = Integer.parseInt(properties.getProperty("numClientRequests", DEFAULT_NUM_CLIENT_REQUESTS));
 
-        LOG.debug("numClientRequests: {}", numClientRequests);
-
         maxEvents = Integer.parseInt(properties.getProperty("maxEvents", DEFAULT_MAX_EVENTS));
         numPriorityChangePoints = Integer.parseInt(properties.getProperty("numPriorityChangePoints", DEFAULT_NUM_PRIORITY_CHANGE_POINTS));
         final String randomSeedProperty = properties.getProperty("randomSeed");
@@ -126,10 +124,11 @@ public class ZookeeperConfiguration implements SchedulerConfiguration {
 
         classpath = properties.getProperty("classpath");
 
-        workingDir = new File(properties.getProperty("workingDir", System.getProperty("user.dir")), args[1]);
+        String userDir = properties.getProperty("workingDir", System.getProperty("user.dir"));
+        workingDir = new File(userDir, args[1]);
         LOG.debug("Working dir: {}", workingDir);
 
-        traceDir = new File(properties.getProperty("traceDir", "traces"));
+        traceDir = new File(userDir, properties.getProperty("traceDir", "traces"));
         LOG.debug("trace dir: {}", traceDir);
 
         log4JConfig = new File(properties.getProperty("log4JConfig", "zk_log.properties"));
