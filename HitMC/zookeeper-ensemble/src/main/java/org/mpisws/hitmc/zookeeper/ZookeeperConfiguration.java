@@ -63,6 +63,7 @@ public class ZookeeperConfiguration implements SchedulerConfiguration {
 
     private String classpath;
     private File workingDir;
+    private File traceDir;
     private File log4JConfig;
     private int initLimit;
     private int syncLimit;
@@ -127,6 +128,9 @@ public class ZookeeperConfiguration implements SchedulerConfiguration {
 
         workingDir = new File(properties.getProperty("workingDir", System.getProperty("user.dir")), args[1]);
         LOG.debug("Working dir: {}", workingDir);
+
+        traceDir = new File(properties.getProperty("traceDir", "traces"));
+        LOG.debug("trace dir: {}", traceDir);
 
         log4JConfig = new File(properties.getProperty("log4JConfig", "zk_log.properties"));
         initLimit = Integer.parseInt(properties.getProperty("initLimit", DEFAULT_INIT_LIMIT));
@@ -233,6 +237,10 @@ public class ZookeeperConfiguration implements SchedulerConfiguration {
 
     public File getWorkingDir() {
         return workingDir;
+    }
+
+    public File getTraceDir() {
+        return traceDir;
     }
 
     public File getLog4JConfig() {

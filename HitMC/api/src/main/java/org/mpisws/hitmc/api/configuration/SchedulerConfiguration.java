@@ -50,4 +50,6 @@ public interface SchedulerConfiguration {
 
     File getWorkingDir();
 
+    File getTraceDir();
+
 }
