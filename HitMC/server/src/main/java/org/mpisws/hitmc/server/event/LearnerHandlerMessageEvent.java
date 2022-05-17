@@ -1,5 +1,6 @@
 package org.mpisws.hitmc.server.event;
 
+import org.mpisws.hitmc.api.MessageType;
 import org.mpisws.hitmc.server.executor.LearnerHandlerMessageExecutor;
 
 import java.io.IOException;
@@ -8,12 +9,19 @@ public class LearnerHandlerMessageEvent extends AbstractEvent{
     private final int sendingSubnodeId;
     private final int receivingNodeId;
     private final String payload;
+    private final int type;
 
-    public LearnerHandlerMessageEvent(final int id, final int sendingSubnodeId, final int receivingNodeId, final String payload, final LearnerHandlerMessageExecutor messageExecutor) {
+    public LearnerHandlerMessageEvent(final int id,
+                                      final int sendingSubnodeId,
+                                      final int receivingNodeId,
+                                      final int type,
+                                      final String payload,
+                                      final LearnerHandlerMessageExecutor messageExecutor) {
         super(id, messageExecutor);
         this.sendingSubnodeId = sendingSubnodeId;
         this.receivingNodeId = receivingNodeId;
         this.payload = payload;
+        this.type = type;
     }
 
     public int getSendingSubnodeId() {
@@ -22,6 +30,10 @@ public class LearnerHandlerMessageEvent extends AbstractEvent{
 
     public int getReceivingNodeId() {
         return receivingNodeId;
+    }
+
+    public int getType() {
+        return type;
     }
 
     @Override
