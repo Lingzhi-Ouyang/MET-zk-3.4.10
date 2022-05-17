@@ -1,8 +1,12 @@
 package org.mpisws.hitmc.server.scheduler;
 
+import org.mpisws.hitmc.api.SubnodeType;
 import org.mpisws.hitmc.api.configuration.SchedulerConfigurationException;
 import org.mpisws.hitmc.server.TestingService;
 import org.mpisws.hitmc.server.event.Event;
+import org.mpisws.hitmc.server.event.LearnerHandlerMessageEvent;
+import org.mpisws.hitmc.server.event.RequestEvent;
+import org.mpisws.hitmc.server.state.Subnode;
 import org.mpisws.hitmc.server.statistics.ExternalModelStatistics;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -111,17 +115,6 @@ public class ExternalModelStrategy implements SchedulingStrategy{
         statistics.reportNumberOfEnabledEvents(enabled.size());
 
         nextEvent = null;
-
-//        if (enabled.size() > 0) {
-//            Event event = getNextEventFromModel();
-//            if ( event != null && eventMatched(event)){
-//                LOG.debug("next event exists! {}", event);
-//                nextEvent = event;
-//                events.remove(nextEvent);
-//            } else {
-//                throw new SchedulerConfigurationException();
-//            }
-//        }
         if (enabled.size() > 0) {
             final int i = random.nextInt(enabled.size());
             nextEvent = enabled.get(i);
@@ -177,40 +170,85 @@ public class ExternalModelStrategy implements SchedulingStrategy{
         return trace;
     }
 
-    public Event getNextEventFromModel(String line) {
-        String lineTxt = currentTrace.nextStep();
-        String[] lineArr = lineTxt.split(" ");
+    public Event getNextInternalEvent(String[] lineArr) throws SchedulerConfigurationException {
+        // 1. get all enabled events
+        final List<Event> enabled = new ArrayList<>();
+        LOG.debug("prepareNextEvent: events.size: {}", events.size());
+        for (final Event event : events) {
+            if (event.isEnabled()) {
+                LOG.debug("enabled : {}", event.toString());
+                enabled.add(event);
+            }
+        }
+
+        statistics.reportNumberOfEnabledEvents(enabled.size());
+
+        nextEvent = null;
+        assert enabled.size() > 0;
+
+        // 2. search specific event type
         int len = lineArr.length;
-        LOG.debug(lineTxt);
         String action = lineArr[0];
+
         switch (action) {
-            case "ELECTION":
-                break;
             case "LOG_REQUEST":
+                for (final Event e : enabled) {
+                    if (e instanceof RequestEvent) {
+                        assert len == 2;
+                        final int serverId = Integer.parseInt(lineArr[1]);
+                        final int nodeId = ((RequestEvent) e).getNodeId();
+                        final SubnodeType subnodeType = ((RequestEvent) e).getSubnodeType();
+                        if (serverId == nodeId && SubnodeType.SYNC_PROCESSOR.equals(subnodeType)) {
+                            nextEvent = e;
+                            events.remove(nextEvent);
+                            break;
+                        }
+                    }
+                }
                 break;
             case "COMMIT":
+                for (final Event e : enabled) {
+                    if (e instanceof RequestEvent) {
+                        assert len == 2;
+                        final int serverId = Integer.parseInt(lineArr[1]);
+                        final int nodeId = ((RequestEvent) e).getNodeId();
+                        final SubnodeType subnodeType = ((RequestEvent) e).getSubnodeType();
+                        if (serverId == nodeId && SubnodeType.COMMIT_PROCESSOR.equals(subnodeType)) {
+                            nextEvent = e;
+                            events.remove(nextEvent);
+                            break;
+                        }
+                    }
+                }
                 break;
-            case "NODE_CRASH":
-                break;
-            case "NODE_START":
-                break;
-            case "PARTITION_START":
-                break;
-            case "PARTITION_STOP":
-                break;
-            case "ESTABLISH_SESSION":
-                break;
-            case "GET_DATA":
-                break;
-            case "SET_DATA":
+            case "LEARNER_HANDLER_MESSAGE":
+                for (final Event e : enabled) {
+                    if (e instanceof LearnerHandlerMessageEvent) {
+                        assert len == 3;
+                        final int s1 = Integer.parseInt(lineArr[1]);
+                        final int s2 = Integer.parseInt(lineArr[2]);
+                        final int receivingNodeId = ((LearnerHandlerMessageEvent) e).getReceivingNodeId();
+                        final int sendingSubnodeId = ((LearnerHandlerMessageEvent) e).getSendingSubnodeId();
+                        final Subnode sendingSubnode = testingService.getSubnodes().get(sendingSubnodeId);
+                        final int sendingNodeId = sendingSubnode.getNodeId();
+                        if (sendingNodeId == s1 && receivingNodeId == s2) {
+                            nextEvent = e;
+                            events.remove(nextEvent);
+                            break;
+                        }
+                    }
+                }
                 break;
         }
-        return null;
-    }
 
-    private boolean eventMatched(Event event) {
-        return false;
-    }
+        if ( nextEvent != null){
+            LOG.debug("next event exists! {}", nextEvent);
+        } else {
+            throw new SchedulerConfigurationException();
+        }
 
+        nextEventPrepared = true;
+        return nextEvent;
+    }
 
 }

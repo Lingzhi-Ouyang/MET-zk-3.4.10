@@ -315,22 +315,26 @@ public class TestingService implements TestingRemoteService {
                         LOG.debug("election leader: {}", leaderId);
                         totalExecuted = scheduleElection(totalExecuted);
                         break;
+//                    case "LOG_REQUEST":
+//                        assert len==2;
+//                        int logNodeId = Integer.parseInt(lineArr[1]);
+//                        totalExecuted = scheduleLogRequest(logNodeId, totalExecuted);
+//                        break;
+//                    case "COMMIT":
+//                        assert len==2;
+//                        int commitNodeId = Integer.parseInt(lineArr[1]);
+//                        totalExecuted = scheduleCommit(commitNodeId, totalExecuted);
+//                        break;
+//                    case "LEARNER_HANDLER_MESSAGE":
+//                        assert len==3;
+//                        int s1 = Integer.parseInt(lineArr[1]);
+//                        int s2 = Integer.parseInt(lineArr[2]);
+//                        totalExecuted = scheduleLearnerHandlerMessage(s1, s2, totalExecuted);
+//                        break;
                     case "LOG_REQUEST":
-                        assert len==2;
-                        int logNodeId = Integer.parseInt(lineArr[1]);
-                        totalExecuted = scheduleLogRequest(logNodeId, totalExecuted);
-//                        totalExecuted = LogRequest(logNodeId, totalExecuted);
-                        break;
                     case "COMMIT":
-                        assert len==2;
-                        int commitNodeId = Integer.parseInt(lineArr[1]);
-                        totalExecuted = scheduleCommit(commitNodeId, totalExecuted);
-                        break;
-                    case "LEARNER_HANDLER_EVENT":
-                        assert len==3;
-                        int s1 = Integer.parseInt(lineArr[1]);
-                        int s2 = Integer.parseInt(lineArr[2]);
-                        totalExecuted = scheduleLearnerHandlerEvent(s1, s2, totalExecuted);
+                    case "LEARNER_HANDLER_MESSAGE":
+                        totalExecuted = scheduleInternalEvent(externalModelStrategy, lineArr, totalExecuted);
                         break;
                     case "NODE_CRASH":
                         assert len==2;
@@ -383,8 +387,23 @@ public class TestingService implements TestingRemoteService {
         
     }
 
-    public Event getNextEventFromModel(String line, int seq) {
-        return null;
+    public int scheduleInternalEvent(ExternalModelStrategy strategy, String[] lineArr, int totalExecuted) {
+        try {
+            synchronized (controlMonitor) {
+                long startTime = System.currentTimeMillis();
+                Event event = strategy.getNextInternalEvent(lineArr);
+                assert event != null;
+                LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
+                LOG.debug("prepare to execute event: {}", event);
+                if (event.execute()) {
+                    ++totalExecuted;
+                    recordProperties(totalExecuted, startTime, event);
+                }
+            }
+        } catch (IOException | SchedulerConfigurationException e) {
+            e.printStackTrace();
+        }
+        return totalExecuted;
     }
 
     public String getServerAddr(int serverId) {
@@ -946,7 +965,7 @@ public class TestingService implements TestingRemoteService {
     /***
      * schedule learner handler event
      */
-    private int scheduleLearnerHandlerEvent(final int sendingNode, final int receivingNode, int totalExecuted) {
+    private int scheduleLearnerHandlerMessage(final int sendingNode, final int receivingNode, int totalExecuted) {
         try {
             synchronized (controlMonitor) {
                 long startTime = System.currentTimeMillis();
