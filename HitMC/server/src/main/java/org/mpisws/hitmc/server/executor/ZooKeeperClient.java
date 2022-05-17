@@ -36,17 +36,18 @@ public class ZooKeeperClient extends Thread{
                 countDownLatch.countDown();
                 isSyncConnected = true;
             }
-//            else {
-//                try {
-//                    LOG.debug("非SyncConnected状态！将断开连接！");
-////                    countDownLatch = new CountDownLatch(1);
-////                    isSyncConnected = false;
-////                    zk.close();
-//                } catch (Exception e) {
-//                    LOG.debug("----caught Exception: {} ", e.toString());
-//                    e.printStackTrace();
-//                }
-//            }
+            else {
+                try {
+                    LOG.warn("非SyncConnected状态！");
+                    // Do not close this session since it may become normal later
+//                    countDownLatch = new CountDownLatch(1);
+//                    isSyncConnected = false;
+//                    zk.close();
+                } catch (Exception e) {
+                    LOG.debug("----caught Exception: {} ", e.toString());
+                    e.printStackTrace();
+                }
+            }
         }
     };
 
@@ -75,8 +76,12 @@ public class ZooKeeperClient extends Thread{
         LOG.debug("---new ZooKeeperClient got!");
     }
 
+    public void close() throws InterruptedException {
+        zk.close();
+    }
+
     public boolean existTestPath() throws KeeperException, InterruptedException {
-        return zk.exists(ZNODE_PATH, watcher) != null;
+        return zk.exists(ZNODE_PATH, false) != null;
     }
 
     // In the test, the create request is only used in the session initialization phase
@@ -85,7 +90,7 @@ public class ZooKeeperClient extends Thread{
         if (stat != null) {
             return null;
         }
-        String createdPath = zk.create(ZNODE_PATH, INITIAL_VAL.getBytes(), ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.EPHEMERAL);
+        String createdPath = zk.create(ZNODE_PATH, INITIAL_VAL.getBytes(), ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
         LOG.debug("CREATE PATH {}: {}", createdPath, INITIAL_VAL);
         return createdPath;
     }

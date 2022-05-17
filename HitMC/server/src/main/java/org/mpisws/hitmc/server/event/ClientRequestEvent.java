@@ -11,12 +11,14 @@ public class ClientRequestEvent extends AbstractEvent{
     private static final Logger LOG = LoggerFactory.getLogger(ClientRequestEvent.class);
 
     private final ClientRequestType type;
+    private final int clientId;
     private String data = null;
     private String result = null;
 
-    public ClientRequestEvent(final int id, ClientRequestType type, ClientRequestExecutor eventExecutor) {
+    public ClientRequestEvent(final int id, final int clientId, ClientRequestType type, ClientRequestExecutor eventExecutor) {
         super(id, eventExecutor);
         this.type = type;
+        this.clientId = clientId;
         if (ClientRequestType.SET_DATA.equals(type)){
             this.data = String.valueOf(id);
         }
@@ -24,6 +26,10 @@ public class ClientRequestEvent extends AbstractEvent{
 
     public ClientRequestType getType() {
         return type;
+    }
+
+    public int getClientId() {
+        return clientId;
     }
 
     public String getData() {
@@ -50,10 +56,10 @@ public class ClientRequestEvent extends AbstractEvent{
     @Override
     public String toString() {
         return "ClientRequestEvent{" +
-                "id=" + getId() +
-                ", type=" + getType() +
-                ", data=" + getData() +
-                ", result=" + getResult() +
-                "}";
+                "type=" + type +
+                ", clientId=" + clientId +
+                ", data='" + data + '\'' +
+                ", result='" + result + '\'' +
+                '}';
     }
 }

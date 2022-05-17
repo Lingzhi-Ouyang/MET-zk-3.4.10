@@ -48,22 +48,14 @@ public class ClientRequestExecutor extends BaseEventExecutor {
      * @param event
      */
     public void releaseClientRequest(final ClientRequestEvent event) {
-//        if (clientProxy.isStop()) {
-//            isClientInitializationDone =false;
-//            clientProxy = new ClientProxy();
-//            clientProxy.init(false);
-//            clientProxy.start();
-//            isClientInitializationDone = true;
-//        } else {
-//            LOG.info("------The client is still running!----");
-//        }
+        final int clientId = event.getClientId();
         switch (event.getType()) {
             case GET_DATA:
                 // TODO: this method should modify related states
 //                for (int i = 0 ; i < schedulerConfiguration.getNumNodes(); i++) {
 //                    nodeStateForClientRequests.set(i, NodeStateForClientRequest.SET_PROCESSING);
 //                }
-                testingService.getRequestQueue().offer(event);
+                testingService.getRequestQueue(clientId).offer(event);
                 testingService.getControlMonitor().notifyAll();
 
                 if (waitForResponse) {
@@ -74,7 +66,8 @@ public class ClientRequestExecutor extends BaseEventExecutor {
                 // Note: the client request event may lead to deadlock easily
                 //          when scheduled between some RequestProcessorEvents
                 if (count > 0) {
-                    final ClientRequestEvent clientRequestEvent = new ClientRequestEvent(testingService.generateEventId(),
+                    final ClientRequestEvent clientRequestEvent =
+                            new ClientRequestEvent(testingService.generateEventId(), clientId,
                             ClientRequestType.GET_DATA, this);
                     testingService.addEvent(clientRequestEvent);
                     count--;
@@ -91,7 +84,7 @@ public class ClientRequestExecutor extends BaseEventExecutor {
 
                 String data = String.valueOf(event.getId());
                 event.setData(data);
-                testingService.getRequestQueue().offer(event);
+                testingService.getRequestQueue(clientId).offer(event);
                 // notifyAll() should be called after related states have been changed
                 testingService.getControlMonitor().notifyAll();
                 testingService.waitAllNodesSteadyAfterMutation();

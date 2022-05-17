@@ -16,6 +16,8 @@ public class ClientProxy extends Thread{
 
     private final TestingService testingService;
 
+    private final int clientId;
+
     volatile boolean ready;
 
     volatile boolean stop;
@@ -34,15 +36,23 @@ public class ClientProxy extends Thread{
         this.testingService = testingService;
         this.requestQueue.clear();
         this.responseQueue.clear();
+        this.clientId = count;
+        this.setName("ZooKeeperClient-" + clientId);
+        this.count++;
     }
 
-    public ClientProxy(final TestingService testingService, final String serverList){
+    public ClientProxy(final TestingService testingService, final int clientId, final String serverList){
         this.ready = false;
         this.stop = true;
+
         this.testingService = testingService;
         this.serverList = serverList;
         this.requestQueue.clear();
         this.responseQueue.clear();
+
+        this.clientId = clientId;
+        this.setName("ZooKeeperClient-" + clientId);
+        this.count++;
     }
 
     public boolean isReady() {
@@ -54,8 +64,7 @@ public class ClientProxy extends Thread{
     }
 
     public boolean init() {
-        count++;
-        this.setName("ZooKeeperClient-" + count);
+
         this.ready = false;
 
         int retry = 5;
@@ -65,9 +74,10 @@ public class ClientProxy extends Thread{
                 zooKeeperClient.getCountDownLatch().await();
 
                 LOG.debug("----------create /test-------");
-                if (count == 1) {
-                    zooKeeperClient.create();
-                }
+//                if (count % 2 != 0) {
+//                    zooKeeperClient.create();
+//                }
+                zooKeeperClient.create();
 
                 return true;
             } catch (InterruptedException | KeeperException | IOException e) {
@@ -124,6 +134,11 @@ public class ClientProxy extends Thread{
             LOG.info("Thread {} is stopping", currentThread().getName());
             this.ready = false;
             this.stop = true;
+            try {
+                zooKeeperClient.close();
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
         }
     }
 
