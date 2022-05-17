@@ -8,6 +8,7 @@ import org.mpisws.hitmc.api.state.LeaderElectionState;
 import org.mpisws.hitmc.api.state.Vote;
 import org.mpisws.hitmc.server.checker.GetDataVerifier;
 import org.mpisws.hitmc.server.checker.LeaderElectionVerifier;
+import org.mpisws.hitmc.server.checker.TraceVerifier;
 import org.mpisws.hitmc.server.event.*;
 import org.mpisws.hitmc.server.executor.*;
 import org.mpisws.hitmc.server.predicate.*;
@@ -58,6 +59,7 @@ public class TestingService implements TestingRemoteService {
 
     private Statistics statistics;
 
+    private TraceVerifier traceVerifier;
     private LeaderElectionVerifier leaderElectionVerifier;
     private GetDataVerifier getDataVerifier;
 
@@ -192,7 +194,7 @@ public class TestingService implements TestingRemoteService {
 //        initRemote();
 
         for (int executionId = 1; executionId <= schedulerConfiguration.getNumExecutions(); ++executionId) {
-            ensemble.configureEnsemble(executionId);
+            ensemble.configureEnsemble(String.valueOf(executionId));
             configureSchedulingStrategy(executionId);
 
             int totalExecuted = 0;
@@ -276,17 +278,17 @@ public class TestingService implements TestingRemoteService {
             Trace trace = externalModelStrategy.getCurrentTrace(executionId - 1);
             String traceName = trace.getTraceName();
             int stepCount = trace.getStepNum();
-            LOG.info("currentTrace: {}, step: {}", trace, stepCount);
+            LOG.info("currentTrace: {}, total steps: {}", trace, stepCount);
 
-            ensemble.configureEnsemble(executionId);
+            ensemble.configureEnsemble(traceName);
 //            configureSchedulingStrategy(executionId);
 
             int totalExecuted = 0;
 
             executionWriter = new FileWriter(schedulerConfiguration.getWorkingDir() + File.separator
-                    + executionId + File.separator + schedulerConfiguration.getExecutionFile());
+                    + traceName + File.separator + schedulerConfiguration.getExecutionFile());
             statisticsWriter = new FileWriter(schedulerConfiguration.getWorkingDir() + File.separator
-                    + executionId + File.separator + schedulerConfiguration.getStatisticsFile());
+                    + traceName + File.separator + schedulerConfiguration.getStatisticsFile());
 
             // configure the execution before first election
             configureNextExecution();
@@ -297,20 +299,22 @@ public class TestingService implements TestingRemoteService {
             // Start the timer for recoding statistics
             statistics.startTimer();
 
-            for (int currentStep = 1; currentStep <= stepCount; ++currentStep) {
-                String line = trace.nextStep();
-                LOG.debug("nextStep: {}", line);
+            int currentStep = 1;
+            try {
+                for (; currentStep <= stepCount; ++currentStep) {
+                    String line = trace.nextStep();
+                    LOG.debug("nextStep: {}", line);
 
-                String[] lineArr = line.split(" ");
-                int len = lineArr.length;
+                    String[] lineArr = line.split(" ");
+                    int len = lineArr.length;
 
-                String action = lineArr[0];
-                switch (action) {
-                    case "ELECTION":
-                        Integer leaderId = len > 1 ? Integer.parseInt(lineArr[1]) : null;
-                        LOG.debug("election leader: {}", leaderId);
-                        totalExecuted = scheduleElection(leaderId, totalExecuted);
-                        break;
+                    String action = lineArr[0];
+                    switch (action) {
+                        case "ELECTION":
+                            Integer leaderId = len > 1 ? Integer.parseInt(lineArr[1]) : null;
+                            LOG.debug("election leader: {}", leaderId);
+                            totalExecuted = scheduleElection(leaderId, totalExecuted);
+                            break;
 //                    case "LOG_REQUEST":
 //                        assert len==2;
 //                        int logNodeId = Integer.parseInt(lineArr[1]);
@@ -327,65 +331,80 @@ public class TestingService implements TestingRemoteService {
 //                        int s2 = Integer.parseInt(lineArr[2]);
 //                        totalExecuted = scheduleLearnerHandlerMessage(s1, s2, totalExecuted);
 //                        break;
-                    case "LOG_REQUEST":
-                    case "COMMIT":
-                    case "LEADER_MESSAGE":
-                        totalExecuted = scheduleInternalEvent(externalModelStrategy, lineArr, totalExecuted);
-                        break;
-                    case "NODE_CRASH":
-                        assert len==2;
-                        int crashNodeId = Integer.parseInt(lineArr[1]);
-                        totalExecuted = scheduleNodeCrash(crashNodeId, totalExecuted);
-                        break;
-                    case "NODE_START":
-                        assert len==2;
-                        int startNodeId = Integer.parseInt(lineArr[1]);
-                        totalExecuted = ScheduleNodeStart(startNodeId, totalExecuted);
-                        break;
-                    case "PARTITION_START":
-                        assert len==2;
-                        break;
-                    case "PARTITION_STOP":
-                        assert len==2;
-                        break;
-                    case "ESTABLISH_SESSION":
-                        assert len==3;
-                        int clientId = Integer.parseInt(lineArr[1]);
-                        int serverId = Integer.parseInt(lineArr[2]);
-                        String serverAddr = getServerAddr(serverId);
-                        LOG.debug("client establish connection with server {}", serverAddr);
-                        establishSession(clientId, true, serverAddr);
-                        break;
-                    case "GET_DATA":
-                        assert len>1;
-                        int getDataClientId = Integer.parseInt(lineArr[1]);
-                        Integer result = len > 2 ? Integer.parseInt(lineArr[2]) : null;
-                        totalExecuted = scheduleGetData(getDataClientId, result, totalExecuted);
-                        break;
-                    case "SET_DATA":
-                        assert len>1;
-                        int setDataClientId = Integer.parseInt(lineArr[1]);
-                        String data = len > 2 ? lineArr[2] : null;
-                        totalExecuted = scheduleSetData(setDataClientId, data, totalExecuted);
-                        break;
+                        case "LOG_REQUEST":
+                        case "COMMIT":
+                        case "LEADER_MESSAGE":
+                            totalExecuted = scheduleInternalEvent(externalModelStrategy, lineArr, totalExecuted);
+                            break;
+                        case "NODE_CRASH":
+                            assert len==2;
+                            int crashNodeId = Integer.parseInt(lineArr[1]);
+                            totalExecuted = scheduleNodeCrash(crashNodeId, totalExecuted);
+                            break;
+                        case "NODE_START":
+                            assert len==2;
+                            int startNodeId = Integer.parseInt(lineArr[1]);
+                            totalExecuted = ScheduleNodeStart(startNodeId, totalExecuted);
+                            break;
+                        case "PARTITION_START":
+                            assert len==2;
+                            break;
+                        case "PARTITION_STOP":
+                            assert len==2;
+                            break;
+                        case "ESTABLISH_SESSION":
+                            assert len==3;
+                            int clientId = Integer.parseInt(lineArr[1]);
+                            int serverId = Integer.parseInt(lineArr[2]);
+                            String serverAddr = getServerAddr(serverId);
+                            LOG.debug("client establish connection with server {}", serverAddr);
+                            establishSession(clientId, true, serverAddr);
+                            break;
+                        case "GET_DATA":
+                            assert len>1;
+                            int getDataClientId = Integer.parseInt(lineArr[1]);
+                            Integer result = len > 2 ? Integer.parseInt(lineArr[2]) : null;
+                            totalExecuted = scheduleGetData(getDataClientId, result, totalExecuted);
+                            break;
+                        case "SET_DATA":
+                            assert len>1;
+                            int setDataClientId = Integer.parseInt(lineArr[1]);
+                            String data = len > 2 ? lineArr[2] : null;
+                            totalExecuted = scheduleSetData(setDataClientId, data, totalExecuted);
+                            break;
+                    }
                 }
-            }
+            } catch (SchedulerConfigurationException e) {
+                LOG.info("SchedulerConfigurationException found when scheduling Trace {} in Step {} / {}. " +
+                                "Complete trace: {}", traceName, currentStep, stepCount, trace);
+            } finally {
+                statistics.endTimer();
 
-            for (Integer i: clientMap.keySet()) {
-                LOG.debug("shutting down client {}", i);
-                clientMap.get(i).shutdown();
-            }
-            clientMap.clear();
-            ensemble.stopEnsemble();
+                // report statistics of total trace
+                traceVerifier.setTraceLen(stepCount);
+                traceVerifier.setExecutedStep(currentStep);
+                traceVerifier.verify();
+                statistics.reportTotalExecutedEvents(totalExecuted);
+                statisticsWriter.write(statistics.toString() + "\n\n");
+                LOG.info(statistics.toString() + "\n\n\n\n\n");
 
-            executionWriter.close();
-            statisticsWriter.close();
+                // shutdown clients & servers
+                for (Integer i: clientMap.keySet()) {
+                    LOG.debug("shutting down client {}", i);
+                    clientMap.get(i).shutdown();
+                }
+                clientMap.clear();
+                ensemble.stopEnsemble();
+
+                executionWriter.close();
+                statisticsWriter.close();
+            }
         }
         LOG.debug("total time: {}" , (System.currentTimeMillis() - startTime));
         
     }
 
-    public int scheduleInternalEvent(ExternalModelStrategy strategy, String[] lineArr, int totalExecuted) {
+    public int scheduleInternalEvent(ExternalModelStrategy strategy, String[] lineArr, int totalExecuted) throws SchedulerConfigurationException {
         try {
             synchronized (controlMonitor) {
                 long startTime = System.currentTimeMillis();
@@ -398,8 +417,11 @@ public class TestingService implements TestingRemoteService {
                     recordProperties(totalExecuted, startTime, event);
                 }
             }
-        } catch (IOException | SchedulerConfigurationException e) {
+        } catch (IOException e) {
             e.printStackTrace();
+        } catch (SchedulerConfigurationException e2) {
+            LOG.debug("SchedulerConfigurationException found when scheduling {}!", Arrays.toString(lineArr));
+            throw e2;
         }
         return totalExecuted;
     }
@@ -540,6 +562,7 @@ public class TestingService implements TestingRemoteService {
         learnerHandlerMessageExecutor = new LearnerHandlerMessageExecutor(this);
 
         // Configure checkers
+        traceVerifier = new TraceVerifier(this, statistics);
         leaderElectionVerifier = new LeaderElectionVerifier(this, statistics);
         getDataVerifier = new GetDataVerifier(this, statistics);
 
