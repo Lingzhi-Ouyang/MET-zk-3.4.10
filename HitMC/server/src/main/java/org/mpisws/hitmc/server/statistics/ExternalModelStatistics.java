@@ -28,13 +28,15 @@ public class ExternalModelStatistics implements Statistics {
 
     private String property;
     private String result;
+    private String matchModel;
 
     @Override
     public void reportResult(final String result) {
         String[] arr = result.split(":");
-        assert arr.length == 2;
+        assert arr.length == 3;
         this.property = arr[0];
         this.result = arr[1];
+        this.matchModel = arr[2];
     }
 
     private int totalExecutedEvents;
@@ -62,6 +64,7 @@ public class ExternalModelStatistics implements Statistics {
                 "\n, totalTime = " + totalTime + " ms" +
                 "\n, checkingProperty = " + property +
                 "\n, result = " + result +
+                "\n, matchModel = " + matchModel +
                 "\n}";
     }
 }

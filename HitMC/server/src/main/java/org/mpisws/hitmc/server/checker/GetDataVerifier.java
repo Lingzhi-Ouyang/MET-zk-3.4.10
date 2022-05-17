@@ -13,28 +13,37 @@ public class GetDataVerifier implements Verifier{
 
     private final TestingService testingService;
     private final Statistics statistics;
+    private Integer modelResult = null;
 
     public GetDataVerifier(final TestingService testingService, Statistics statistics) {
         this.testingService = testingService;
         this.statistics = statistics;
     }
 
+    public void setModelResult(Integer modelResult) {
+        this.modelResult = modelResult;
+    }
+
     @Override
     public boolean verify() {
+        String matchModel = "UNMATCHED";
         List<Integer> returnedZxidList = testingService.getReturnedZxidList();
         final int len = returnedZxidList.size();
         assert len >= 2;
         final int latestOne = returnedZxidList.get(len - 1);
         final int latestSecond = returnedZxidList.get(len - 2);
         boolean result = latestOne >= latestSecond;
+        if (this.modelResult == null) {
+            matchModel = "UNKNOWN";
+        } else if (this.modelResult.equals(latestOne)){
+            matchModel = "MATCHED";
+        }
         if (result) {
-            LOG.debug("SUC");
-            statistics.reportResult("MONOTONIC_READ:SUCCESS");
+            statistics.reportResult("MONOTONIC_READ:SUCCESS:" + matchModel);
             return true;
         }
         else {
-            LOG.debug("FAIL");
-            statistics.reportResult("MONOTONIC_READ:FAILURE");
+            statistics.reportResult("MONOTONIC_READ:FAILURE:" + matchModel);
             return false;
         }
     }

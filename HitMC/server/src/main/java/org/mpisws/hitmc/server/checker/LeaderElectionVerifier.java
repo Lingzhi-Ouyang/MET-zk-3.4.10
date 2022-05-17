@@ -1,14 +1,12 @@
 package org.mpisws.hitmc.server.checker;
 
 import org.mpisws.hitmc.api.NodeState;
-import org.mpisws.hitmc.api.configuration.SchedulerConfiguration;
 import org.mpisws.hitmc.api.state.LeaderElectionState;
 import org.mpisws.hitmc.api.state.Vote;
 import org.mpisws.hitmc.server.TestingService;
 import org.mpisws.hitmc.server.statistics.Statistics;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 
 public class LeaderElectionVerifier implements Verifier {
 
@@ -16,10 +14,15 @@ public class LeaderElectionVerifier implements Verifier {
 
     private final TestingService testingService;
     private final Statistics statistics;
+    private Integer modelResult = null;
 
     public LeaderElectionVerifier(final TestingService testingService, Statistics statistics) {
         this.testingService = testingService;
         this.statistics = statistics;
+    }
+
+    public void setModelResult(Integer modelResult) {
+        this.modelResult = modelResult;
     }
 
     /***
@@ -31,6 +34,7 @@ public class LeaderElectionVerifier implements Verifier {
         // There should be a unique leader; everyone else should be following or observing that leader
         int leader = -1;
         boolean consensus = true;
+        String matchModel = "UNMATCHED";
         for (int nodeId = 0; nodeId < testingService.getSchedulerConfiguration().getNumNodes(); ++nodeId) {
             LOG.debug("--------------->Node Id: {}, NodeState: {}, " +
                             "leader: {},  isLeading: {}, " +
@@ -40,7 +44,6 @@ public class LeaderElectionVerifier implements Verifier {
                     isObservingOrFollowing(nodeId, leader), testingService.getVotes().get(nodeId)
             );
             if (NodeState.OFFLINE.equals(testingService.getNodeStates().get(nodeId))) {
-//                LOG.debug("NodeState.OFFLINE.equals(nodeStates.get(nodeId))");
                 continue;
             }
 
@@ -53,7 +56,6 @@ public class LeaderElectionVerifier implements Verifier {
              * In all other cases node is either still looking, or is another leader, or is following the wrong leader
              */
             if (leader == -1 && isLeading(nodeId)) {
-//                LOG.debug("leader == -1 && isLeading(nodeId)");
                 leader = nodeId;
             }
             else if (leader == -1 && isObservingOrFollowing(nodeId)) {
@@ -66,19 +68,21 @@ public class LeaderElectionVerifier implements Verifier {
             }
             else if (!((leader == nodeId && isLeading(nodeId)) ||
                     (leader != -1 && isObservingOrFollowing(nodeId, leader)))) {
-//                LOG.debug("------->else");
                 consensus = false;
                 break;
             }
         }
+        if (this.modelResult == null) {
+            matchModel = "UNKNOWN";
+        } else if (this.modelResult.equals(leader)){
+            matchModel = "MATCHED";
+        }
         if (leader != -1 && consensus) {
-            LOG.debug("SUC");
-            statistics.reportResult("ELECTION:SUCCESS");
+            statistics.reportResult("ELECTION:SUCCESS:" + matchModel);
             return true;
         }
         else {
-            LOG.debug("FAIL");
-            statistics.reportResult("ELECTION:FAILURE");
+            statistics.reportResult("ELECTION:FAILURE:" + matchModel);
             return false;
         }
     }
@@ -105,5 +109,4 @@ public class LeaderElectionVerifier implements Verifier {
     private boolean isLooking(final int nodeId) {
         return LeaderElectionState.LOOKING.equals(testingService.getLeaderElectionStates().get(nodeId));
     }
-
 }

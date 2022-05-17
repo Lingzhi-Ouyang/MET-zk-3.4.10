@@ -209,7 +209,7 @@ public class TestingService implements TestingRemoteService {
             executionWriter.write("-----Initialization cost time: " + (System.currentTimeMillis() - startTime) + "\n\n");
 
             // PRE: first election
-            totalExecuted = scheduleElection(totalExecuted);
+            totalExecuted = scheduleElection(null, totalExecuted);
 
             // Only the success of the last verification will lead to the following test
             // o.w. just report bug
@@ -307,10 +307,9 @@ public class TestingService implements TestingRemoteService {
                 String action = lineArr[0];
                 switch (action) {
                     case "ELECTION":
-                        assert len==2;
-                        int leaderId = Integer.parseInt(lineArr[1]);
+                        Integer leaderId = len > 1 ? Integer.parseInt(lineArr[1]) : null;
                         LOG.debug("election leader: {}", leaderId);
-                        totalExecuted = scheduleElection(totalExecuted);
+                        totalExecuted = scheduleElection(leaderId, totalExecuted);
                         break;
 //                    case "LOG_REQUEST":
 //                        assert len==2;
@@ -358,14 +357,16 @@ public class TestingService implements TestingRemoteService {
                         establishSession(clientId, true, serverAddr);
                         break;
                     case "GET_DATA":
-                        assert len==2;
+                        assert len>1;
                         int getDataClientId = Integer.parseInt(lineArr[1]);
-                        totalExecuted = scheduleGetData(getDataClientId, totalExecuted);
+                        Integer result = len > 2 ? Integer.parseInt(lineArr[2]) : null;
+                        totalExecuted = scheduleGetData(getDataClientId, result, totalExecuted);
                         break;
                     case "SET_DATA":
-                        assert len==2;
+                        assert len>1;
                         int setDataClientId = Integer.parseInt(lineArr[1]);
-                        totalExecuted = scheduleSetData(setDataClientId, totalExecuted);
+                        String data = len > 2 ? lineArr[2] : null;
+                        totalExecuted = scheduleSetData(setDataClientId, data, totalExecuted);
                         break;
                 }
             }
@@ -619,10 +620,11 @@ public class TestingService implements TestingRemoteService {
      * Pre-condition: all nodes steady
      * Post-condition: all nodes voted & all nodes steady before request
      * Property check: one leader has been elected
+     * @param leaderId the leader that model specifies
      * @param totalExecuted the number of previous executed events
      * @return the number of executed events
      */
-    public int scheduleElection(int totalExecuted) {
+    public int scheduleElection(Integer leaderId, int totalExecuted) {
         try{
 //            statistics.startTimer();
             synchronized (controlMonitor) {
@@ -652,6 +654,7 @@ public class TestingService implements TestingRemoteService {
             }
             statistics.endTimer();
             // check election results
+            leaderElectionVerifier.setModelResult(leaderId);
             leaderElectionVerifier.verify();
             // report statistics
             statistics.reportTotalExecutedEvents(totalExecuted);
@@ -856,16 +859,21 @@ public class TestingService implements TestingRemoteService {
     }
 
     /***
-     * setData
+     * setData with specific data
+     * if without specific data, will use eventId as its written string value
      */
-    private int scheduleSetData(final int clientId, int totalExecuted) {
+    private int scheduleSetData(final int clientId, final String data, int totalExecuted) {
         try {
             synchronized (controlMonitor) {
-                // make DIFF: client set >> leader log >> leader restart >> re-election
-                // Step 1. client request SET_DATA
                 long startTime = System.currentTimeMillis();
-                Event event = new ClientRequestEvent(generateEventId(), clientId,
-                        ClientRequestType.SET_DATA, clientRequestExecutor);
+                Event event;
+                if (data == null) {
+                    event = new ClientRequestEvent(generateEventId(), clientId,
+                            ClientRequestType.SET_DATA, clientRequestExecutor);
+                } else {
+                    event = new ClientRequestEvent(generateEventId(), clientId,
+                            ClientRequestType.SET_DATA, data, clientRequestExecutor);
+                }
                 LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
                 LOG.debug("prepare to execute event: {}", event);
                 if (event.execute()) {
@@ -882,11 +890,9 @@ public class TestingService implements TestingRemoteService {
     /***
      * getData
      */
-    private int scheduleGetData(final int clientId, int totalExecuted) {
+    private int scheduleGetData(final int clientId, final Integer modelResult, int totalExecuted) {
         try {
             synchronized (controlMonitor) {
-                // make DIFF: client set >> leader log >> leader restart >> re-election
-                // Step 1. client request SET_DATA
                 long startTime = System.currentTimeMillis();
                 Event event = new ClientRequestEvent(generateEventId(), clientId,
                         ClientRequestType.GET_DATA, clientRequestWaitingResponseExecutor);
@@ -899,6 +905,7 @@ public class TestingService implements TestingRemoteService {
             }
             statistics.endTimer();
             // check election results
+            getDataVerifier.setModelResult(modelResult);
             getDataVerifier.verify();
             // report statistics
             statistics.reportTotalExecutedEvents(totalExecuted);
@@ -918,7 +925,7 @@ public class TestingService implements TestingRemoteService {
             synchronized (controlMonitor) {
                 long startTime = System.currentTimeMillis();
                 Event event = schedulingStrategy.nextEvent();
-                // this may be trapped in loop
+                // may be trapped in loop
                 while (!(event instanceof RequestEvent) ||
                         !(SubnodeType.SYNC_PROCESSOR.equals(((RequestEvent) event).getSubnodeType())) ||
                         ((RequestEvent) event).getNodeId() != nodeId){
