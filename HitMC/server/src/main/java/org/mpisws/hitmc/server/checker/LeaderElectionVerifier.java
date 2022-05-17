@@ -10,14 +10,14 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 
-public class LeaderElectionVerifier {
+public class LeaderElectionVerifier implements Verifier {
 
     private static final Logger LOG = LoggerFactory.getLogger(LeaderElectionVerifier.class);
 
     private final TestingService testingService;
     private final Statistics statistics;
 
-    public  LeaderElectionVerifier(final TestingService testingService, Statistics statistics) {
+    public LeaderElectionVerifier(final TestingService testingService, Statistics statistics) {
         this.testingService = testingService;
         this.statistics = statistics;
     }
@@ -26,6 +26,7 @@ public class LeaderElectionVerifier {
      * Verify whether the result of the leader election achieves consensus
      * @return whether the result of the leader election achieves consensus
      */
+    @Override
     public boolean verify() {
         // There should be a unique leader; everyone else should be following or observing that leader
         int leader = -1;
@@ -72,12 +73,12 @@ public class LeaderElectionVerifier {
         }
         if (leader != -1 && consensus) {
             LOG.debug("SUC");
-            statistics.reportResult("SUCCESS");
+            statistics.reportResult("ELECTION:SUCCESS");
             return true;
         }
         else {
             LOG.debug("FAIL");
-            statistics.reportResult("FAILURE");
+            statistics.reportResult("ELECTION:FAILURE");
             return false;
         }
     }
