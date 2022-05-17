@@ -13,11 +13,12 @@ public class GetDataVerifier implements Verifier{
 
     private final TestingService testingService;
     private final Statistics statistics;
-    private Integer modelResult = null;
+    private Integer modelResult;
 
     public GetDataVerifier(final TestingService testingService, Statistics statistics) {
         this.testingService = testingService;
         this.statistics = statistics;
+        this.modelResult = null;
     }
 
     public void setModelResult(Integer modelResult) {
