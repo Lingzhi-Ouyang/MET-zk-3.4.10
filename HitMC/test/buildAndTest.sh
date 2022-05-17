@@ -21,4 +21,5 @@ cd $WORKING_DIR/HitMC/test
 tag=`date "+%y-%m-%d-%H-%M-%S"`
 mkdir $tag
 cp zk_log.properties $tag
-nohup java -jar ../zookeeper-ensemble/target/zookeeper-ensemble-jar-with-dependencies.jar zookeeper.properties $tag > $tag/$tag.out 2>&1 &
+# enable assertions!
+nohup java -ea -jar ../zookeeper-ensemble/target/zookeeper-ensemble-jar-with-dependencies.jar zookeeper.properties $tag > $tag/$tag.out 2>&1 &
