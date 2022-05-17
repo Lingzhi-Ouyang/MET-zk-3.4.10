@@ -26,11 +26,15 @@ public class ExternalModelStatistics implements Statistics {
         endTime = System.currentTimeMillis();
     }
 
+    private String property;
     private String result;
 
     @Override
     public void reportResult(final String result) {
-        this.result = result;
+        String[] arr = result.split(":");
+        assert arr.length == 2;
+        this.property = arr[0];
+        this.result = arr[1];
     }
 
     private int totalExecutedEvents;
@@ -53,9 +57,10 @@ public class ExternalModelStatistics implements Statistics {
         final long totalTime = endTime - startTime;
         return "ExternalModelStatistics{" +
                 "\n, totalEvents = " + totalExecutedEvents +
-                "\n, averageEnabledEvents = " + avgEnabledEvents +
+                "\n, averageEnabledEvents = " + String.format("%.3f", avgEnabledEvents) +
                 "\n, maxEnabledEvents = " + maxEnabledEvents +
                 "\n, totalTime = " + totalTime + " ms" +
+                "\n, checkingProperty = " + property +
                 "\n, result = " + result +
                 "\n}";
     }
