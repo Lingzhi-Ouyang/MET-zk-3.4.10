@@ -39,12 +39,16 @@ public class GetDataVerifier implements Verifier{
         } else if (this.modelResult.equals(latestOne)){
             matchModel = "MATCHED";
         }
+        if (matchModel.equals("UNMATCHED")) {
+            testingService.traceMatched = false;
+        }
         if (result) {
             statistics.reportResult("MONOTONIC_READ:SUCCESS:" + matchModel);
             return true;
         }
         else {
             statistics.reportResult("MONOTONIC_READ:FAILURE:" + matchModel);
+            testingService.tracePassed = false;
             return false;
         }
     }

@@ -36,17 +36,19 @@ public class TraceVerifier implements Verifier{
 
     @Override
     public boolean verify() {
+        String passTest = testingService.tracePassed ? "PASS" : "FAILURE";
+
         String matchModel = "UNMATCHED";
         if (traceLen == null || executedStep == null) {
             matchModel = "UNKNOWN";
-            statistics.reportResult("TRACE_EXECUTION:FAILURE:" + matchModel);
-            return false;
         } else if (executedStep == traceLen + 1) {
             matchModel = "MATCHED";
-            statistics.reportResult("TRACE_EXECUTION:SUCCESS:" + matchModel);
-            return true;
         }
-        statistics.reportResult("TRACE_EXECUTION:FAILURE:" + matchModel);
-        return false;
+        if (matchModel.equals("UNMATCHED")) {
+            testingService.traceMatched = false;
+        }
+        statistics.reportResult("TRACE_EXECUTION:" + passTest + ":" + matchModel);
+
+        return testingService.traceMatched && testingService.tracePassed;
     }
 }

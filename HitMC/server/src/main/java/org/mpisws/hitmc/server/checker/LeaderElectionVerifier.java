@@ -78,12 +78,16 @@ public class LeaderElectionVerifier implements Verifier {
         } else if (this.modelResult.equals(leader)){
             matchModel = "MATCHED";
         }
+        if (matchModel.equals("UNMATCHED")) {
+            testingService.traceMatched = false;
+        }
         if (leader != -1 && consensus) {
             statistics.reportResult("ELECTION:SUCCESS:" + matchModel);
             return true;
         }
         else {
             statistics.reportResult("ELECTION:FAILURE:" + matchModel);
+            testingService.tracePassed = false;
             return false;
         }
     }

@@ -42,6 +42,7 @@ public class TestingService implements TestingRemoteService {
 
     private Map<Integer, ClientProxy> clientMap = new HashMap<>();
 
+    // strategy
     private SchedulingStrategy schedulingStrategy;
 
     // External event executors
@@ -57,12 +58,15 @@ public class TestingService implements TestingRemoteService {
     private RequestProcessorExecutor requestProcessorExecutor; // for logging
     private LearnerHandlerMessageExecutor learnerHandlerMessageExecutor; // for learnerHandler-follower
 
+    // statistics
     private Statistics statistics;
 
+    // checker
     private TraceVerifier traceVerifier;
     private LeaderElectionVerifier leaderElectionVerifier;
     private GetDataVerifier getDataVerifier;
 
+    // writer
     private FileWriter statisticsWriter;
     private FileWriter executionWriter;
     //private FileWriter vectorClockWriter;
@@ -75,6 +79,7 @@ public class TestingService implements TestingRemoteService {
     // For network partition
     private List<List<Boolean>> partitionMap = new ArrayList<>();
 
+    // node management
     private final List<NodeState> nodeStates = new ArrayList<>();
     private final List<Phase> nodePhases = new ArrayList<>();
 
@@ -88,6 +93,15 @@ public class TestingService implements TestingRemoteService {
     // properties
     private final List<Long> lastProcessedZxids = new ArrayList<>();
 
+    private final List<Vote> votes = new ArrayList<>();
+    private final List<LeaderElectionState> leaderElectionStates = new ArrayList<>();
+
+    private final List<Integer> returnedZxidList = new ArrayList<>();
+
+    public boolean traceMatched;
+    public boolean tracePassed;
+
+    // event
     private final AtomicInteger eventIdGenerator = new AtomicInteger();
 
     private final AtomicInteger clientIdGenerator = new AtomicInteger();
@@ -103,11 +117,6 @@ public class TestingService implements TestingRemoteService {
     private int messageInFlight;
 
     private int logRequestInFlight;
-
-    private final List<Vote> votes = new ArrayList<>();
-    private final List<LeaderElectionState> leaderElectionStates = new ArrayList<>();
-
-    private final List<Integer> returnedZxidList = new ArrayList<>();
 
     public List<Integer> getReturnedZxidList() {
         return returnedZxidList;
@@ -266,7 +275,6 @@ public class TestingService implements TestingRemoteService {
     public void startWithExternalModel() throws SchedulerConfigurationException, IOException {
         LOG.debug("Starting the testing service by external model");
         ExternalModelStatistics externalModelStatistics = new ExternalModelStatistics();
-        statistics = externalModelStatistics;
         ExternalModelStrategy externalModelStrategy = new ExternalModelStrategy(this, new Random(1), schedulerConfiguration.getTraceDir(), externalModelStatistics);
 
         long startTime = System.currentTimeMillis();
@@ -275,6 +283,8 @@ public class TestingService implements TestingRemoteService {
 
         for (int executionId = 1; executionId <= traceNum; ++executionId) {
             schedulingStrategy = externalModelStrategy;
+            statistics = externalModelStatistics;
+
             Trace trace = externalModelStrategy.getCurrentTrace(executionId - 1);
             String traceName = trace.getTraceName();
             int stepCount = trace.getStepNum();
@@ -377,6 +387,7 @@ public class TestingService implements TestingRemoteService {
             } catch (SchedulerConfigurationException e) {
                 LOG.info("SchedulerConfigurationException found when scheduling Trace {} in Step {} / {}. " +
                                 "Complete trace: {}", traceName, currentStep, stepCount, trace);
+                tracePassed = false;
             } finally {
                 statistics.endTimer();
 
@@ -575,6 +586,9 @@ public class TestingService implements TestingRemoteService {
 
         returnedZxidList.clear();
         returnedZxidList.add(0);
+
+        traceMatched = true;
+        tracePassed = true;
 
         // Configure nodes and subnodes
         lastProcessedZxids.clear();
