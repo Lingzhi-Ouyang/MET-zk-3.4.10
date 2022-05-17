@@ -30,7 +30,7 @@ public class ZookeeperConfiguration implements SchedulerConfiguration {
     private static final String DEFAULT_TICK_TIME = "2000"; // set it smaller!
 
     private static final String DEFAULT_INIT_LIMIT = "10"; // set it smaller!
-    private static final String DEFAULT_SYNC_LIMIT = "5"; // set it smaller!
+    private static final String DEFAULT_SYNC_LIMIT = "2"; // set it smaller!
     private static final String DEFAULT_CLIENT_PORT = "4000";
     private static final String DEFAULT_BASE_QUORUM_PORT = "2000";
     private static final String DEFAULT_BASE_LEADER_ELECTION_PORT = "5000";
