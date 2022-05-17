@@ -82,8 +82,8 @@ public class ClientRequestExecutor extends BaseEventExecutor {
                 // TODO: This should set the leader learnerHandlerSender / syncProcessor into PROCESSING state
                 // TODO: what if leader does not exist?
 
-                String data = String.valueOf(event.getId());
-                event.setData(data);
+//                String data = String.valueOf(event.getId());
+//                event.setData(data);
                 testingService.getRequestQueue(clientId).offer(event);
                 // notifyAll() should be called after related states have been changed
                 testingService.getControlMonitor().notifyAll();

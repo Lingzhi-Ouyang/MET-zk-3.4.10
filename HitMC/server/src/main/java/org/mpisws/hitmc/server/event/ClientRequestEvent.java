@@ -15,12 +15,23 @@ public class ClientRequestEvent extends AbstractEvent{
     private String data = null;
     private String result = null;
 
-    public ClientRequestEvent(final int id, final int clientId, ClientRequestType type, ClientRequestExecutor eventExecutor) {
+    public ClientRequestEvent(final int id, final int clientId, ClientRequestType type,
+                              ClientRequestExecutor eventExecutor) {
         super(id, eventExecutor);
         this.type = type;
         this.clientId = clientId;
         if (ClientRequestType.SET_DATA.equals(type)){
             this.data = String.valueOf(id);
+        }
+    }
+
+    public ClientRequestEvent(final int id, final int clientId, ClientRequestType type, final String data,
+                              ClientRequestExecutor eventExecutor) {
+        super(id, eventExecutor);
+        this.type = type;
+        this.clientId = clientId;
+        if (ClientRequestType.SET_DATA.equals(type)){
+            this.data = data;
         }
     }
 
@@ -34,10 +45,6 @@ public class ClientRequestEvent extends AbstractEvent{
 
     public String getData() {
         return data;
-    }
-
-    public void setData(String data) {
-        this.data = data;
     }
 
     public String getResult() {

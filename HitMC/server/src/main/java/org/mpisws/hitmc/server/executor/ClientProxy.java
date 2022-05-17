@@ -156,7 +156,7 @@ public class ClientProxy extends Thread{
 //                        e.printStackTrace();
 ////                    break;
 //                    }
-//                }.
+//                }
                 LOG.debug("---done wait for GET_DATA result: {}", result);
                 event.setResult(result);
                 break;
