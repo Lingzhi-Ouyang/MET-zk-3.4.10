@@ -38,7 +38,7 @@ public class TestingService implements TestingRemoteService {
     @Autowired
     private Ensemble ensemble;
 
-    private ClientProxy clientProxy;
+    private Map<Integer, ClientProxy> clientMap = new HashMap<>();
 
     private SchedulingStrategy schedulingStrategy;
 
@@ -87,6 +87,8 @@ public class TestingService implements TestingRemoteService {
     private final List<Long> lastProcessedZxids = new ArrayList<>();
 
     private final AtomicInteger eventIdGenerator = new AtomicInteger();
+
+    private final AtomicInteger clientIdGenerator = new AtomicInteger();
 
     // for event dependency
     private final Map<Integer, MessageEvent> messageEventMap = new HashMap<>();
@@ -161,16 +163,13 @@ public class TestingService implements TestingRemoteService {
         return nodeCrashExecutor;
     }
 
-    public ClientProxy getClientProxy() {
-        return clientProxy;
+    public ClientProxy getClientProxy(final int clientId) {
+        assert clientMap.containsKey(clientId);
+        return clientMap.get(clientId);
     }
 
-    public LinkedBlockingQueue<ClientRequestEvent> getRequestQueue() {
-        return clientProxy.getRequestQueue();
-    }
-
-    public LinkedBlockingQueue<String> getResponseQueue() {
-        return clientProxy.getResponseQueue();
+    public LinkedBlockingQueue<ClientRequestEvent> getRequestQueue(final int clientId) {
+        return clientMap.get(clientId).getRequestQueue();
     }
 
     public SchedulerConfiguration getSchedulerConfiguration() {
@@ -182,15 +181,15 @@ public class TestingService implements TestingRemoteService {
     }
 
     /***
-     * The core process the scheduler
-     * steps of ZK-3911
+     * The core process the scheduler by specifying each step
+     * example: steps of ZK-3911
      * @throws SchedulerConfigurationException
      * @throws IOException
      */
     public void start() throws SchedulerConfigurationException, IOException {
-        LOG.debug("Starting the scheduler");
+        LOG.debug("Starting the testing service");
         long startTime = System.currentTimeMillis();
-        initRemote();
+//        initRemote();
 
         for (int executionId = 1; executionId <= schedulerConfiguration.getNumExecutions(); ++executionId) {
             ensemble.configureEnsemble(executionId);
@@ -212,7 +211,6 @@ public class TestingService implements TestingRemoteService {
             // Start the timer for recoding statistics
             statistics.startTimer();
 
-            // TODO: refactor the steps
             // PRE: first election
             totalExecuted = scheduleElection(totalExecuted);
 
@@ -220,33 +218,37 @@ public class TestingService implements TestingRemoteService {
             // o.w. just report bug
 
             // 1. trigger DIFF
-//            configureAfterElection();
-            createClient(true, "127.0.0.1:4002");
+            int client1 = generateClientId();
+//            createClient(client1, true, "127.0.0.1:4002");
+            establishSession(client1, true, "127.0.0.1:4002");
 
             // Restart the leader will disconnect the client session!
 //            nodeStartExecutor = new NodeStartExecutor(this, 1);
 //            nodeCrashExecutor = new NodeCrashExecutor(this, 1);
-//            totalExecuted = triggerDiffByLeaderRestart(totalExecuted);
+//            totalExecuted = triggerDiffByLeaderRestart(totalExecuted, client1);
 
             nodeStartExecutor = new NodeStartExecutor(this, 2);
             nodeCrashExecutor = new NodeCrashExecutor(this, 2);
-            totalExecuted = triggerDiffByFollowersRestart(totalExecuted);
+            totalExecuted = triggerDiffByFollowersRestart(totalExecuted, client1);
 
-//            totalExecuted = scheduleFirstElection(totalExecuted);
-//            createClient(true, "127.0.0.1:4002");
             // Ensure client session still in connection!
-            totalExecuted = getDataTest(totalExecuted);
+            totalExecuted = getDataTest(totalExecuted, client1);
 
             // 2. phantom read
             // Reconfigure executors
             nodeStartExecutor = new NodeStartExecutor(this, 2);
             nodeCrashExecutor = new NodeCrashExecutor(this, 3);
-            totalExecuted = phantomRead(totalExecuted);
+            totalExecuted = followersRestartAndLeaderCrash(totalExecuted);
 
-            createClient(true, "127.0.0.1:4001");
-            totalExecuted = getDataTest(totalExecuted);
+            int client2 = generateClientId();
+//            createClient(client2, true, "127.0.0.1:4001");
+            establishSession(client2, true, "127.0.0.1:4001");
+            totalExecuted = getDataTest(totalExecuted, client2);
 
-            clientProxy.shutdown();
+            for (ClientProxy clientProxy: clientMap.values()) {
+                clientProxy.shutdown();
+            }
+            clientMap.clear();
             ensemble.stopEnsemble();
 
 
@@ -256,7 +258,130 @@ public class TestingService implements TestingRemoteService {
         LOG.debug("total time: {}" , (System.currentTimeMillis() - startTime));
     }
 
-    private void initRemote() {
+    /***
+     * The core process the scheduler by external model
+     * example: steps of ZK-3911
+     * @throws SchedulerConfigurationException
+     * @throws IOException
+     */
+    public void startWithExternalModel() throws SchedulerConfigurationException, IOException {
+        LOG.debug("Starting the testing service by external model");
+        ExternalModelStatistics externalModelStatistics = new ExternalModelStatistics();
+        statistics = externalModelStatistics;
+        ExternalModelStrategy externalModelStrategy = new ExternalModelStrategy(this, new Random(1), schedulerConfiguration.getTraceDir(), externalModelStatistics);
+
+        long startTime = System.currentTimeMillis();
+        int traceNum = externalModelStrategy.getTracesNum();
+        LOG.debug("traceNum: {}", traceNum);
+
+        for (int executionId = 1; executionId <= traceNum; ++executionId) {
+            schedulingStrategy = externalModelStrategy;
+            Trace trace = externalModelStrategy.getCurrentTrace(executionId - 1);
+            String traceName = trace.getTraceName();
+            int stepCount = trace.getStepNum();
+            LOG.info("currentTrace: {}, step: {}", trace, stepCount);
+
+            ensemble.configureEnsemble(executionId);
+//            configureSchedulingStrategy(executionId);
+
+            int totalExecuted = 0;
+
+            executionWriter = new FileWriter(schedulerConfiguration.getWorkingDir() + File.separator
+                    + executionId + File.separator + schedulerConfiguration.getExecutionFile());
+            statisticsWriter = new FileWriter(schedulerConfiguration.getWorkingDir() + File.separator
+                    + executionId + File.separator + schedulerConfiguration.getStatisticsFile());
+
+            // configure the execution before first election
+            configureNextExecution();
+            // start the ensemble at the beginning of the execution
+            ensemble.startEnsemble();
+            executionWriter.write("-----Initialization cost time: " + (System.currentTimeMillis() - startTime) + "\n\n");
+
+            // Start the timer for recoding statistics
+            statistics.startTimer();
+
+            for (int currentStep = 1; currentStep <= stepCount; ++currentStep) {
+                String line = trace.nextStep();
+                LOG.debug("nextStep: {}", line);
+
+                String[] lineArr = line.split(" ");
+                int len = lineArr.length;
+
+                String action = lineArr[0];
+                switch (action) {
+                    case "ELECTION":
+                        assert len==2;
+                        int leaderId = Integer.parseInt(lineArr[1]);
+                        LOG.debug("election leader: {}", leaderId);
+                        totalExecuted = scheduleElection(totalExecuted);
+                        break;
+                    case "LOG_REQUEST":
+                        assert len==2;
+                        totalExecuted = scheduleLogRequest(totalExecuted);
+                        break;
+                    case "COMMIT":
+                        assert len==2;
+                        break;
+                    case "NODE_CRASH":
+                        assert len==2;
+                        int crashNodeId = Integer.parseInt(lineArr[1]);
+                        totalExecuted = scheduleNodeCrash(crashNodeId, totalExecuted);
+                        break;
+                    case "NODE_START":
+                        assert len==2;
+                        int startNodeId = Integer.parseInt(lineArr[1]);
+                        totalExecuted = ScheduleNodeStart(startNodeId, totalExecuted);
+                        break;
+                    case "PARTITION_START":
+                        assert len==2;
+                        break;
+                    case "PARTITION_STOP":
+                        assert len==2;
+                        break;
+                    case "ESTABLISH_SESSION":
+                        assert len==3;
+                        int clientId = Integer.parseInt(lineArr[1]);
+                        int serverId = Integer.parseInt(lineArr[2]);
+                        String serverAddr = getServerAddr(serverId);
+                        LOG.debug("client establish connection with server {}", serverAddr);
+                        establishSession(clientId, true, serverAddr);
+                        break;
+                    case "GET_DATA":
+                        assert len==2;
+                        int getDataClientId = Integer.parseInt(lineArr[1]);
+                        totalExecuted = scheduleGetData(getDataClientId, totalExecuted);
+                        break;
+                    case "SET_DATA":
+                        assert len==2;
+                        int setDataClientId = Integer.parseInt(lineArr[1]);
+                        totalExecuted = scheduleSetData(setDataClientId, totalExecuted);
+                        break;
+                }
+            }
+
+            for (ClientProxy clientProxy: clientMap.values()) {
+
+                clientProxy.shutdown();
+            }
+            clientMap.clear();
+            ensemble.stopEnsemble();
+
+            executionWriter.close();
+            statisticsWriter.close();
+        }
+        LOG.debug("total time: {}" , (System.currentTimeMillis() - startTime));
+        
+    }
+
+    public Event getNextEventFromModel(String line, int seq) {
+        return null;
+    }
+
+    public String getServerAddr(int serverId) {
+        return "127.0.0.1:" + (4000+serverId);
+    }
+
+    public void initRemote() {
         try {
             final TestingRemoteService schedulerRemote = (TestingRemoteService) UnicastRemoteObject.exportObject(this, 0);
             final Registry registry = LocateRegistry.createRegistry(2599);
@@ -408,6 +533,9 @@ public class TestingService implements TestingRemoteService {
             followerSocketAddressBook.add(null);
         }
 
+        // configure client map
+        clientMap.clear();
+
         // configure network partion info
         partitionMap.clear();
         partitionMap.addAll(Collections.nCopies(schedulerConfiguration.getNumNodes(),
@@ -419,6 +547,8 @@ public class TestingService implements TestingRemoteService {
 //        getSubNodeByID = new HashMap<>();
 
         eventIdGenerator.set(0);
+        clientIdGenerator.set(0);
+
         messageEventMap.clear();
         messageInFlight = 0;
         logRequestInFlight = 0;
@@ -430,7 +560,7 @@ public class TestingService implements TestingRemoteService {
         votes.addAll(Collections.<Vote>nCopies(schedulerConfiguration.getNumNodes(), null));
 
         leaderElectionStates.clear();
-        leaderElectionStates.addAll(Collections.nCopies(schedulerConfiguration.getNumNodes(), LeaderElectionState.NULL));
+        leaderElectionStates.addAll(Collections.nCopies(schedulerConfiguration.getNumNodes(), LeaderElectionState.LOOKING));
 
         // Configure lastNodeStartEvents
         lastNodeStartEvents.clear();
@@ -449,28 +579,12 @@ public class TestingService implements TestingRemoteService {
      * Configure all testing metadata after election
      */
     private void configureAfterElection(String serverList) {
-//        // Initialize zkClients
-        createClient(true, serverList);
-
-//        // provide initial client requests
-//        final ClientRequestEvent getDataEvent = new ClientRequestEvent(generateEventId(),
-//                ClientRequestType.GET_DATA, clientRequestExecutor);
-//        addEvent(getDataEvent);
-//        final ClientRequestEvent setDataEvent = new ClientRequestEvent(generateEventId(),
-//                ClientRequestType.SET_DATA, clientRequestExecutor);
-//        addEvent(setDataEvent);
+        // Initialize zkClients
+        createClient(1, true, serverList);
 
         // Reconfigure executors
         nodeStartExecutor = new NodeStartExecutor(this, schedulerConfiguration.getNumRebootsAfterElection());
         nodeCrashExecutor = new NodeCrashExecutor(this, schedulerConfiguration.getNumCrashesAfterElection());
-//
-//        // Generate node crash events
-//        if (schedulerConfiguration.getNumCrashes() > 0) {
-//            for (int i = 0; i < schedulerConfiguration.getNumNodes(); i++) {
-//                final NodeCrashEvent nodeCrashEvent = new NodeCrashEvent(generateEventId(), i, nodeCrashExecutor);
-//                schedulingStrategy.add(nodeCrashEvent);
-//            }
-//        }
     }
 
     /***
@@ -481,23 +595,32 @@ public class TestingService implements TestingRemoteService {
      * @param totalExecuted the number of previous executed events
      * @return the number of executed events
      */
-    private int scheduleElection(int totalExecuted) {
+    public int scheduleElection(int totalExecuted) {
         try{
             synchronized (controlMonitor) {
                 // pre-condition
-                waitAllNodesSteady();
+//                waitAllNodesSteady();
+                waitAllNodesInLookingState();
                 while (schedulingStrategy.hasNextEvent() && totalExecuted < 100) {
                     long begintime = System.currentTimeMillis();
                     LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
                     final Event event = schedulingStrategy.nextEvent();
+                    if (event instanceof LearnerHandlerMessageEvent) {
+                        final int sendingSubnodeId = ((LearnerHandlerMessageEvent) event).getSendingSubnodeId();
+                        // confirm this works / use partition / let
+                        deregisterSubnode(sendingSubnodeId);
+                        ((LearnerHandlerMessageEvent) event).setExecuted();
+                        LOG.debug("----Do not let the previous learner handler message occur here! So pass this event---------\n\n\n");
+                        continue;
+                    }
                     if (event.execute()) {
                         ++totalExecuted;
                         recordProperties(totalExecuted, begintime, event);
                     }
                 }
-                // wait whenever an election ends
+                // pre-condition for election property check
                 waitAllNodesVoted();
-                waitAllNodesSteadyBeforeRequest();
+//                waitAllNodesSteadyBeforeRequest();
             }
             statistics.endTimer();
             // check election results
@@ -648,19 +771,20 @@ public class TestingService implements TestingRemoteService {
     /***
      * create client session
      * Note: when client is initializing, servers are better not allowed to be intercepted
-     *      or the initialization will fail.
+     *      o.w. the initialization may be blocked and fail.
      */
-    private void createClient(boolean resetConnectionState, String serverList) {
+    private void createClient(final int clientId, final boolean resetConnectionState, final String serverList) {
         if (resetConnectionState) {
             clientInitializationDone = false;
         }
-        clientProxy = new ClientProxy(this, serverList);
+        ClientProxy clientProxy = new ClientProxy(this, clientId, serverList);
+        clientMap.put(clientId, clientProxy);
         LOG.debug("------------------start the client session initialization------------------");
 
         clientProxy.start();
         synchronized (controlMonitor) {
             controlMonitor.notifyAll();
-            waitClientSessionReady();
+            waitClientSessionReady(clientId);
         }
         clientInitializationDone = true;
 
@@ -677,11 +801,163 @@ public class TestingService implements TestingRemoteService {
     }
 
     /***
+     * create client session
+     * Note: when client is initializing, servers are better not allowed to be intercepted
+     *      o.w. the initialization may be blocked and fail.
+     */
+    private void establishSession(final int clientId, final boolean resetConnectionState, final String serverList) {
+        synchronized (controlMonitor) {
+            // pre-condition
+            waitAllNodesSteadyBeforeRequest();
+            if (resetConnectionState) {
+                clientInitializationDone = false;
+            }
+            ClientProxy clientProxy = new ClientProxy(this, clientId, serverList);
+            clientMap.put(clientId, clientProxy);
+
+            LOG.debug("------------------start the client session initialization------------------");
+            clientProxy.start();
+            controlMonitor.notifyAll();
+            // post-condition
+            waitClientSessionReady(clientId);
+
+            clientInitializationDone = true;
+
+            LOG.debug("------------------finish the client session initialization------------------\n");
+        }
+    }
+
+    /***
+     * setData
+     */
+    private int scheduleSetData(final int clientId, int totalExecuted) {
+        try {
+            synchronized (controlMonitor) {
+                // make DIFF: client set >> leader log >> leader restart >> re-election
+                // Step 1. client request SET_DATA
+                long startTime = System.currentTimeMillis();
+                Event event = new ClientRequestEvent(generateEventId(), clientId,
+                        ClientRequestType.SET_DATA, clientRequestExecutor);
+                LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
+                LOG.debug("prepare to execute event: {}", event);
+                if (event.execute()) {
+                    ++totalExecuted;
+                    recordProperties(totalExecuted, startTime, event);
+                }
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return totalExecuted;
+    }
+
+    /***
+     * getData
+     */
+    private int scheduleGetData(final int clientId, int totalExecuted) {
+        try {
+            synchronized (controlMonitor) {
+                // make DIFF: client set >> leader log >> leader restart >> re-election
+                // Step 1. client request SET_DATA
+                long startTime = System.currentTimeMillis();
+                Event event = new ClientRequestEvent(generateEventId(), clientId,
+                        ClientRequestType.GET_DATA, clientRequestWaitingResponseExecutor);
+                LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
+                LOG.debug("prepare to execute event: {}", event);
+                if (event.execute()) {
+                    ++totalExecuted;
+                    recordProperties(totalExecuted, startTime, event);
+                }
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return totalExecuted;
+    }
+
+    /***
+     * log request
+     */
+    private int scheduleLogRequest(int totalExecuted) {
+        try {
+            synchronized (controlMonitor) {
+                long startTime = System.currentTimeMillis();
+                Event event = schedulingStrategy.nextEvent();
+                while (!(event instanceof RequestEvent) ||
+                        !(SubnodeType.SYNC_PROCESSOR.equals(((RequestEvent) event).getSubnodeType()))){
+                    LOG.debug("-------need SyncRequestEvent! get event: {}", event);
+                    addEvent(event);
+                    event = schedulingStrategy.nextEvent();
+                }
+                LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
+                LOG.debug("prepare to execute event: {}", event);
+                if (event.execute()) {
+                    ++totalExecuted;
+                    recordProperties(totalExecuted, startTime, event);
+                }
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return totalExecuted;
+    }
+
+    /***
+     * Node crash
+     */
+    private int scheduleNodeCrash(int nodeId, int totalExecuted) {
+        try {
+            // TODO: move this to configuration file
+            if (!nodeCrashExecutor.hasCrashes()) {
+                nodeCrashExecutor = new NodeCrashExecutor(this, 1);
+            }
+            synchronized (controlMonitor) {
+                long startTime = System.currentTimeMillis();
+                Event event = new NodeCrashEvent(generateEventId(), nodeId, nodeCrashExecutor);
+                LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
+                LOG.debug("prepare to execute event: {}", event);
+                if (event.execute()) {
+                    ++totalExecuted;
+                    recordProperties(totalExecuted, startTime, event);
+                }
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return totalExecuted;
+    }
+
+    /***
+     * Node start
+     */
+    private int ScheduleNodeStart(int nodeId, int totalExecuted) {
+        try {
+            // TODO: move this to configuration file
+            if (!nodeStartExecutor.hasReboots()) {
+                nodeStartExecutor = new NodeStartExecutor(this, 1);
+            }
+            synchronized (controlMonitor) {
+                long startTime = System.currentTimeMillis();
+                Event event = new NodeStartEvent(generateEventId(), nodeId, nodeStartExecutor);
+                LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
+                LOG.debug("prepare to execute event: {}", event);
+                if (event.execute()) {
+                    ++totalExecuted;
+                    recordProperties(totalExecuted, startTime, event);
+                }
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return totalExecuted;
+    }
+
+    /***
      * steps to trigger DIFF
      * @param totalExecuted the first step sequence number
      * @return the last step sequence number
      */
-    private int triggerDiffByLeaderRestart(int totalExecuted) {
+    private int triggerDiffByLeaderRestart(int totalExecuted, final int clientId) {
         try {
             long startTime;
             Event event;
@@ -689,7 +965,7 @@ public class TestingService implements TestingRemoteService {
                 // PRE
                 // >> client get request
                 startTime = System.currentTimeMillis();
-                event = new ClientRequestEvent(generateEventId(),
+                event = new ClientRequestEvent(generateEventId(), clientId,
                         ClientRequestType.GET_DATA, clientRequestExecutor);
                 LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
                 LOG.debug("prepare to execute event: {}", event);
@@ -700,7 +976,7 @@ public class TestingService implements TestingRemoteService {
 
                 // >> client set request
                 startTime = System.currentTimeMillis();
-                ClientRequestEvent mutationEvent = new ClientRequestEvent(generateEventId(),
+                ClientRequestEvent mutationEvent = new ClientRequestEvent(generateEventId(), clientId,
                         ClientRequestType.SET_DATA, clientRequestExecutor);
                 LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
                 LOG.debug("prepare to execute event: {}", mutationEvent);
@@ -722,7 +998,7 @@ public class TestingService implements TestingRemoteService {
 
 //                // >> client get request
 //                startTime = System.currentTimeMillis();
-//                event = new ClientRequestEvent(generateEventId(),
+//                event = new ClientRequestEvent(generateEventId(), clientId,
 //                        ClientRequestType.GET_DATA, clientRequestExecutor);
 //                LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
 //                LOG.debug("prepare to execute event: {}", event);
@@ -740,7 +1016,7 @@ public class TestingService implements TestingRemoteService {
                 // make DIFF: client set >> leader log >> leader restart >> re-election
                 // Step 1. client request SET_DATA
                 startTime = System.currentTimeMillis();
-                event = new ClientRequestEvent(generateEventId(),
+                event = new ClientRequestEvent(generateEventId(), clientId,
                         ClientRequestType.SET_DATA, clientRequestExecutor);
                 LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
                 LOG.debug("prepare to execute event: {}", event);
@@ -837,7 +1113,7 @@ public class TestingService implements TestingRemoteService {
         return totalExecuted;
     }
 
-    private int triggerDiffByFollowersRestart(int totalExecuted) {
+    private int triggerDiffByFollowersRestart(int totalExecuted, final int clientId) {
         try {
             long startTime;
             Event event;
@@ -845,7 +1121,7 @@ public class TestingService implements TestingRemoteService {
                 // make DIFF: client set >> leader log >> leader restart >> re-election
                 // Step 1. client request SET_DATA
                 startTime = System.currentTimeMillis();
-                event = new ClientRequestEvent(generateEventId(),
+                event = new ClientRequestEvent(generateEventId(), clientId,
                         ClientRequestType.SET_DATA, clientRequestExecutor);
                 LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
                 LOG.debug("prepare to execute event: {}", event);
@@ -953,7 +1229,7 @@ public class TestingService implements TestingRemoteService {
                 }
 
                 // wait Leader becomes LOOKING state
-                waitLeaderInLookingState(leader);
+                waitAllNodesInLookingState();
 
                 // Step 4. re-election and becomes leader again
                 // >> This part allows random schedulers
@@ -1008,11 +1284,11 @@ public class TestingService implements TestingRemoteService {
 
 
     /***
-     * steps to trigger phantom read
+     * pre-steps to trigger phantom read
      * @param totalExecuted the first step sequence number
      * @return the last step sequence number
      */
-    private int phantomRead(int totalExecuted) {
+    private int followersRestartAndLeaderCrash(int totalExecuted) {
         try {
             Event event;
             long startTime;
@@ -1089,7 +1365,6 @@ public class TestingService implements TestingRemoteService {
                         LOG.debug("----previous role of this crashed node {}: {}---------", nodeId, RoleOfCrashNode);
                         if ( LeaderElectionState.LEADING.equals(RoleOfCrashNode)){
                             ((NodeStartEvent) event).setExecuted();
-//                            schedulingStrategy.remove(event);
                             LOG.debug("----Do not let the previous leader restart here! So pass this event---------\n\n\n");
                             continue;
                         }
@@ -1110,34 +1385,6 @@ public class TestingService implements TestingRemoteService {
             statisticsWriter.write(statistics.toString() + "\n\n");
             LOG.info(statistics.toString() + "\n\n\n\n\n");
 
-//            synchronized (controlMonitor){
-//                long startTime = System.currentTimeMillis();
-//                Event event = new ClientRequestEvent(generateEventId(),
-//                        ClientRequestType.GET_DATA, clientRequestExecutor);
-//                LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
-//                LOG.debug("prepare to execute event: {}", event);
-//                if (event.execute()) {
-//                    ++totalExecuted;
-//                    recordProperties(totalExecuted, startTime, event);
-//                }
-//
-//                //
-//                while (schedulingStrategy.hasNextEvent() && totalExecuted < 100) {
-//                    startTime = System.currentTimeMillis();
-//                    event = schedulingStrategy.nextEvent();
-//                    LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted);
-//                    LOG.debug("prepare to execute event: {}", event.toString());
-//                    if (event.execute()) {
-//                        ++totalExecuted;
-//                        recordProperties(totalExecuted, startTime, event);
-//                    }
-//                }
-//
-//                waitAllNodesSteadyBeforeRequest();
-//
-//                LOG.debug("size: {}", getZkClient().getRequestQueue().size());
-//            }
-
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -1145,10 +1392,9 @@ public class TestingService implements TestingRemoteService {
     }
 
     /***
-     * only issue GET_DATA
-     * @param event
+     * only issue GET_DATA without waiting for response
      */
-    private int getDataTestNoWait(int totalExecuted) {
+    private int getDataTestNoWait(int totalExecuted, final int clientId) {
         try {
             long startTime;
             Event event;
@@ -1156,7 +1402,7 @@ public class TestingService implements TestingRemoteService {
                 // PRE
                 // >> client get request
                 startTime = System.currentTimeMillis();
-                event = new ClientRequestEvent(generateEventId(),
+                event = new ClientRequestEvent(generateEventId(), clientId,
                         ClientRequestType.GET_DATA, clientRequestExecutor);
                 LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
                 LOG.debug("prepare to execute event: {}", event);
@@ -1164,26 +1410,14 @@ public class TestingService implements TestingRemoteService {
                     ++totalExecuted;
                     recordProperties(totalExecuted, startTime, event);
                 }
-
-                // wait whenever an election ends
-                waitAllNodesVoted();
-//                leaderElectionVerifier.verify();
-                waitAllNodesSteadyBeforeRequest();
             }
-            statistics.endTimer();
-            // check election results
-            leaderElectionVerifier.verify();
-            statistics.reportTotalExecutedEvents(totalExecuted);
-            statisticsWriter.write(statistics.toString() + "\n\n");
-            LOG.info(statistics.toString() + "\n\n\n\n\n");
-
         } catch (IOException e) {
             e.printStackTrace();
         }
         return totalExecuted;
     }
 
-    private int getDataTest(int totalExecuted) {
+    private int getDataTest(int totalExecuted, final int clientId) {
         try {
             long startTime;
             Event event;
@@ -1191,7 +1425,7 @@ public class TestingService implements TestingRemoteService {
                 // PRE
                 // >> client get request
                 startTime = System.currentTimeMillis();
-                event = new ClientRequestEvent(generateEventId(),
+                event = new ClientRequestEvent(generateEventId(), clientId,
                         ClientRequestType.GET_DATA, clientRequestWaitingResponseExecutor);
                 LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
                 LOG.debug("prepare to execute event: {}", event);
@@ -1199,19 +1433,7 @@ public class TestingService implements TestingRemoteService {
                     ++totalExecuted;
                     recordProperties(totalExecuted, startTime, event);
                 }
-
-                // wait whenever an election ends
-                waitAllNodesVoted();
-//                leaderElectionVerifier.verify();
-                waitAllNodesSteadyBeforeRequest();
             }
-            statistics.endTimer();
-            // check election results
-            leaderElectionVerifier.verify();
-            statistics.reportTotalExecutedEvents(totalExecuted);
-            statisticsWriter.write(statistics.toString() + "\n\n");
-            LOG.info(statistics.toString() + "\n\n\n\n\n");
-
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -1530,7 +1752,8 @@ public class TestingService implements TestingRemoteService {
         // 3. POST_EXECUTION: wait for the state to be stable
         // the started node will call for remote service of nodeOnline(..)
         for (int id = 0; id < schedulerConfiguration.getNumNodes(); id++) {
-            LOG.debug("--------nodeid: {}: phase: {}", id, nodePhases.get(id));
+            LOG.debug("--------nodeid: {}: phase: {}, leaderElectionState: {}",
+                    id, nodePhases.get(id), leaderElectionStates.get(nodeId));
         }
     }
 
@@ -1628,6 +1851,10 @@ public class TestingService implements TestingRemoteService {
 
     public int generateEventId() {
         return eventIdGenerator.incrementAndGet();
+    }
+
+    public int generateClientId() {
+        return clientIdGenerator.incrementAndGet();
     }
 
     @Override
@@ -1753,8 +1980,8 @@ public class TestingService implements TestingRemoteService {
     /***
      * wait for client session initialization finished
      */
-    private final WaitPredicate clientSessionReady = new ClientSessionReady(this);
-    public void waitClientSessionReady() {
+    public void waitClientSessionReady(final int clientId) {
+        final WaitPredicate clientSessionReady = new ClientSessionReady(this, clientId);
         wait(clientSessionReady, 0L);
     }
 
@@ -1880,9 +2107,9 @@ public class TestingService implements TestingRemoteService {
         wait(followerSocketAddrRegistered, 0L);
     }
 
-    private void waitLeaderInLookingState(final int leaderId) {
-        final WaitPredicate leaderInLookingState = new LeaderInLookingState(this, leaderId);
-        wait(leaderInLookingState, 0L);
+    private void waitAllNodesInLookingState() {
+        final WaitPredicate allNodesInLookingState = new AliveNodesInLookingState(this);
+        wait(allNodesInLookingState, 0L);
 
     }
 
