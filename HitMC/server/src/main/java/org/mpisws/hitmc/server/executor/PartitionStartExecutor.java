@@ -13,11 +13,12 @@ public class PartitionStartExecutor extends BaseEventExecutor {
     private static final Logger LOG = LoggerFactory.getLogger(PartitionStopExecutor.class);
     private final TestingService testingService;
 
-    //TODO: + partitionBudget
-    private int partitionBudget = 10;
+    //TODO: + partitionBudget configuration
+    private int partitionBudget;
 
-    public PartitionStartExecutor(final TestingService testingService) {
+    public PartitionStartExecutor(final TestingService testingService, final int partitionBudget) {
         this.testingService = testingService;
+        this.partitionBudget = partitionBudget;
     }
 
     @Override

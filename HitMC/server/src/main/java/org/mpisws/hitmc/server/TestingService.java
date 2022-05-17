@@ -368,13 +368,21 @@ public class TestingService implements TestingRemoteService {
                         case "NODE_START":
                             assert len==2;
                             int startNodeId = Integer.parseInt(lineArr[1]);
-                            totalExecuted = ScheduleNodeStart(startNodeId, totalExecuted);
+                            totalExecuted = scheduleNodeStart(startNodeId, totalExecuted);
                             break;
                         case "PARTITION_START":
-                            assert len==2;
+                            assert len==3;
+                            int node1 = Integer.parseInt(lineArr[1]);
+                            int node2 = Integer.parseInt(lineArr[2]);
+                            LOG.debug("----PARTITION_START: {}, {}", node1, node2);
+                            totalExecuted = schedulePartitionStart(node1, node2, totalExecuted);
                             break;
                         case "PARTITION_STOP":
-                            assert len==2;
+                            assert len==3;
+                            int node3 = Integer.parseInt(lineArr[1]);
+                            int node4 = Integer.parseInt(lineArr[2]);
+                            LOG.debug("----PARTITION_STOP: {}, {}", node3, node4);
+                            totalExecuted = schedulePartitionStop(node3, node4, totalExecuted);
                             break;
                         case "ESTABLISH_SESSION":
                             assert len==3;
@@ -385,16 +393,18 @@ public class TestingService implements TestingRemoteService {
                             establishSession(clientId, true, serverAddr);
                             break;
                         case "GET_DATA":
-                            assert len>1;
+                            assert len>=3;
                             int getDataClientId = Integer.parseInt(lineArr[1]);
-                            Integer result = len > 2 ? Integer.parseInt(lineArr[2]) : null;
-                            totalExecuted = scheduleGetData(getDataClientId, result, totalExecuted);
+                            int sid = Integer.parseInt(lineArr[2]);
+                            Integer result = len > 3 ? Integer.parseInt(lineArr[3]) : null;
+                            totalExecuted = scheduleGetData(getDataClientId, sid, result, totalExecuted);
                             break;
                         case "SET_DATA":
-                            assert len>1;
+                            assert len>=3;
                             int setDataClientId = Integer.parseInt(lineArr[1]);
-                            String data = len > 2 ? lineArr[2] : null;
-                            totalExecuted = scheduleSetData(setDataClientId, data, totalExecuted);
+                            int sid2 = Integer.parseInt(lineArr[2]);
+                            String data = len > 3 ? lineArr[3] : null;
+                            totalExecuted = scheduleSetData(setDataClientId, sid2, data, totalExecuted);
                             break;
                     }
                 }
@@ -427,28 +437,6 @@ public class TestingService implements TestingRemoteService {
         }
         LOG.debug("total time: {}" , (System.currentTimeMillis() - startTime));
         
-    }
-
-    public int scheduleInternalEvent(ExternalModelStrategy strategy, String[] lineArr, int totalExecuted) throws SchedulerConfigurationException {
-        try {
-            synchronized (controlMonitor) {
-                long startTime = System.currentTimeMillis();
-                Event event = strategy.getNextInternalEvent(lineArr);
-                assert event != null;
-                LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
-                LOG.debug("prepare to execute event: {}", event);
-                if (event.execute()) {
-                    ++totalExecuted;
-                    recordProperties(totalExecuted, startTime, event);
-                }
-            }
-        } catch (IOException e) {
-            e.printStackTrace();
-        } catch (SchedulerConfigurationException e2) {
-            LOG.debug("SchedulerConfigurationException found when scheduling {}!", Arrays.toString(lineArr));
-            throw e2;
-        }
-        return totalExecuted;
     }
 
     public String getServerAddr(int serverId) {
@@ -578,8 +566,8 @@ public class TestingService implements TestingRemoteService {
         clientRequestWaitingResponseExecutor = new ClientRequestExecutor(this, true, 0);
         clientRequestExecutor = new ClientRequestExecutor(this, false, 0);
 
-        partitionStartExecutor = new PartitionStartExecutor(this);
-        partitionStopExecutor = new PartitionStopExecutor(this);
+        partitionStartExecutor = new PartitionStartExecutor(this, 10);
+        partitionStopExecutor = new PartitionStopExecutor(this, 10);
 
         // Configure internal event executors
         messageExecutor = new MessageExecutor(this);
@@ -631,8 +619,12 @@ public class TestingService implements TestingRemoteService {
 
         // configure network partion info
         partitionMap.clear();
-        partitionMap.addAll(Collections.nCopies(schedulerConfiguration.getNumNodes(),
-                new ArrayList<>(Collections.nCopies(schedulerConfiguration.getNumNodes(), false))));
+        final int nodeNum = schedulerConfiguration.getNumNodes();
+        for (int i = 0 ; i < nodeNum; i++) {
+            partitionMap.add(new ArrayList<>(Collections.nCopies(schedulerConfiguration.getNumNodes(), false)));
+        }
+//        partitionMap.addAll(Collections.nCopies(schedulerConfiguration.getNumNodes(),
+//                new ArrayList<>(Collections.nCopies(schedulerConfiguration.getNumNodes(), false))));
 
         eventIdGenerator.set(0);
         clientIdGenerator.set(0);
@@ -678,13 +670,14 @@ public class TestingService implements TestingRemoteService {
      * @param totalExecuted the number of previous executed events
      * @return the number of executed events
      */
+    // TODO: add partition events during election
     public int scheduleElection(Integer leaderId, int totalExecuted) {
         try{
 //            statistics.startTimer();
             synchronized (controlMonitor) {
                 // pre-condition
 //                waitAllNodesSteady();
-                waitAllNodesInLookingState();
+                waitAliveNodesInLookingState();
                 while (schedulingStrategy.hasNextEvent() && totalExecuted < 100) {
                     long begintime = System.currentTimeMillis();
                     LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
@@ -916,9 +909,16 @@ public class TestingService implements TestingRemoteService {
      * setData with specific data
      * if without specific data, will use eventId as its written string value
      */
-    private int scheduleSetData(final int clientId, final String data, int totalExecuted) {
+    private int scheduleSetData(final int clientId, final int serverId, final String data, int totalExecuted) {
         try {
+            ClientProxy clientProxy = clientMap.get(clientId);
+            if (clientProxy == null || clientProxy.isStop()) {
+                String serverAddr = getServerAddr(serverId);
+                LOG.debug("client establish connection with server {}", serverAddr);
+                establishSession(clientId, true, serverAddr);
+            }
             synchronized (controlMonitor) {
+                waitAllNodesSteadyBeforeRequest();
                 long startTime = System.currentTimeMillis();
                 Event event;
                 if (data == null) {
@@ -944,9 +944,16 @@ public class TestingService implements TestingRemoteService {
     /***
      * getData
      */
-    private int scheduleGetData(final int clientId, final Integer modelResult, int totalExecuted) {
+    private int scheduleGetData(final int clientId, final int serverId, final Integer modelResult, int totalExecuted) {
         try {
+            ClientProxy clientProxy = clientMap.get(clientId);
+            if (clientProxy == null || clientProxy.isStop())  {
+                String serverAddr = getServerAddr(serverId);
+                LOG.debug("client establish connection with server {}", serverAddr);
+                establishSession(clientId, true, serverAddr);
+            }
             synchronized (controlMonitor) {
+                waitAllNodesSteadyBeforeRequest();
                 long startTime = System.currentTimeMillis();
                 Event event = new ClientRequestEvent(generateEventId(), clientId,
                         ClientRequestType.GET_DATA, clientRequestWaitingResponseExecutor);
@@ -970,6 +977,30 @@ public class TestingService implements TestingRemoteService {
         }
         return totalExecuted;
     }
+
+
+    public int scheduleInternalEvent(ExternalModelStrategy strategy, String[] lineArr, int totalExecuted) throws SchedulerConfigurationException {
+        try {
+            synchronized (controlMonitor) {
+                long startTime = System.currentTimeMillis();
+                Event event = strategy.getNextInternalEvent(lineArr);
+                assert event != null;
+                LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
+                LOG.debug("prepare to execute event: {}", event);
+                if (event.execute()) {
+                    ++totalExecuted;
+                    recordProperties(totalExecuted, startTime, event);
+                }
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        } catch (SchedulerConfigurationException e2) {
+            LOG.debug("SchedulerConfigurationException found when scheduling {}!", Arrays.toString(lineArr));
+            throw e2;
+        }
+        return totalExecuted;
+    }
+
 
     /***
      * log request
@@ -1087,16 +1118,62 @@ public class TestingService implements TestingRemoteService {
     /***
      * Node start
      */
-    private int ScheduleNodeStart(int nodeId, int totalExecuted) {
+    private int scheduleNodeStart(int nodeId, int totalExecuted) {
         try {
             assert NodeState.OFFLINE.equals(nodeStates.get(nodeId));
-            // TODO: move this to configuration file
             if (!nodeStartExecutor.hasReboots()) {
                 nodeStartExecutor = new NodeStartExecutor(this, 1);
             }
             synchronized (controlMonitor) {
                 long startTime = System.currentTimeMillis();
                 Event event = new NodeStartEvent(generateEventId(), nodeId, nodeStartExecutor);
+                LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
+                LOG.debug("prepare to execute event: {}", event);
+                if (event.execute()) {
+                    ++totalExecuted;
+                    recordProperties(totalExecuted, startTime, event);
+                }
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return totalExecuted;
+    }
+
+
+    private int schedulePartitionStart(int node1, int node2, int totalExecuted) {
+        try {
+            assert !partitionMap.get(node1).get(node2);
+            assert !partitionMap.get(node2).get(node1);
+            if (!partitionStartExecutor.enablePartition()) {
+                partitionStartExecutor = new PartitionStartExecutor(this, 1);
+            }
+            synchronized (controlMonitor) {
+                long startTime = System.currentTimeMillis();
+                Event event = new PartitionStartEvent(generateEventId(), node1, node2, partitionStartExecutor);
+                LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
+                LOG.debug("prepare to execute event: {}", event);
+                if (event.execute()) {
+                    ++totalExecuted;
+                    recordProperties(totalExecuted, startTime, event);
+                }
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return totalExecuted;
+    }
+
+    private int schedulePartitionStop(int node1, int node2, int totalExecuted) {
+        try {
+            assert partitionMap.get(node1).get(node2);
+            assert partitionMap.get(node2).get(node1);
+            if (!partitionStopExecutor.enablePartitionStop()) {
+                partitionStopExecutor = new PartitionStopExecutor(this, 1);
+            }
+            synchronized (controlMonitor) {
+                long startTime = System.currentTimeMillis();
+                Event event = new PartitionStopEvent(generateEventId(), node1, node2, partitionStopExecutor);
                 LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
                 LOG.debug("prepare to execute event: {}", event);
                 if (event.execute()) {
@@ -1387,7 +1464,7 @@ public class TestingService implements TestingRemoteService {
                 }
 
                 // wait Leader becomes LOOKING state
-                waitAllNodesInLookingState();
+                waitAliveNodesInLookingState();
 
                 // Step 4. re-election and becomes leader again
                 // >> This part allows random schedulers
@@ -1708,8 +1785,8 @@ public class TestingService implements TestingRemoteService {
                 schedulingStrategy.remove(messageEvent);
             }
             // case 2: this event is released when the network partition occurs
-            // todo: to confirm (tricky part: do not release this event until it is scheduled)
             else if (partitionMap.get(sendingNodeId).get(receivingNodeId)) {
+                sendingSubnode.setState(SubnodeState.RECEIVING);
                 id = TestingDef.RetCode.NODE_PAIR_IN_PARTITION;
                 messageEvent.setExecuted();
                 schedulingStrategy.remove(messageEvent);
@@ -1783,8 +1860,18 @@ public class TestingService implements TestingRemoteService {
     public void releaseMessageToFollower(final LearnerHandlerMessageEvent event) {
         messageInFlight = event.getId();
         final Subnode sendingSubnode = subnodes.get(event.getSendingSubnodeId());
+
         // set the sending subnode to be PROCESSING
         sendingSubnode.setState(SubnodeState.PROCESSING);
+
+        // if in partition, then just drop it
+        final int sendingNodeId = sendingSubnode.getNodeId();
+        final int receivingNodeId = event.getReceivingNodeId();
+        if (partitionMap.get(sendingNodeId).get(receivingNodeId)) {
+            return;
+        }
+
+        // not int partition
         final int type = event.getType();
         if (MessageType.PROPOSAL == type) {
             for (final Subnode subnode : subnodeSets.get(event.getReceivingNodeId())) {
@@ -1993,16 +2080,20 @@ public class TestingService implements TestingRemoteService {
      */
     public void startPartition(final int node1, final int node2) {
         // PRE_EXECUTION: set unstable state (set STARTING)
-        nodeStates.set(node1, NodeState.STARTING);
-        nodeStates.set(node2, NodeState.STARTING);
+//        nodeStates.set(node1, NodeState.STARTING);
+//        nodeStates.set(node2, NodeState.STARTING);
 
         // 2. EXECUTION
+        LOG.debug("start partition: {} & {}", node1, node2);
+        LOG.debug("before: {}, {}, {}", partitionMap.get(0), partitionMap.get(1), partitionMap.get(2));
         partitionMap.get(node1).set(node2, true);
         partitionMap.get(node2).set(node1, true);
+        LOG.debug("after: {}, {}, {}", partitionMap.get(0), partitionMap.get(1), partitionMap.get(2));
+
 
         // wait for the state to be stable (set ONLINE)
-        nodeStates.set(node1, NodeState.ONLINE);
-        nodeStates.set(node2, NodeState.ONLINE);
+//        nodeStates.set(node1, NodeState.ONLINE);
+//        nodeStates.set(node2, NodeState.ONLINE);
 
         controlMonitor.notifyAll();
     }
@@ -2013,16 +2104,16 @@ public class TestingService implements TestingRemoteService {
      */
     public void stopPartition(final int node1, final int node2) {
         // 1. PRE_EXECUTION: set unstable state (set STARTING)
-        nodeStates.set(node1, NodeState.STARTING);
-        nodeStates.set(node2, NodeState.STARTING);
+//        nodeStates.set(node1, NodeState.STARTING);
+//        nodeStates.set(node2, NodeState.STARTING);
 
         // 2. EXECUTION
         partitionMap.get(node1).set(node2, false);
         partitionMap.get(node2).set(node1, false);
 
         // wait for the state to be stable (set ONLINE)
-        nodeStates.set(node1, NodeState.ONLINE);
-        nodeStates.set(node2, NodeState.ONLINE);
+//        nodeStates.set(node1, NodeState.ONLINE);
+//        nodeStates.set(node2, NodeState.ONLINE);
 
         controlMonitor.notifyAll();
     }
@@ -2300,9 +2391,9 @@ public class TestingService implements TestingRemoteService {
         wait(followerSocketAddrRegistered, 0L);
     }
 
-    private void waitAllNodesInLookingState() {
-        final WaitPredicate allNodesInLookingState = new AliveNodesInLookingState(this);
-        wait(allNodesInLookingState, 0L);
+    private void waitAliveNodesInLookingState() {
+        final WaitPredicate aliveNodesInLookingState = new AliveNodesInLookingState(this);
+        wait(aliveNodesInLookingState, 0L);
 
     }
 

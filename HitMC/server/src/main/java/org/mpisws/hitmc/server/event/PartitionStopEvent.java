@@ -38,7 +38,7 @@ public class PartitionStopEvent extends AbstractEvent {
     public String toString() {
         return "PartitionStopEvent{" +
                 "id=" + getId() +
-                ", end partition nodes: [" + node1 + ", " +node2 + "], " +
+                ", end partition nodes: [" + node1 + ", " +node2 + "]" +
                 getLabelString() +
                 '}';
     }

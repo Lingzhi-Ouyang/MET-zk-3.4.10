@@ -14,10 +14,11 @@ public class PartitionStopExecutor extends BaseEventExecutor {
     private final TestingService testingService;
 
     //TODO: + partitionBudget
-    private int partitionStopBudget = 10;
+    private int partitionStopBudget;
 
-    public PartitionStopExecutor(final TestingService testingService) {
+    public PartitionStopExecutor(final TestingService testingService, final int partitionStopBudget) {
         this.testingService = testingService;
+        this.partitionStopBudget = partitionStopBudget;
     }
 
     @Override
