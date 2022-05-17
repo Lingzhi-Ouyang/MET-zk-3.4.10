@@ -6,6 +6,7 @@ import org.mpisws.hitmc.api.configuration.SchedulerConfigurationException;
 import org.mpisws.hitmc.api.state.ClientRequestType;
 import org.mpisws.hitmc.api.state.LeaderElectionState;
 import org.mpisws.hitmc.api.state.Vote;
+import org.mpisws.hitmc.server.checker.GetDataVerifier;
 import org.mpisws.hitmc.server.checker.LeaderElectionVerifier;
 import org.mpisws.hitmc.server.event.*;
 import org.mpisws.hitmc.server.executor.*;
@@ -58,6 +59,7 @@ public class TestingService implements TestingRemoteService {
     private Statistics statistics;
 
     private LeaderElectionVerifier leaderElectionVerifier;
+    private GetDataVerifier getDataVerifier;
 
     private FileWriter statisticsWriter;
     private FileWriter executionWriter;
@@ -74,10 +76,8 @@ public class TestingService implements TestingRemoteService {
     private final List<NodeState> nodeStates = new ArrayList<>();
     private final List<Phase> nodePhases = new ArrayList<>();
 
-
     private final List<Subnode> subnodes = new ArrayList<>();
     private final List<Set<Subnode>> subnodeSets = new ArrayList<>();
-
 
     private final List<String> followerSocketAddressBook = new ArrayList<>();
 
@@ -105,11 +105,11 @@ public class TestingService implements TestingRemoteService {
     private final List<Vote> votes = new ArrayList<>();
     private final List<LeaderElectionState> leaderElectionStates = new ArrayList<>();
 
-    //private int[][] vectorClock;
-    //private Map <Event, List> vectorClockEvent;
+    private final List<Integer> returnedZxid = new ArrayList<>();
 
-//    private Map <Integer, Integer> getSubNodeByID;
-
+    public List<Integer> getReturnedZxid() {
+        return returnedZxid;
+    }
 
     public Object getControlMonitor() {
         return controlMonitor;
@@ -207,9 +207,6 @@ public class TestingService implements TestingRemoteService {
             // start the ensemble at the beginning of the execution
             ensemble.startEnsemble();
             executionWriter.write("-----Initialization cost time: " + (System.currentTimeMillis() - startTime) + "\n\n");
-
-            // Start the timer for recoding statistics
-            statistics.startTimer();
 
             // PRE: first election
             totalExecuted = scheduleElection(totalExecuted);
@@ -541,7 +538,19 @@ public class TestingService implements TestingRemoteService {
         requestProcessorExecutor = new RequestProcessorExecutor(this);
         learnerHandlerMessageExecutor = new LearnerHandlerMessageExecutor(this);
 
+        // Configure checkers
         leaderElectionVerifier = new LeaderElectionVerifier(this, statistics);
+        getDataVerifier = new GetDataVerifier(this, statistics);
+
+        // for property check
+        votes.clear();
+        votes.addAll(Collections.<Vote>nCopies(schedulerConfiguration.getNumNodes(), null));
+
+        leaderElectionStates.clear();
+        leaderElectionStates.addAll(Collections.nCopies(schedulerConfiguration.getNumNodes(), LeaderElectionState.LOOKING));
+
+        returnedZxid.clear();
+        returnedZxid.add(0);
 
         // Configure nodes and subnodes
         lastProcessedZxids.clear();
@@ -570,11 +579,6 @@ public class TestingService implements TestingRemoteService {
         partitionMap.addAll(Collections.nCopies(schedulerConfiguration.getNumNodes(),
                 new ArrayList<>(Collections.nCopies(schedulerConfiguration.getNumNodes(), false))));
 
-        //vectorClock = new int[][]{{0, 0, 0}, {0, 0, 0}, {0, 0, 0}};
-        //vectorClockEvent = new HashMap<>();
-
-//        getSubNodeByID = new HashMap<>();
-
         eventIdGenerator.set(0);
         clientIdGenerator.set(0);
 
@@ -584,12 +588,6 @@ public class TestingService implements TestingRemoteService {
 
         firstMessage.clear();
         firstMessage.addAll(Collections.<Boolean>nCopies(schedulerConfiguration.getNumNodes(), null));
-
-        votes.clear();
-        votes.addAll(Collections.<Vote>nCopies(schedulerConfiguration.getNumNodes(), null));
-
-        leaderElectionStates.clear();
-        leaderElectionStates.addAll(Collections.nCopies(schedulerConfiguration.getNumNodes(), LeaderElectionState.LOOKING));
 
         // Configure lastNodeStartEvents
         lastNodeStartEvents.clear();
@@ -626,6 +624,7 @@ public class TestingService implements TestingRemoteService {
      */
     public int scheduleElection(int totalExecuted) {
         try{
+//            statistics.startTimer();
             synchronized (controlMonitor) {
                 // pre-condition
 //                waitAllNodesSteady();
@@ -898,6 +897,13 @@ public class TestingService implements TestingRemoteService {
                     recordProperties(totalExecuted, startTime, event);
                 }
             }
+            statistics.endTimer();
+            // check election results
+            getDataVerifier.verify();
+            // report statistics
+            statistics.reportTotalExecutedEvents(totalExecuted);
+            statisticsWriter.write(statistics.toString() + "\n\n");
+            LOG.info(statistics.toString() + "\n\n\n\n\n");
         } catch (IOException e) {
             e.printStackTrace();
         }

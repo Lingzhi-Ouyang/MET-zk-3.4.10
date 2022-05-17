@@ -24,7 +24,14 @@ public class ResponseForClientRequest implements WaitPredicate {
     @Override
     //TODO: need to complete
     public boolean isTrue() {
-        return event.getResult() != null;
+        boolean responseGot = false;
+        String result = event.getResult();
+        if(result != null){
+            responseGot = true;
+            testingService.getReturnedZxid().add(Integer.parseInt(result));
+            LOG.debug("getReturnedZxid: {}", testingService.getReturnedZxid());
+        }
+        return responseGot;
     }
 
     @Override
