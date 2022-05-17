@@ -132,13 +132,14 @@ public class ClientProxy extends Thread{
                 }
             }
             LOG.info("Thread {} is stopping", currentThread().getName());
+            // TODO: closeSession is time consuming. Any better idea?
+//            try {
+//                zooKeeperClient.close();
+//            } catch (InterruptedException e) {
+//                e.printStackTrace();
+//            }
             this.ready = false;
             this.stop = true;
-            try {
-                zooKeeperClient.close();
-            } catch (InterruptedException e) {
-                e.printStackTrace();
-            }
         }
     }
 
