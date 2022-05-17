@@ -703,7 +703,7 @@ public aspect QuorumPeerAspect {
         return "Node=" + myId +
                 ", sessionId=" + request.sessionId +
                 ", cxid=" + request.cxid +
-                ", zxif=0x" + Long.toHexString(request.zxid) +
+                ", zxid=0x" + Long.toHexString(request.zxid) +
                 ", typeId=" + request.type;
     }
 
