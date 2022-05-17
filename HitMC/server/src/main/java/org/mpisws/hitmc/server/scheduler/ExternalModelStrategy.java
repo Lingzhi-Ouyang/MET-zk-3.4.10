@@ -56,6 +56,14 @@ public class ExternalModelStrategy implements SchedulingStrategy{
         return currentTrace;
     }
 
+    public Set<Event> getEvents() {
+        return events;
+    }
+
+    public void clearEvents() {
+        events.clear();
+    }
+
     @Override
     public void add(final Event event) {
         LOG.debug("Adding event: {}", event.toString());

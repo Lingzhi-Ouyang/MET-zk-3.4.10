@@ -282,6 +282,7 @@ public class TestingService implements TestingRemoteService {
         LOG.debug("traceNum: {}", traceNum);
 
         for (int executionId = 1; executionId <= traceNum; ++executionId) {
+            externalModelStrategy.clearEvents();
             schedulingStrategy = externalModelStrategy;
             statistics = externalModelStatistics;
 
