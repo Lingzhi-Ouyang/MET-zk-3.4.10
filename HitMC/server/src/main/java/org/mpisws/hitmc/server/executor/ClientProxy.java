@@ -90,7 +90,7 @@ public class ClientProxy extends Thread{
     }
 
     public void shutdown(){
-        LOG.debug("---shutting down zookeeper client proxy thread {}", currentThread().getName());
+        LOG.debug("---shutting down zookeeper client proxy thread {}", this.getName());
         this.ready = false;
         this.stop = true;
     }
