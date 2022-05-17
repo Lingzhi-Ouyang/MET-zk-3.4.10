@@ -71,7 +71,7 @@ public interface TestingRemoteService extends Remote {
      *
      * @return The scheduler generates and returns a unique identifier of the current message
      */
-    int offerMessageToFollower(int sendingSubnodeId, String receivingAddr, String payload, int type) throws RemoteException;
+    int offerMessageToFollower(int sendingSubnodeId, String receivingAddr, long zxid, String payload, int type) throws RemoteException;
 
     /**
      * Indicates a subnode is about to sync a request log to disk. Change its state to <code>{@link SubnodeState.SENDING}</code>,
@@ -79,7 +79,7 @@ public interface TestingRemoteService extends Remote {
      *
      * @return The scheduler generates and returns a unique identifier of the current message
      */
-    int offerRequestProcessorMessage(int subnodeId, SubnodeType subnodeType, Long zxid, String payload) throws RemoteException;
+    int offerRequestProcessorMessage(int subnodeId, SubnodeType subnodeType, long zxid, String payload) throws RemoteException;
 
     /**
      * If the subnode is in the state <code>{@link SubnodeState.RECEIVING}</code>, change it to

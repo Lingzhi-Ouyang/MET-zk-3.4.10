@@ -507,7 +507,9 @@ public aspect LearnerHandlerAspect {
             quorumPeerAspect.setSubnodeSending();
 
             final String receivingAddr = threadName.split("-")[1];
-            final int lastPacketId = intercepter.getTestingService().offerMessageToFollower(subnodeId, receivingAddr, payload, type);
+            final long zxid = packet.getZxid();
+            final int lastPacketId = intercepter.getTestingService()
+                    .offerMessageToFollower(subnodeId, receivingAddr, zxid, payload, type);
             LOG.debug("lastPacketId = {}", lastPacketId);
 
             // to check if the node is crashed
@@ -580,7 +582,9 @@ public aspect LearnerHandlerAspect {
             quorumPeerAspect.setSubnodeSending();
 
             final String receivingAddr = threadName.split("-")[1];
-            final int lastPacketId = intercepter.getTestingService().offerMessageToFollower(subnodeId, receivingAddr, payload, type);
+            final long zxid = packet.getZxid();
+            final int lastPacketId = intercepter.getTestingService()
+                    .offerMessageToFollower(subnodeId, receivingAddr, zxid, payload, type);
             LOG.debug("lastPacketId = {}", lastPacketId);
 
             // to check if the node is crashed

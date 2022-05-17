@@ -10,11 +10,13 @@ public class LearnerHandlerMessageEvent extends AbstractEvent{
     private final int receivingNodeId;
     private final String payload;
     private final int type;
+    private final long zxid;
 
     public LearnerHandlerMessageEvent(final int id,
                                       final int sendingSubnodeId,
                                       final int receivingNodeId,
                                       final int type,
+                                      final long zxid,
                                       final String payload,
                                       final LearnerHandlerMessageExecutor messageExecutor) {
         super(id, messageExecutor);
@@ -22,6 +24,7 @@ public class LearnerHandlerMessageEvent extends AbstractEvent{
         this.receivingNodeId = receivingNodeId;
         this.payload = payload;
         this.type = type;
+        this.zxid = zxid;
     }
 
     public int getSendingSubnodeId() {
@@ -34,6 +37,10 @@ public class LearnerHandlerMessageEvent extends AbstractEvent{
 
     public int getType() {
         return type;
+    }
+
+    public long getZxid() {
+        return zxid;
     }
 
     @Override

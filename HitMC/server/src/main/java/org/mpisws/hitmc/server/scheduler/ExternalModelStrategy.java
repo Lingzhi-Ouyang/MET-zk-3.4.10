@@ -1,5 +1,6 @@
 package org.mpisws.hitmc.server.scheduler;
 
+import org.mpisws.hitmc.api.MessageType;
 import org.mpisws.hitmc.api.SubnodeType;
 import org.mpisws.hitmc.api.configuration.SchedulerConfigurationException;
 import org.mpisws.hitmc.server.TestingService;
@@ -200,52 +201,12 @@ public class ExternalModelStrategy implements SchedulingStrategy{
 
         switch (action) {
             case "LOG_REQUEST":
-                for (final Event e : enabled) {
-                    if (e instanceof RequestEvent) {
-                        assert len == 2;
-                        final int serverId = Integer.parseInt(lineArr[1]);
-                        final int nodeId = ((RequestEvent) e).getNodeId();
-                        final SubnodeType subnodeType = ((RequestEvent) e).getSubnodeType();
-                        if (serverId == nodeId && SubnodeType.SYNC_PROCESSOR.equals(subnodeType)) {
-                            nextEvent = e;
-                            events.remove(nextEvent);
-                            break;
-                        }
-                    }
-                }
-                break;
             case "COMMIT":
-                for (final Event e : enabled) {
-                    if (e instanceof RequestEvent) {
-                        assert len == 2;
-                        final int serverId = Integer.parseInt(lineArr[1]);
-                        final int nodeId = ((RequestEvent) e).getNodeId();
-                        final SubnodeType subnodeType = ((RequestEvent) e).getSubnodeType();
-                        if (serverId == nodeId && SubnodeType.COMMIT_PROCESSOR.equals(subnodeType)) {
-                            nextEvent = e;
-                            events.remove(nextEvent);
-                            break;
-                        }
-                    }
-                }
+                searchRequestEvent(action, len, lineArr, enabled);
                 break;
-            case "LEADER_MESSAGE":
-                for (final Event e : enabled) {
-                    if (e instanceof LearnerHandlerMessageEvent) {
-                        assert len == 3;
-                        final int s1 = Integer.parseInt(lineArr[1]);
-                        final int s2 = Integer.parseInt(lineArr[2]);
-                        final int receivingNodeId = ((LearnerHandlerMessageEvent) e).getReceivingNodeId();
-                        final int sendingSubnodeId = ((LearnerHandlerMessageEvent) e).getSendingSubnodeId();
-                        final Subnode sendingSubnode = testingService.getSubnodes().get(sendingSubnodeId);
-                        final int sendingNodeId = sendingSubnode.getNodeId();
-                        if (sendingNodeId == s1 && receivingNodeId == s2) {
-                            nextEvent = e;
-                            events.remove(nextEvent);
-                            break;
-                        }
-                    }
-                }
+            case "SEND_PROPOSAL":
+            case "SEND_COMMIT":
+                searchLearnerHandlerMessage(action, len, lineArr, enabled);
                 break;
         }
 
@@ -257,6 +218,74 @@ public class ExternalModelStrategy implements SchedulingStrategy{
 
         nextEventPrepared = true;
         return nextEvent;
+    }
+
+    private void searchRequestEvent(String action, int len, String[] lineArr, List<Event> enabled) {
+        for (final Event e : enabled) {
+            if (e instanceof RequestEvent) {
+                assert len >= 2;
+
+                final RequestEvent event = (RequestEvent) e;
+                final Long zxid = len > 2 ? Long.parseLong(lineArr[2]) : null;
+                if (zxid != null) {
+                    final long eventZxid = event.getZxid();
+                    if (!zxid.equals(eventZxid)) continue;
+                }
+
+                final int serverId = Integer.parseInt(lineArr[1]);
+                final int nodeId = event.getNodeId();
+                if (serverId != nodeId) continue;
+
+                final SubnodeType subnodeType = event.getSubnodeType();
+                switch (action) {
+                    case "LOG_REQUEST":
+                        if (!SubnodeType.SYNC_PROCESSOR.equals(subnodeType)) continue;
+                        break;
+                    case "COMMIT":
+                        if (!SubnodeType.COMMIT_PROCESSOR.equals(subnodeType)) continue;
+                        break;
+                }
+                nextEvent = event;
+                events.remove(nextEvent);
+                break;
+            }
+        }
+    }
+
+    public void searchLearnerHandlerMessage(String action, int len, String[] lineArr, List<Event> enabled) {
+        for (final Event e : enabled) {
+            if (e instanceof LearnerHandlerMessageEvent) {
+                assert len >= 3;
+
+                final LearnerHandlerMessageEvent event = (LearnerHandlerMessageEvent) e;
+                final Long zxid = len > 3 ? Long.parseLong(lineArr[3]) : null;
+                if (zxid != null) {
+                    final long eventZxid = event.getZxid();
+                    if (!zxid.equals(eventZxid)) continue;
+                }
+
+                final int s1 = Integer.parseInt(lineArr[1]);
+                final int s2 = Integer.parseInt(lineArr[2]);
+                final int receivingNodeId = event.getReceivingNodeId();
+                final int sendingSubnodeId = event.getSendingSubnodeId();
+                final Subnode sendingSubnode = testingService.getSubnodes().get(sendingSubnodeId);
+                final int sendingNodeId = sendingSubnode.getNodeId();
+                if (sendingNodeId != s1 || receivingNodeId != s2) continue;
+
+                final int type = event.getType();
+                switch (action) {
+                    case "SEND_PROPOSAL":
+                        if (type != MessageType.PROPOSAL) continue;
+                        break;
+                    case "SEND_COMMIT":
+                        if (type != MessageType.COMMIT) continue;
+                        break;
+                }
+                nextEvent = event;
+                events.remove(nextEvent);
+                break;
+            }
+        }
     }
 
 }

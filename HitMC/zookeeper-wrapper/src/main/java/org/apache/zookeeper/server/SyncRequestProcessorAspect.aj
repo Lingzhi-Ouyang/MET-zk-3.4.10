@@ -163,7 +163,7 @@ public aspect SyncRequestProcessorAspect {
                 // before offerMessage: increase sendingSubnodeNum
                 quorumPeerAspect.setSubnodeSending();
 //                int lastSyncRequestId = intercepter.getTestingService().logRequestMessage(subnodeId, payload, type);
-                final Long zxid = ((Request) request).zxid;
+                final long zxid = ((Request) request).zxid;
                 final int lastSyncRequestId =
                         testingService.offerRequestProcessorMessage(subnodeId, SubnodeType.SYNC_PROCESSOR, zxid, payload);
                 LOG.debug("lastSyncRequestId = {}", lastSyncRequestId);

@@ -338,24 +338,26 @@ public class TestingService implements TestingRemoteService {
                             totalExecuted = scheduleElection(leaderId, totalExecuted);
                             break;
 //                    case "LOG_REQUEST":
-//                        assert len==2;
+//                        assert len>=2;
 //                        int logNodeId = Integer.parseInt(lineArr[1]);
 //                        totalExecuted = scheduleLogRequest(logNodeId, totalExecuted);
 //                        break;
 //                    case "COMMIT":
-//                        assert len==2;
+//                        assert len>=2;
 //                        int commitNodeId = Integer.parseInt(lineArr[1]);
 //                        totalExecuted = scheduleCommit(commitNodeId, totalExecuted);
 //                        break;
-//                    case "LEARNER_HANDLER_MESSAGE":
-//                        assert len==3;
+//                    case "SEND_PROPOSAL":
+//                    case "SEND_COMMIT":
+//                        assert len>=3;
 //                        int s1 = Integer.parseInt(lineArr[1]);
 //                        int s2 = Integer.parseInt(lineArr[2]);
 //                        totalExecuted = scheduleLearnerHandlerMessage(s1, s2, totalExecuted);
 //                        break;
                         case "LOG_REQUEST":
                         case "COMMIT":
-                        case "LEADER_MESSAGE":
+                        case "SEND_PROPOSAL":
+                        case "SEND_COMMIT":
                             totalExecuted = scheduleInternalEvent(externalModelStrategy, lineArr, totalExecuted);
                             break;
                         case "NODE_CRASH":
@@ -1661,7 +1663,7 @@ public class TestingService implements TestingRemoteService {
     }
 
     @Override
-    public int offerMessageToFollower(int sendingSubnodeId, String receivingAddr, String payload, int type) throws RemoteException {
+    public int offerMessageToFollower(int sendingSubnodeId, String receivingAddr, long zxid, String payload, int type) throws RemoteException {
         if (!clientInitializationDone) {
             LOG.debug("----client initialization is not done!---");
             return TestingDef.RetCode.CLIENT_INITIALIZATION_NOT_DONE;
@@ -1685,7 +1687,7 @@ public class TestingService implements TestingRemoteService {
 
         int id = generateEventId();
         final LearnerHandlerMessageEvent messageEvent = new LearnerHandlerMessageEvent(
-                id, sendingSubnodeId, receivingNodeId, type, payload, learnerHandlerMessageExecutor);
+                id, sendingSubnodeId, receivingNodeId, type, zxid, payload, learnerHandlerMessageExecutor);
         messageEvent.addAllDirectPredecessors(predecessorEvents);
 
         synchronized (controlMonitor) {
@@ -1717,7 +1719,7 @@ public class TestingService implements TestingRemoteService {
     }
 
     @Override
-    public int offerRequestProcessorMessage(int subnodeId, SubnodeType subnodeType, Long zxid, String payload) throws RemoteException {
+    public int offerRequestProcessorMessage(int subnodeId, SubnodeType subnodeType, long zxid, String payload) throws RemoteException {
         if (!clientInitializationDone) {
             LOG.debug("----client initialization is not done!---");
             return TestingDef.RetCode.CLIENT_INITIALIZATION_NOT_DONE;
