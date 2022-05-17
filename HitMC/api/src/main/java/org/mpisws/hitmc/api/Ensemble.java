@@ -8,7 +8,7 @@ public interface Ensemble {
 
     void stopNode(int node);
 
-    void configureEnsemble(int executionId) throws SchedulerConfigurationException;
+    void configureEnsemble(String executionId) throws SchedulerConfigurationException;
 
     void startEnsemble();
 

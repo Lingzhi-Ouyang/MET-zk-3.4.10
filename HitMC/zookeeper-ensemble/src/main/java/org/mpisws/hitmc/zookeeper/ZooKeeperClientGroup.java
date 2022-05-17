@@ -85,7 +85,7 @@ public class ZooKeeperClientGroup implements ClientGroup, SchedulerConfiguration
     public void configureClients(final int executionId) throws SchedulerConfigurationException {
         this.executionId = executionId;
         for (int i = 0; i < zookeeperConfiguration.getNumClients(); ++i) {
-            zookeeperConfiguration.configureNode(executionId, i, "client");
+            zookeeperConfiguration.configureNode(String.valueOf(executionId), i, "client");
         }
     }
 

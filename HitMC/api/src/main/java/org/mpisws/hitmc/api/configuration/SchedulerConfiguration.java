@@ -46,7 +46,7 @@ public interface SchedulerConfiguration {
 
     String getSchedulingStrategy();
 
-    void configureNode(int executionId, int nodeId, String tag) throws SchedulerConfigurationException;
+    void configureNode(String executionId, int nodeId, String tag) throws SchedulerConfigurationException;
 
     int getClientPort();
 

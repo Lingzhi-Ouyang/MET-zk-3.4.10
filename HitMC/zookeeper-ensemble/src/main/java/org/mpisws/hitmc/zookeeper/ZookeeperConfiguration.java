@@ -288,7 +288,7 @@ public class ZookeeperConfiguration implements SchedulerConfiguration {
     }
 
     @Override
-    public void configureNode(final int executionId, final int nodeId, String tag) throws SchedulerConfigurationException {
+    public void configureNode(final String executionId, final int nodeId, String tag) throws SchedulerConfigurationException {
         final File nodeDir = new File(getWorkingDir(), executionId + File.separator + tag + "s" + File.separator + nodeId);
         final File dataDir = new File(nodeDir, "data");
 

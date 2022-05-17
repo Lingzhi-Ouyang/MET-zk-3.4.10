@@ -27,7 +27,7 @@ public class ZookeeperEnsemble implements Ensemble, SchedulerConfigurationPostLo
     @Autowired
     private ZookeeperConfiguration zookeeperConfiguration;
 
-    private int executionId;
+    private String executionId;
 
     private final List<Process> nodeProcesses = new ArrayList<>();
 
@@ -134,7 +134,7 @@ public class ZookeeperEnsemble implements Ensemble, SchedulerConfigurationPostLo
     }
 
     @Override
-    public void configureEnsemble(final int executionId) throws SchedulerConfigurationException {
+    public void configureEnsemble(final String executionId) throws SchedulerConfigurationException {
         this.executionId = executionId;
         for (int i = 0; i < zookeeperConfiguration.getNumNodes(); ++i) {
             zookeeperConfiguration.configureNode(executionId, i, "node");
