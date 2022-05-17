@@ -28,11 +28,11 @@ public class GetDataVerifier implements Verifier{
     @Override
     public boolean verify() {
         String matchModel = "UNMATCHED";
-        List<Integer> returnedZxidList = testingService.getReturnedZxidList();
-        final int len = returnedZxidList.size();
+        List<Integer> returnedDataList = testingService.getReturnedDataList();
+        final int len = returnedDataList.size();
         assert len >= 2;
-        final int latestOne = returnedZxidList.get(len - 1);
-        final int latestSecond = returnedZxidList.get(len - 2);
+        final int latestOne = returnedDataList.get(len - 1);
+        final int latestSecond = returnedDataList.get(len - 2);
         boolean result = latestOne >= latestSecond;
         if (this.modelResult == null) {
             matchModel = "UNKNOWN";

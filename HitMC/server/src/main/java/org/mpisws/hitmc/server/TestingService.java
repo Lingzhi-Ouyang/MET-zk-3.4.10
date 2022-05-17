@@ -96,7 +96,7 @@ public class TestingService implements TestingRemoteService {
     private final List<Vote> votes = new ArrayList<>();
     private final List<LeaderElectionState> leaderElectionStates = new ArrayList<>();
 
-    private final List<Integer> returnedZxidList = new ArrayList<>();
+    private final List<Integer> returnedDataList = new ArrayList<>();
 
     private final Map<Long, Integer> zxidSyncedMap = new HashMap<>();
     private final Map<Long, Integer> zxidToCommitMap = new HashMap<>();
@@ -121,8 +121,8 @@ public class TestingService implements TestingRemoteService {
 
     private int logRequestInFlight;
 
-    public List<Integer> getReturnedZxidList() {
-        return returnedZxidList;
+    public List<Integer> getReturnedDataList() {
+        return returnedDataList;
     }
 
     public Map<Long, Integer> getZxidSyncedMap() {
@@ -586,8 +586,8 @@ public class TestingService implements TestingRemoteService {
         leaderElectionStates.clear();
         leaderElectionStates.addAll(Collections.nCopies(schedulerConfiguration.getNumNodes(), LeaderElectionState.LOOKING));
 
-        returnedZxidList.clear();
-        returnedZxidList.add(0);
+        returnedDataList.clear();
+        returnedDataList.add(0);
 
         zxidSyncedMap.clear();
         zxidToCommitMap.clear();
