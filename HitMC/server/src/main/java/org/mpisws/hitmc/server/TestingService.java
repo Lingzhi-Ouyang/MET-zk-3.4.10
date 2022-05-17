@@ -245,12 +245,12 @@ public class TestingService implements TestingRemoteService {
             establishSession(client2, true, "127.0.0.1:4001");
             totalExecuted = getDataTest(totalExecuted, client2);
 
-            for (ClientProxy clientProxy: clientMap.values()) {
-                clientProxy.shutdown();
+            for (Integer i: clientMap.keySet()) {
+                LOG.debug("shutting down client {}", i);
+                clientMap.get(i).shutdown();
             }
             clientMap.clear();
             ensemble.stopEnsemble();
-
 
             executionWriter.close();
             statisticsWriter.close();
@@ -359,9 +359,9 @@ public class TestingService implements TestingRemoteService {
                 }
             }
 
-            for (ClientProxy clientProxy: clientMap.values()) {
-
-                clientProxy.shutdown();
+            for (Integer i: clientMap.keySet()) {
+                LOG.debug("shutting down client {}", i);
+                clientMap.get(i).shutdown();
             }
             clientMap.clear();
             ensemble.stopEnsemble();
@@ -378,7 +378,7 @@ public class TestingService implements TestingRemoteService {
     }
 
     public String getServerAddr(int serverId) {
-        return "127.0.0.1:" + (4000+serverId);
+        return "localhost:" + (schedulerConfiguration.getClientPort() + serverId);
     }
 
     public void initRemote() {

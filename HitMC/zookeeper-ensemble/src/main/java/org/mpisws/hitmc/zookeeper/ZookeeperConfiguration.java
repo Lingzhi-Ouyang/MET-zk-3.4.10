@@ -254,6 +254,7 @@ public class ZookeeperConfiguration implements SchedulerConfiguration {
         return syncLimit;
     }
 
+    @Override
     public int getClientPort() {
         return clientPort;
     }

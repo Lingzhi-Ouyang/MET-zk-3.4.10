@@ -48,6 +48,8 @@ public interface SchedulerConfiguration {
 
     void configureNode(int executionId, int nodeId, String tag) throws SchedulerConfigurationException;
 
+    int getClientPort();
+
     File getWorkingDir();
 
     File getTraceDir();
