@@ -221,7 +221,7 @@ public class ExternalModelStrategy implements SchedulingStrategy{
                     }
                 }
                 break;
-            case "LEARNER_HANDLER_MESSAGE":
+            case "LEADER_MESSAGE":
                 for (final Event e : enabled) {
                     if (e instanceof LearnerHandlerMessageEvent) {
                         assert len == 3;

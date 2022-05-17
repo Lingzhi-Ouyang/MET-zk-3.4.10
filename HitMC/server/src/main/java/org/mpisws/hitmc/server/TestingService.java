@@ -333,7 +333,7 @@ public class TestingService implements TestingRemoteService {
 //                        break;
                     case "LOG_REQUEST":
                     case "COMMIT":
-                    case "LEARNER_HANDLER_MESSAGE":
+                    case "LEADER_MESSAGE":
                         totalExecuted = scheduleInternalEvent(externalModelStrategy, lineArr, totalExecuted);
                         break;
                     case "NODE_CRASH":
