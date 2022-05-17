@@ -1684,7 +1684,8 @@ public class TestingService implements TestingRemoteService {
         }
 
         int id = generateEventId();
-        final LearnerHandlerMessageEvent messageEvent = new LearnerHandlerMessageEvent(id, sendingSubnodeId, receivingNodeId, payload, learnerHandlerMessageExecutor);
+        final LearnerHandlerMessageEvent messageEvent = new LearnerHandlerMessageEvent(
+                id, sendingSubnodeId, receivingNodeId, type, payload, learnerHandlerMessageExecutor);
         messageEvent.addAllDirectPredecessors(predecessorEvents);
 
         synchronized (controlMonitor) {
@@ -1782,13 +1783,24 @@ public class TestingService implements TestingRemoteService {
         final Subnode sendingSubnode = subnodes.get(event.getSendingSubnodeId());
         // set the sending subnode to be PROCESSING
         sendingSubnode.setState(SubnodeState.PROCESSING);
-        for (final Subnode subnode : subnodeSets.get(event.getReceivingNodeId())) {
-            // ATTENTION: this is for sync
-            if (subnode.getSubnodeType() == SubnodeType.SYNC_PROCESSOR
-                    && SubnodeState.RECEIVING.equals(subnode.getState())) {
-                // set the receiving subnode to be PROCESSING
-                subnode.setState(SubnodeState.PROCESSING);
-                break;
+        final int type = event.getType();
+        if (MessageType.PROPOSAL == type) {
+            for (final Subnode subnode : subnodeSets.get(event.getReceivingNodeId())) {
+                if (subnode.getSubnodeType() == SubnodeType.SYNC_PROCESSOR
+                        && SubnodeState.RECEIVING.equals(subnode.getState())) {
+                    // set the receiving subnode to be PROCESSING
+                    subnode.setState(SubnodeState.PROCESSING);
+                    break;
+                }
+            }
+        } else if (MessageType.COMMIT == type){
+            for (final Subnode subnode : subnodeSets.get(event.getReceivingNodeId())) {
+                if (subnode.getSubnodeType() == SubnodeType.COMMIT_PROCESSOR
+                        && SubnodeState.RECEIVING.equals(subnode.getState())) {
+                    // set the receiving subnode to be PROCESSING
+                    subnode.setState(SubnodeState.PROCESSING);
+                    break;
+                }
             }
         }
         controlMonitor.notifyAll();
@@ -2196,11 +2208,16 @@ public class TestingService implements TestingRemoteService {
 
 
     /***
-     * Post-condition for logging
+     * Pre-condition for logging
      */
     private final WaitPredicate allNodesLogSyncSteady = new AllNodesLogSyncSteady(this);
     public void waitAllNodesLogSyncSteady() {
         wait(allNodesLogSyncSteady, 0L);
+    }
+
+    private final WaitPredicate allNodesSteadyAfterQuorumSynced = new AllNodesSteadyAfterQuorumSynced(this);
+    public void waitAllNodesSteadyAfterQuorumSynced() {
+        wait(allNodesSteadyAfterQuorumSynced, 0L);
     }
 
 
@@ -2261,6 +2278,8 @@ public class TestingService implements TestingRemoteService {
     }
 
     /***
+     * Note: this is used when learnerHandler's COMMIT message is not targeted.
+     * o.w. use global predicate AllNodesSteadyAfterQuorumSynced
      * Post-condition for scheduling quorum log message events
      */
     public void waitQuorumToCommit(final RequestEvent event) {
@@ -2269,8 +2288,6 @@ public class TestingService implements TestingRemoteService {
         final WaitPredicate quorumToCommit = new QuorumToCommit(this, zxid, nodeNum);
         wait(quorumToCommit, 0L);
     }
-
-
 
     /***
      * Pre-condition for scheduling the leader-to-follower message event

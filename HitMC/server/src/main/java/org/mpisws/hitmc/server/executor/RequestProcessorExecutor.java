@@ -27,7 +27,9 @@ public class RequestProcessorExecutor extends BaseEventExecutor{
         switch (event.getSubnodeType()) {
             case SYNC_PROCESSOR:
                 if (quorumSynced(event.getZxid())){
-                    testingService.waitQuorumToCommit(event);
+                    // If learnerHandler's COMMIT is not intercepted
+//                    testingService.waitQuorumToCommit(event);
+                    testingService.waitAllNodesSteadyAfterQuorumSynced();
                 } else {
                     testingService.waitAllNodesSteady();
                 }

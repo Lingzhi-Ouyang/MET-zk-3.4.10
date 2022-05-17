@@ -448,7 +448,7 @@ public aspect LearnerHandlerAspect {
 
     /***
      * For LearnerHandlerSender sending messages to followers during SYNC & BROADCAST phase
-     * For SYNC phase
+     * For SYNC phase : do not intercept the PROPOSAL before UPTODATE
      * For BROADCAST phase
      */
     pointcut writeRecord(Record r, String s):
@@ -479,7 +479,8 @@ public aspect LearnerHandlerAspect {
                 LOG.debug("-------sending UPTODATE!!!!-------begin to serve clients");
             case Leader.REQUEST:
             case Leader.ACK:
-            case Leader.COMMIT:
+//            case Leader.COMMIT:
+//            case Leader.PROPOSAL:
             case Leader.PING:
             case Leader.REVALIDATE:
             case Leader.SYNC:
@@ -494,11 +495,12 @@ public aspect LearnerHandlerAspect {
             case Leader.ACKEPOCH:
                 LOG.debug("---------Taking the packet ({}) from queued packets. Won't intercept. Subnode: {}",
                         payload, subnodeId);
-        };
-        if (!intercepter.isSyncFinished() || type != Leader.PROPOSAL){
+        }
+        if (!intercepter.isSyncFinished() || (type != Leader.PROPOSAL && type != Leader.COMMIT)){
             proceed(r, s);
             return;
         }
+
 
         try {
             // before offerMessage: increase sendingSubnodeNum
