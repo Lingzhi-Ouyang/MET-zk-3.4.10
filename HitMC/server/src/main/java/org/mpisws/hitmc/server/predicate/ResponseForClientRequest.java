@@ -28,8 +28,8 @@ public class ResponseForClientRequest implements WaitPredicate {
         String result = event.getResult();
         if(result != null){
             responseGot = true;
-            testingService.getReturnedZxid().add(Integer.parseInt(result));
-            LOG.debug("getReturnedZxid: {}", testingService.getReturnedZxid());
+            testingService.getReturnedZxidList().add(Integer.parseInt(result));
+            LOG.debug("getReturnedZxid: {}", testingService.getReturnedZxidList());
         }
         return responseGot;
     }

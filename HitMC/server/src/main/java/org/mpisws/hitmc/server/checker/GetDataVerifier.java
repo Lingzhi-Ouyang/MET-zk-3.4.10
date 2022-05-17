@@ -1,7 +1,5 @@
 package org.mpisws.hitmc.server.checker;
 
-import org.mpisws.hitmc.api.NodeState;
-import org.mpisws.hitmc.api.state.Vote;
 import org.mpisws.hitmc.server.TestingService;
 import org.mpisws.hitmc.server.statistics.Statistics;
 import org.slf4j.Logger;
@@ -23,7 +21,7 @@ public class GetDataVerifier implements Verifier{
 
     @Override
     public boolean verify() {
-        List<Integer> returnedZxidList = testingService.getReturnedZxid();
+        List<Integer> returnedZxidList = testingService.getReturnedZxidList();
         final int len = returnedZxidList.size();
         assert len >= 2;
         final int latestOne = returnedZxidList.get(len - 1);

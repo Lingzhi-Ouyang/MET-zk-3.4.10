@@ -105,10 +105,10 @@ public class TestingService implements TestingRemoteService {
     private final List<Vote> votes = new ArrayList<>();
     private final List<LeaderElectionState> leaderElectionStates = new ArrayList<>();
 
-    private final List<Integer> returnedZxid = new ArrayList<>();
+    private final List<Integer> returnedZxidList = new ArrayList<>();
 
-    public List<Integer> getReturnedZxid() {
-        return returnedZxid;
+    public List<Integer> getReturnedZxidList() {
+        return returnedZxidList;
     }
 
     public Object getControlMonitor() {
@@ -549,8 +549,8 @@ public class TestingService implements TestingRemoteService {
         leaderElectionStates.clear();
         leaderElectionStates.addAll(Collections.nCopies(schedulerConfiguration.getNumNodes(), LeaderElectionState.LOOKING));
 
-        returnedZxid.clear();
-        returnedZxid.add(0);
+        returnedZxidList.clear();
+        returnedZxidList.add(0);
 
         // Configure nodes and subnodes
         lastProcessedZxids.clear();
