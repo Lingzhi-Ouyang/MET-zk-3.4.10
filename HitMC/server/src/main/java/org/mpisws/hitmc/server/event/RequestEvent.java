@@ -14,14 +14,16 @@ public class RequestEvent extends AbstractEvent{
     private final int subnodeId;
     private final SubnodeType subnodeType;
     private final String payload;
+    private final Long zxid;
 
     public RequestEvent(final int id, final int nodeId, final int subnodeId, final SubnodeType subnodeType,
-                        final String payload, final RequestProcessorExecutor requestProcessorExecutor) {
+                        final String payload, final Long zxid, final RequestProcessorExecutor requestProcessorExecutor) {
         super(id, requestProcessorExecutor);
         this.nodeId = nodeId;
         this.subnodeId = subnodeId;
         this.subnodeType = subnodeType;
         this.payload = payload;
+        this.zxid = zxid;
     }
 
     public int getNodeId() {
@@ -32,6 +34,10 @@ public class RequestEvent extends AbstractEvent{
 
     public SubnodeType getSubnodeType() {
         return subnodeType;
+    }
+
+    public Long getZxid() {
+        return zxid;
     }
 
     @Override

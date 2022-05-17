@@ -98,6 +98,9 @@ public class TestingService implements TestingRemoteService {
 
     private final List<Integer> returnedZxidList = new ArrayList<>();
 
+    private final Map<Long, Integer> zxidSyncedMap = new HashMap<>();
+    private final Map<Long, Integer> zxidToCommitMap = new HashMap<>();
+
     public boolean traceMatched;
     public boolean tracePassed;
 
@@ -120,6 +123,14 @@ public class TestingService implements TestingRemoteService {
 
     public List<Integer> getReturnedZxidList() {
         return returnedZxidList;
+    }
+
+    public Map<Long, Integer> getZxidSyncedMap() {
+        return zxidSyncedMap;
+    }
+
+    public Map<Long, Integer> getZxidToCommitMap() {
+        return zxidToCommitMap;
     }
 
     public Object getControlMonitor() {
@@ -587,6 +598,9 @@ public class TestingService implements TestingRemoteService {
 
         returnedZxidList.clear();
         returnedZxidList.add(0);
+
+        zxidSyncedMap.clear();
+        zxidToCommitMap.clear();
 
         traceMatched = true;
         tracePassed = true;
@@ -1702,7 +1716,7 @@ public class TestingService implements TestingRemoteService {
     }
 
     @Override
-    public int offerRequestProcessorMessage(int subnodeId, SubnodeType subnodeType, String payload) throws RemoteException {
+    public int offerRequestProcessorMessage(int subnodeId, SubnodeType subnodeType, Long zxid, String payload) throws RemoteException {
         if (!clientInitializationDone) {
             LOG.debug("----client initialization is not done!---");
             return TestingDef.RetCode.CLIENT_INITIALIZATION_NOT_DONE;
@@ -1713,12 +1727,15 @@ public class TestingService implements TestingRemoteService {
 
         int id = generateEventId();
         final RequestEvent requestEvent =
-                new RequestEvent(id, nodeId, subnodeId, subnodeType, payload, requestProcessorExecutor);
+                new RequestEvent(id, nodeId, subnodeId, subnodeType, payload, zxid, requestProcessorExecutor);
         synchronized (controlMonitor) {
             LOG.debug("{} {} of Node {} is about to process the request ({}): msgId = {}, " +
                     "set subnode {} to SENDING state", subnodeType, subnodeId, nodeId, payload, id, subnodeId);
             addEvent(requestEvent);
             subnode.setState(SubnodeState.SENDING);
+            if (SubnodeType.COMMIT_PROCESSOR.equals(subnodeType)) {
+                zxidToCommitMap.put(zxid, zxidToCommitMap.getOrDefault(zxid, 0) + 1);
+            }
             controlMonitor.notifyAll();
 //            waitLogRequestReleased(id, nodeId);
             waitMessageReleased(id, nodeId);
@@ -1786,6 +1803,11 @@ public class TestingService implements TestingRemoteService {
     public void releaseRequestProcessor(final RequestEvent event) {
 //        logRequestInFlight = event.getId();
         messageInFlight = event.getId();
+        SubnodeType subnodeType = event.getSubnodeType();
+        if (SubnodeType.SYNC_PROCESSOR.equals(subnodeType)) {
+            final Long zxid = event.getZxid();
+            zxidSyncedMap.put(zxid, zxidSyncedMap.getOrDefault(zxid, 0) + 1);
+        }
         final Subnode syncSubnode = subnodes.get(event.getSubnodeId());
         // set the corresponding subnode to be PROCESSING
         syncSubnode.setState(SubnodeState.PROCESSING);
@@ -2228,7 +2250,7 @@ public class TestingService implements TestingRemoteService {
     }
 
     /***
-     * Post-condition for scheduling the log message event
+     * Post-condition for scheduling the commit message event
      * @param msgId
      * @param nodeId
      */
@@ -2236,6 +2258,16 @@ public class TestingService implements TestingRemoteService {
         final long zxid = lastProcessedZxids.get(nodeId);
         final WaitPredicate commitProcessorDone = new CommitProcessorDone(this, msgId, nodeId, zxid);
         wait(commitProcessorDone, 0L);
+    }
+
+    /***
+     * Post-condition for scheduling quorum log message events
+     */
+    public void waitQuorumToCommit(final RequestEvent event) {
+        final long zxid = event.getZxid();
+        final int nodeNum = schedulerConfiguration.getNumNodes();
+        final WaitPredicate quorumToCommit = new QuorumToCommit(this, zxid, nodeNum);
+        wait(quorumToCommit, 0L);
     }
 
 

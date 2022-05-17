@@ -79,7 +79,7 @@ public interface TestingRemoteService extends Remote {
      *
      * @return The scheduler generates and returns a unique identifier of the current message
      */
-    int offerRequestProcessorMessage(int subnodeId, SubnodeType subnodeType, String payload) throws RemoteException;
+    int offerRequestProcessorMessage(int subnodeId, SubnodeType subnodeType, Long zxid, String payload) throws RemoteException;
 
     /**
      * If the subnode is in the state <code>{@link SubnodeState.RECEIVING}</code>, change it to

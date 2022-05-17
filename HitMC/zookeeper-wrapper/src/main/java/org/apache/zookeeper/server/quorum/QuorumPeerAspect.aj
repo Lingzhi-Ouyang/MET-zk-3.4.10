@@ -692,7 +692,7 @@ public aspect QuorumPeerAspect {
         if (type != null) {
             // TODO: acquire receivign node from remote socket
             entry = "type=" + type +
-                    ", typeNo=" + p.getType() +
+                    ", typeId=" + p.getType() +
                     ", sendingNode=" + myId +
                     ", zxid=0x" + Long.toHexString(p.getZxid());
         }
@@ -703,7 +703,8 @@ public aspect QuorumPeerAspect {
         return "Node=" + myId +
                 ", sessionId=" + request.sessionId +
                 ", cxid=" + request.cxid +
-                ", type=" + request.type;
+                ", zxif=0x" + Long.toHexString(request.zxid) +
+                ", typeId=" + request.type;
     }
 
 

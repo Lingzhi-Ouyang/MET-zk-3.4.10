@@ -26,8 +26,11 @@ public class RequestProcessorExecutor extends BaseEventExecutor{
         testingService.releaseRequestProcessor(event);
         switch (event.getSubnodeType()) {
             case SYNC_PROCESSOR:
-                // TODO: to check whether quorum nodes have synced
-                testingService.waitAllNodesSteady();
+                if (quorumSynced(event.getZxid())){
+                    testingService.waitQuorumToCommit(event);
+                } else {
+                    testingService.waitAllNodesSteady();
+                }
                 break;
             case COMMIT_PROCESSOR:
                 testingService.waitCommitProcessorDone(event.getId(), event.getNodeId());
@@ -37,5 +40,14 @@ public class RequestProcessorExecutor extends BaseEventExecutor{
         event.setExecuted();
         LOG.debug("Request processor event executed: {}\n\n\n", event.toString());
         return true;
+    }
+
+    public boolean quorumSynced(final long zxid) {
+        if (testingService.getZxidSyncedMap().containsKey(zxid)){
+            final int count = testingService.getZxidSyncedMap().get(zxid);
+            final int nodeNum = testingService.getSchedulerConfiguration().getNumNodes();
+            return count > nodeNum / 2;
+        }
+        return false;
     }
 }
