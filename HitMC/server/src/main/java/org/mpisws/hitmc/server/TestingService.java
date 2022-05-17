@@ -317,10 +317,20 @@ public class TestingService implements TestingRemoteService {
                         break;
                     case "LOG_REQUEST":
                         assert len==2;
-                        totalExecuted = scheduleLogRequest(totalExecuted);
+                        int logNodeId = Integer.parseInt(lineArr[1]);
+                        totalExecuted = scheduleLogRequest(logNodeId, totalExecuted);
+//                        totalExecuted = LogRequest(logNodeId, totalExecuted);
                         break;
                     case "COMMIT":
                         assert len==2;
+                        int commitNodeId = Integer.parseInt(lineArr[1]);
+                        totalExecuted = scheduleCommit(commitNodeId, totalExecuted);
+                        break;
+                    case "LEARNER_HANDLER_EVENT":
+                        assert len==3;
+                        int s1 = Integer.parseInt(lineArr[1]);
+                        int s2 = Integer.parseInt(lineArr[2]);
+                        totalExecuted = scheduleLearnerHandlerEvent(s1, s2, totalExecuted);
                         break;
                     case "NODE_CRASH":
                         assert len==2;
@@ -878,14 +888,74 @@ public class TestingService implements TestingRemoteService {
     /***
      * log request
      */
-    private int scheduleLogRequest(int totalExecuted) {
+    private int scheduleLogRequest(final int nodeId, int totalExecuted) {
         try {
             synchronized (controlMonitor) {
                 long startTime = System.currentTimeMillis();
                 Event event = schedulingStrategy.nextEvent();
+                // this may be trapped in loop
                 while (!(event instanceof RequestEvent) ||
-                        !(SubnodeType.SYNC_PROCESSOR.equals(((RequestEvent) event).getSubnodeType()))){
-                    LOG.debug("-------need SyncRequestEvent! get event: {}", event);
+                        !(SubnodeType.SYNC_PROCESSOR.equals(((RequestEvent) event).getSubnodeType())) ||
+                        ((RequestEvent) event).getNodeId() != nodeId){
+                    LOG.debug("-------need node {} 's SyncRequestEvent! get event: {}", nodeId, event);
+                    addEvent(event);
+                    event = schedulingStrategy.nextEvent();
+                }
+                LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
+                LOG.debug("prepare to execute event: {}", event);
+                if (event.execute()) {
+                    ++totalExecuted;
+                    recordProperties(totalExecuted, startTime, event);
+                }
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return totalExecuted;
+    }
+
+    /***
+     * commit
+     */
+    private int scheduleCommit(final int nodeId, int totalExecuted) {
+        try {
+            synchronized (controlMonitor) {
+                long startTime = System.currentTimeMillis();
+                Event event = schedulingStrategy.nextEvent();
+                // this may be trapped in loop
+                while (!(event instanceof RequestEvent) ||
+                        !(SubnodeType.COMMIT_PROCESSOR.equals(((RequestEvent) event).getSubnodeType())) ||
+                        ((RequestEvent) event).getNodeId() != nodeId){
+                    LOG.debug("-------need node {} 's CommitEvent! get event: {}", nodeId, event);
+                    addEvent(event);
+                    event = schedulingStrategy.nextEvent();
+                }
+                LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
+                LOG.debug("prepare to execute event: {}", event);
+                if (event.execute()) {
+                    ++totalExecuted;
+                    recordProperties(totalExecuted, startTime, event);
+                }
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return totalExecuted;
+    }
+
+    /***
+     * schedule learner handler event
+     */
+    private int scheduleLearnerHandlerEvent(final int sendingNode, final int receivingNode, int totalExecuted) {
+        try {
+            synchronized (controlMonitor) {
+                long startTime = System.currentTimeMillis();
+                Event event = schedulingStrategy.nextEvent();
+                // this may be trapped in loop
+                while (!(event instanceof LearnerHandlerMessageEvent) ||
+                        ((LearnerHandlerMessageEvent) event).getReceivingNodeId() != receivingNode){
+                    LOG.debug("-------need node {} 's LearnerHandlerMessageEvent to node {}! get event: {}",
+                            sendingNode, receivingNode, event);
                     addEvent(event);
                     event = schedulingStrategy.nextEvent();
                 }
@@ -907,6 +977,7 @@ public class TestingService implements TestingRemoteService {
      */
     private int scheduleNodeCrash(int nodeId, int totalExecuted) {
         try {
+            assert NodeState.ONLINE.equals(nodeStates.get(nodeId));
             // TODO: move this to configuration file
             if (!nodeCrashExecutor.hasCrashes()) {
                 nodeCrashExecutor = new NodeCrashExecutor(this, 1);
@@ -932,6 +1003,7 @@ public class TestingService implements TestingRemoteService {
      */
     private int ScheduleNodeStart(int nodeId, int totalExecuted) {
         try {
+            assert NodeState.OFFLINE.equals(nodeStates.get(nodeId));
             // TODO: move this to configuration file
             if (!nodeStartExecutor.hasReboots()) {
                 nodeStartExecutor = new NodeStartExecutor(this, 1);
