@@ -519,6 +519,7 @@ public aspect LearnerHandlerAspect {
             // to check if the partition happens
             if (lastPacketId == TestingDef.RetCode.NODE_PAIR_IN_PARTITION){
                 // just drop the message
+                LOG.debug("partition occurs! just drop the message. What about other types of messages?");
                 return;
             }
 
@@ -597,6 +598,7 @@ public aspect LearnerHandlerAspect {
             // to check if the partition happens
             if (lastPacketId == TestingDef.RetCode.NODE_PAIR_IN_PARTITION){
                 // just drop the message
+                LOG.debug("partition occurs! just drop the message. What about other types of messages?");
                 return;
             }
             proceed(r, s);
