@@ -20,7 +20,9 @@ public class ZookeeperMain {
 
         try {
             testingService.loadConfig(args);
-            testingService.start();
+            testingService.initRemote();
+//            testingService.start();
+            testingService.startWithExternalModel();
             System.exit(0);
         } catch (final SchedulerConfigurationException e) {
             LOG.error("Error while reading configuration.", e);
