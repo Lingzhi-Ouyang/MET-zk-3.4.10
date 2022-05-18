@@ -10,6 +10,8 @@ public interface Statistics {
 
     void reportResult(String result);
 
+    void reportCurrentStep(String currentStepEvent);
+
     void reportRandomSeed(long seed);
 
 }

@@ -13,6 +13,13 @@ public class POSdStatistics implements Statistics {
 
     private long startTime;
 
+    private String currentStepEvent = null;
+
+    @Override
+    public void reportCurrentStep(String curerntStepEvent) {
+        this.currentStepEvent = curerntStepEvent;
+    }
+
     public void reportNumRacy(int numRacy)
     {
         totalNumRacy = numRacy;

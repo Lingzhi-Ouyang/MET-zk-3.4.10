@@ -6,6 +6,13 @@ public class ExternalModelStatistics implements Statistics {
     private int maxEnabledEvents;
     private int countEnabledEvents;
 
+    private String currentStepEvent = null;
+
+    @Override
+    public void reportCurrentStep(String curerntStepEvent) {
+        this.currentStepEvent = curerntStepEvent;
+    }
+
     public void reportNumberOfEnabledEvents(final int numEnabledEvents) {
         sumEnabledEvents += numEnabledEvents;
         maxEnabledEvents = Math.max(maxEnabledEvents, numEnabledEvents);
@@ -58,6 +65,7 @@ public class ExternalModelStatistics implements Statistics {
         final double avgEnabledEvents = ((double) sumEnabledEvents) / countEnabledEvents;
         final long totalTime = endTime - startTime;
         return "ExternalModelStatistics{" +
+                "\n, currentStep = " + currentStepEvent +
                 "\n, totalEvents = " + totalExecutedEvents +
                 "\n, averageEnabledEvents = " + String.format("%.3f", avgEnabledEvents) +
                 "\n, maxEnabledEvents = " + maxEnabledEvents +

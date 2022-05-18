@@ -13,6 +13,13 @@ public class TAPCTstatistics implements Statistics {
     private int countChains;
     private String priorityChangePointsString;
 
+    private String currentStepEvent = null;
+
+    @Override
+    public void reportCurrentStep(String curerntStepEvent) {
+        this.currentStepEvent = curerntStepEvent;
+    }
+
     private int totalRacy = 0;
 
     public void reportNumRacy(int numRacy)

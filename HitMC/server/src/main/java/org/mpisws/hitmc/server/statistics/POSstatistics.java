@@ -8,6 +8,13 @@ public class POSstatistics implements Statistics {
     private int maxEnabledEvents;
     private int countEnabledEvents;
 
+    private String currentStepEvent = null;
+
+    @Override
+    public void reportCurrentStep(String curerntStepEvent) {
+        this.currentStepEvent = curerntStepEvent;
+    }
+
     private long startTime;
 
     @Override

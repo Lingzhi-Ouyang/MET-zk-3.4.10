@@ -13,6 +13,13 @@ public class PCTCPStatistics implements Statistics {
     private int countChains;
     private String priorityChangePointsString;
 
+    private String currentStepEvent = null;
+
+    @Override
+    public void reportCurrentStep(String curerntStepEvent) {
+        this.currentStepEvent = curerntStepEvent;
+    }
+
     public void reportNumberOfChains(final int numChains) {
         sumChains += numChains;
         maxChains = Math.max(maxChains, numChains);
