@@ -98,6 +98,8 @@ public class TestingService implements TestingRemoteService {
 
     private final List<Integer> returnedDataList = new ArrayList<>();
 
+    private final List<List<Long>> allZxidRecords = new ArrayList<>();
+
     private final Map<Long, Integer> zxidSyncedMap = new HashMap<>();
     private final Map<Long, Integer> zxidToCommitMap = new HashMap<>();
 
@@ -120,6 +122,10 @@ public class TestingService implements TestingRemoteService {
     private int messageInFlight;
 
     private int logRequestInFlight;
+
+    public List<List<Long>> getAllZxidRecords() {
+        return allZxidRecords;
+    }
 
     public List<Integer> getReturnedDataList() {
         return returnedDataList;
@@ -231,7 +237,7 @@ public class TestingService implements TestingRemoteService {
             executionWriter.write("-----Initialization cost time: " + (System.currentTimeMillis() - startTime) + "\n\n");
 
             // PRE: first election
-            totalExecuted = scheduleElection(null, totalExecuted);
+            totalExecuted = scheduleElection(null, null,null, totalExecuted);
 
             // Only the success of the last verification will lead to the following test
             // o.w. just report bug
@@ -322,9 +328,10 @@ public class TestingService implements TestingRemoteService {
             statistics.startTimer();
 
             int currentStep = 1;
+            String line = null;
             try {
                 for (; currentStep <= stepCount; ++currentStep) {
-                    String line = trace.nextStep();
+                    line = trace.nextStep();
                     LOG.debug("nextStep: {}", line);
 
                     String[] lineArr = line.split(" ");
@@ -335,7 +342,7 @@ public class TestingService implements TestingRemoteService {
                         case "ELECTION":
                             Integer leaderId = len > 1 ? Integer.parseInt(lineArr[1]) : null;
                             LOG.debug("election leader: {}", leaderId);
-                            totalExecuted = scheduleElection(leaderId, totalExecuted);
+                            totalExecuted = scheduleElection(currentStep, line, leaderId, totalExecuted);
                             break;
 //                    case "LOG_REQUEST":
 //                        assert len>=2;
@@ -397,7 +404,7 @@ public class TestingService implements TestingRemoteService {
                             int getDataClientId = Integer.parseInt(lineArr[1]);
                             int sid = Integer.parseInt(lineArr[2]);
                             Integer result = len > 3 ? Integer.parseInt(lineArr[3]) : null;
-                            totalExecuted = scheduleGetData(getDataClientId, sid, result, totalExecuted);
+                            totalExecuted = scheduleGetData(currentStep, line, getDataClientId, sid, result, totalExecuted);
                             break;
                         case "SET_DATA":
                             assert len>=3;
@@ -419,6 +426,8 @@ public class TestingService implements TestingRemoteService {
                 traceVerifier.setTraceLen(stepCount);
                 traceVerifier.setExecutedStep(currentStep);
                 traceVerifier.verify();
+                if (currentStep > stepCount) line = "COMPLETE";
+                statistics.reportCurrentStep("[LINE " + currentStep + "]-" + line);
                 statistics.reportTotalExecutedEvents(totalExecuted);
                 statisticsWriter.write(statistics.toString() + "\n\n");
                 LOG.info(statistics.toString() + "\n\n\n\n\n");
@@ -559,6 +568,8 @@ public class TestingService implements TestingRemoteService {
      */
     private void configureNextExecution() {
 
+        final int nodeNum = schedulerConfiguration.getNumNodes();
+
         // Configure external event executors
         nodeStartExecutor = new NodeStartExecutor(this, schedulerConfiguration.getNumReboots());
         nodeCrashExecutor = new NodeCrashExecutor(this, schedulerConfiguration.getNumCrashes());
@@ -581,13 +592,15 @@ public class TestingService implements TestingRemoteService {
 
         // for property check
         votes.clear();
-        votes.addAll(Collections.<Vote>nCopies(schedulerConfiguration.getNumNodes(), null));
+        votes.addAll(Collections.<Vote>nCopies(nodeNum, null));
 
         leaderElectionStates.clear();
-        leaderElectionStates.addAll(Collections.nCopies(schedulerConfiguration.getNumNodes(), LeaderElectionState.LOOKING));
+        leaderElectionStates.addAll(Collections.nCopies(nodeNum, LeaderElectionState.LOOKING));
 
         returnedDataList.clear();
         returnedDataList.add(0);
+
+        allZxidRecords.clear();
 
         zxidSyncedMap.clear();
         zxidToCommitMap.clear();
@@ -605,26 +618,28 @@ public class TestingService implements TestingRemoteService {
         nodeStateForClientRequests.clear();
         followerSocketAddressBook.clear();
 
-        for (int i = 0 ; i < schedulerConfiguration.getNumNodes(); i++) {
+        // configure client map
+        clientMap.clear();
+
+        // configure network partion info
+        partitionMap.clear();
+
+//        partitionMap.addAll(Collections.nCopies(schedulerConfiguration.getNumNodes(),
+//                new ArrayList<>(Collections.nCopies(schedulerConfiguration.getNumNodes(), false))));
+
+        for (int i = 0 ; i < nodeNum; i++) {
             nodeStates.add(NodeState.STARTING);
             nodePhases.add(Phase.DISCOVERY);
             subnodeSets.add(new HashSet<Subnode>());
             lastProcessedZxids.add(0L);
             nodeStateForClientRequests.add(NodeStateForClientRequest.SET_DONE);
             followerSocketAddressBook.add(null);
-        }
 
-        // configure client map
-        clientMap.clear();
+            partitionMap.add(new ArrayList<>(Collections.nCopies(nodeNum, false)));
 
-        // configure network partion info
-        partitionMap.clear();
-        final int nodeNum = schedulerConfiguration.getNumNodes();
-        for (int i = 0 ; i < nodeNum; i++) {
-            partitionMap.add(new ArrayList<>(Collections.nCopies(schedulerConfiguration.getNumNodes(), false)));
+//            allZxidRecords.add(new ArrayList<Long>(){{add(0L);}});
+            allZxidRecords.add(new ArrayList<>(Arrays.asList(0L)));
         }
-//        partitionMap.addAll(Collections.nCopies(schedulerConfiguration.getNumNodes(),
-//                new ArrayList<>(Collections.nCopies(schedulerConfiguration.getNumNodes(), false))));
 
         eventIdGenerator.set(0);
         clientIdGenerator.set(0);
@@ -634,15 +649,15 @@ public class TestingService implements TestingRemoteService {
         logRequestInFlight = 0;
 
         firstMessage.clear();
-        firstMessage.addAll(Collections.<Boolean>nCopies(schedulerConfiguration.getNumNodes(), null));
+        firstMessage.addAll(Collections.<Boolean>nCopies(nodeNum, null));
 
         // Configure lastNodeStartEvents
         lastNodeStartEvents.clear();
-        lastNodeStartEvents.addAll(Collections.<NodeStartEvent>nCopies(schedulerConfiguration.getNumNodes(), null));
+        lastNodeStartEvents.addAll(Collections.<NodeStartEvent>nCopies(nodeNum, null));
 
         // Generate node crash events
         if (schedulerConfiguration.getNumCrashes() > 0) {
-            for (int i = 0; i < schedulerConfiguration.getNumNodes(); i++) {
+            for (int i = 0; i < nodeNum; i++) {
                 final NodeCrashEvent nodeCrashEvent = new NodeCrashEvent(generateEventId(), i, nodeCrashExecutor);
                 schedulingStrategy.add(nodeCrashEvent);
             }
@@ -671,7 +686,7 @@ public class TestingService implements TestingRemoteService {
      * @return the number of executed events
      */
     // TODO: add partition events during election
-    public int scheduleElection(Integer leaderId, int totalExecuted) {
+    public int scheduleElection(final Integer currentStep, final String line, Integer leaderId, int totalExecuted) {
         try{
 //            statistics.startTimer();
             synchronized (controlMonitor) {
@@ -704,6 +719,9 @@ public class TestingService implements TestingRemoteService {
             leaderElectionVerifier.setModelResult(leaderId);
             leaderElectionVerifier.verify();
             // report statistics
+            if (currentStep != null && line != null) {
+                statistics.reportCurrentStep("[LINE " + currentStep + "]-" + line);
+            }
             statistics.reportTotalExecutedEvents(totalExecuted);
             statisticsWriter.write(statistics.toString() + "\n\n");
             LOG.info(statistics.toString() + "\n\n\n\n\n");
@@ -944,7 +962,7 @@ public class TestingService implements TestingRemoteService {
     /***
      * getData
      */
-    private int scheduleGetData(final int clientId, final int serverId, final Integer modelResult, int totalExecuted) {
+    private int scheduleGetData(final Integer currentStep, final String line, final int clientId, final int serverId, final Integer modelResult, int totalExecuted) {
         try {
             ClientProxy clientProxy = clientMap.get(clientId);
             if (clientProxy == null || clientProxy.isStop())  {
@@ -969,6 +987,9 @@ public class TestingService implements TestingRemoteService {
             getDataVerifier.setModelResult(modelResult);
             getDataVerifier.verify();
             // report statistics
+            if (currentStep != null && line != null) {
+                statistics.reportCurrentStep("[LINE " + currentStep + "]-" + line);
+            }
             statistics.reportTotalExecutedEvents(totalExecuted);
             statisticsWriter.write(statistics.toString() + "\n\n");
             LOG.info(statistics.toString() + "\n\n\n\n\n");
@@ -2192,12 +2213,25 @@ public class TestingService implements TestingRemoteService {
         synchronized (controlMonitor) {
             lastProcessedZxids.set(nodeId, lastProcessedZxid);
             nodeStateForClientRequests.set(nodeId, NodeStateForClientRequest.SET_DONE);
+
+            List<Long> zxidRecord = allZxidRecords.get(nodeId);
+            int len = zxidRecord.size();
+            LOG.debug("Node " + nodeId + " record: {}", zxidRecord);
+
             try {
+                if (zxidRecord.get(len - 1) < lastProcessedZxid) {
+                    zxidRecord.add(lastProcessedZxid);
+//                allZxidRecords.get(nodeId).add(lastProcessedZxid);
+                    executionWriter.write(
+                            "\n---just update Node " + nodeId + "'s last record: " + allZxidRecords.get(nodeId));
+                }
                 executionWriter.write(
                         "\n---Update Node " + nodeId + "'s lastProcessedZxid: 0x" + Long.toHexString(lastProcessedZxid));
 //                for (int i = 0; i < schedulerConfiguration.getNumNodes(); i++) {
 //                    executionWriter.write(" # " + Long.toHexString(lastProcessedZxids.get(i)));
 //                }
+                executionWriter.write(
+                        "\n---Node " + nodeId + "'s last record: " + allZxidRecords);
                 executionWriter.write("\n");
                 controlMonitor.notifyAll();
             } catch (final IOException e) {
