@@ -413,6 +413,22 @@ public class TestingService implements TestingRemoteService {
                             String data = len > 3 ? lineArr[3] : null;
                             totalExecuted = scheduleSetData(setDataClientId, sid2, data, totalExecuted);
                             break;
+                        case "LEADER_PROCESS_REQUEST":
+                            break;
+                        case "FOLLOWER_PROCESS_PROPOSAL":
+                            break;
+                        case "LEADER_PROCESS_PROPOSAL_ACK":
+                            break;
+                        case "LEADER_SEND_COMMIT":
+                            break;
+                        case "LEADER_SEND_NEWLEADER":
+                            break;
+                        case "LEADER_PROCESS_NEWLEADER_ACK":
+                            break;
+                        case "LEADER_SEND_UPTODATE":
+                            break;
+                        case "LEADER_PROCESS_UPTODATE_ACK":
+                            break;
                     }
                 }
             } catch (SchedulerConfigurationException e) {
