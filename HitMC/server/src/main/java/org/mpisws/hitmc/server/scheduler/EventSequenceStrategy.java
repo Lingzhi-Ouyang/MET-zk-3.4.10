@@ -11,15 +11,14 @@ import org.mpisws.hitmc.server.state.Subnode;
 import org.mpisws.hitmc.server.statistics.ExternalModelStatistics;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.scheduling.SchedulingException;
 
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 
-public class ExternalModelStrategy implements SchedulingStrategy{
+public class EventSequenceStrategy implements SchedulingStrategy{
 
-    private static final Logger LOG = LoggerFactory.getLogger(ExternalModelStrategy.class);
+    private static final Logger LOG = LoggerFactory.getLogger(EventSequenceStrategy.class);
 
     private final TestingService testingService;
 
@@ -37,7 +36,7 @@ public class ExternalModelStrategy implements SchedulingStrategy{
 
     private final ExternalModelStatistics statistics;
 
-    public ExternalModelStrategy(TestingService testingService, Random random, File dir, final ExternalModelStatistics statistics) throws SchedulerConfigurationException {
+    public EventSequenceStrategy(TestingService testingService, Random random, File dir, final ExternalModelStatistics statistics) throws SchedulerConfigurationException {
         this.testingService = testingService;
         this.random = random;
         this.dir = dir;

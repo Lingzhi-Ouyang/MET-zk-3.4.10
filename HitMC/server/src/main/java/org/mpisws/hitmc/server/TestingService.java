@@ -292,18 +292,18 @@ public class TestingService implements TestingRemoteService {
     public void startWithExternalModel() throws SchedulerConfigurationException, IOException {
         LOG.debug("Starting the testing service by external model");
         ExternalModelStatistics externalModelStatistics = new ExternalModelStatistics();
-        ExternalModelStrategy externalModelStrategy = new ExternalModelStrategy(this, new Random(1), schedulerConfiguration.getTraceDir(), externalModelStatistics);
+        EventSequenceStrategy eventSequenceStrategy = new EventSequenceStrategy(this, new Random(1), schedulerConfiguration.getTraceDir(), externalModelStatistics);
 
         long startTime = System.currentTimeMillis();
-        int traceNum = externalModelStrategy.getTracesNum();
+        int traceNum = eventSequenceStrategy.getTracesNum();
         LOG.debug("traceNum: {}", traceNum);
 
         for (int executionId = 1; executionId <= traceNum; ++executionId) {
-            externalModelStrategy.clearEvents();
-            schedulingStrategy = externalModelStrategy;
+            eventSequenceStrategy.clearEvents();
+            schedulingStrategy = eventSequenceStrategy;
             statistics = externalModelStatistics;
 
-            Trace trace = externalModelStrategy.getCurrentTrace(executionId - 1);
+            Trace trace = eventSequenceStrategy.getCurrentTrace(executionId - 1);
             String traceName = trace.getTraceName();
             int stepCount = trace.getStepNum();
             LOG.info("currentTrace: {}, total steps: {}", trace, stepCount);
@@ -365,7 +365,190 @@ public class TestingService implements TestingRemoteService {
                         case "COMMIT":
                         case "SEND_PROPOSAL":
                         case "SEND_COMMIT":
-                            totalExecuted = scheduleInternalEvent(externalModelStrategy, lineArr, totalExecuted);
+                            totalExecuted = scheduleInternalEvent(eventSequenceStrategy, lineArr, totalExecuted);
+                            break;
+                        case "NODE_CRASH":
+                            assert len==2;
+                            int crashNodeId = Integer.parseInt(lineArr[1]);
+                            totalExecuted = scheduleNodeCrash(crashNodeId, totalExecuted);
+                            break;
+                        case "NODE_START":
+                            assert len==2;
+                            int startNodeId = Integer.parseInt(lineArr[1]);
+                            totalExecuted = scheduleNodeStart(startNodeId, totalExecuted);
+                            break;
+                        case "PARTITION_START":
+                            assert len==3;
+                            int node1 = Integer.parseInt(lineArr[1]);
+                            int node2 = Integer.parseInt(lineArr[2]);
+                            LOG.debug("----PARTITION_START: {}, {}", node1, node2);
+                            totalExecuted = schedulePartitionStart(node1, node2, totalExecuted);
+                            break;
+                        case "PARTITION_STOP":
+                            assert len==3;
+                            int node3 = Integer.parseInt(lineArr[1]);
+                            int node4 = Integer.parseInt(lineArr[2]);
+                            LOG.debug("----PARTITION_STOP: {}, {}", node3, node4);
+                            totalExecuted = schedulePartitionStop(node3, node4, totalExecuted);
+                            break;
+                        case "ESTABLISH_SESSION":
+                            assert len==3;
+                            int clientId = Integer.parseInt(lineArr[1]);
+                            int serverId = Integer.parseInt(lineArr[2]);
+                            String serverAddr = getServerAddr(serverId);
+                            LOG.debug("client establish connection with server {}", serverAddr);
+                            establishSession(clientId, true, serverAddr);
+                            break;
+                        case "GET_DATA":
+                            assert len>=3;
+                            int getDataClientId = Integer.parseInt(lineArr[1]);
+                            int sid = Integer.parseInt(lineArr[2]);
+                            Integer result = len > 3 ? Integer.parseInt(lineArr[3]) : null;
+                            totalExecuted = scheduleGetData(currentStep, line, getDataClientId, sid, result, totalExecuted);
+                            break;
+                        case "SET_DATA":
+                            assert len>=3;
+                            int setDataClientId = Integer.parseInt(lineArr[1]);
+                            int sid2 = Integer.parseInt(lineArr[2]);
+                            String data = len > 3 ? lineArr[3] : null;
+                            totalExecuted = scheduleSetData(setDataClientId, sid2, data, totalExecuted);
+                            break;
+                        case "LEADER_PROCESS_REQUEST":
+                            break;
+                        case "FOLLOWER_PROCESS_PROPOSAL":
+                            break;
+                        case "LEADER_PROCESS_PROPOSAL_ACK":
+                            break;
+                        case "LEADER_SEND_COMMIT":
+                            break;
+                        case "LEADER_SEND_NEWLEADER":
+                            break;
+                        case "LEADER_PROCESS_NEWLEADER_ACK":
+                            break;
+                        case "LEADER_SEND_UPTODATE":
+                            break;
+                        case "LEADER_PROCESS_UPTODATE_ACK":
+                            break;
+                    }
+                }
+            } catch (SchedulerConfigurationException e) {
+                LOG.info("SchedulerConfigurationException found when scheduling Trace {} in Step {} / {}. " +
+                        "Complete trace: {}", traceName, currentStep, stepCount, trace);
+                tracePassed = false;
+            } finally {
+                statistics.endTimer();
+
+                // report statistics of total trace
+                traceVerifier.setTraceLen(stepCount);
+                traceVerifier.setExecutedStep(currentStep);
+                traceVerifier.verify();
+                if (currentStep > stepCount) line = "COMPLETE";
+                statistics.reportCurrentStep("[LINE " + currentStep + "]-" + line);
+                statistics.reportTotalExecutedEvents(totalExecuted);
+                statisticsWriter.write(statistics.toString() + "\n\n");
+                LOG.info(statistics.toString() + "\n\n\n\n\n");
+
+                // shutdown clients & servers
+                for (Integer i: clientMap.keySet()) {
+                    LOG.debug("shutting down client {}", i);
+                    clientMap.get(i).shutdown();
+                }
+                clientMap.clear();
+                ensemble.stopEnsemble();
+
+                executionWriter.close();
+                statisticsWriter.close();
+            }
+        }
+        LOG.debug("total time: {}" , (System.currentTimeMillis() - startTime));
+
+    }
+
+    @Deprecated
+    /***
+     * The traces are provided by external sequences of events
+     * example: steps of ZK-3911
+     * Note: The granularity of the trace is coarse with only events with little simple info
+     * @throws SchedulerConfigurationException
+     * @throws IOException
+     */
+    public void startWithEventSequence() throws SchedulerConfigurationException, IOException {
+        LOG.debug("Starting the testing service by external model");
+        ExternalModelStatistics externalModelStatistics = new ExternalModelStatistics();
+        EventSequenceStrategy eventSequenceStrategy = new EventSequenceStrategy(this, new Random(1), schedulerConfiguration.getTraceDir(), externalModelStatistics);
+
+        long startTime = System.currentTimeMillis();
+        int traceNum = eventSequenceStrategy.getTracesNum();
+        LOG.debug("traceNum: {}", traceNum);
+
+        for (int executionId = 1; executionId <= traceNum; ++executionId) {
+            eventSequenceStrategy.clearEvents();
+            schedulingStrategy = eventSequenceStrategy;
+            statistics = externalModelStatistics;
+
+            Trace trace = eventSequenceStrategy.getCurrentTrace(executionId - 1);
+            String traceName = trace.getTraceName();
+            int stepCount = trace.getStepNum();
+            LOG.info("currentTrace: {}, total steps: {}", trace, stepCount);
+
+            ensemble.configureEnsemble(traceName);
+//            configureSchedulingStrategy(executionId);
+
+            int totalExecuted = 0;
+
+            executionWriter = new FileWriter(schedulerConfiguration.getWorkingDir() + File.separator
+                    + traceName + File.separator + schedulerConfiguration.getExecutionFile());
+            statisticsWriter = new FileWriter(schedulerConfiguration.getWorkingDir() + File.separator
+                    + traceName + File.separator + schedulerConfiguration.getStatisticsFile());
+
+            // configure the execution before first election
+            configureNextExecution();
+            // start the ensemble at the beginning of the execution
+            ensemble.startEnsemble();
+            executionWriter.write("-----Initialization cost time: " + (System.currentTimeMillis() - startTime) + "\n\n");
+
+            // Start the timer for recoding statistics
+            statistics.startTimer();
+
+            int currentStep = 1;
+            String line = null;
+            try {
+                for (; currentStep <= stepCount; ++currentStep) {
+                    line = trace.nextStep();
+                    LOG.debug("nextStep: {}", line);
+
+                    String[] lineArr = line.split(" ");
+                    int len = lineArr.length;
+
+                    String action = lineArr[0];
+                    switch (action) {
+                        case "ELECTION":
+                            Integer leaderId = len > 1 ? Integer.parseInt(lineArr[1]) : null;
+                            LOG.debug("election leader: {}", leaderId);
+                            totalExecuted = scheduleElection(currentStep, line, leaderId, totalExecuted);
+                            break;
+//                    case "LOG_REQUEST":
+//                        assert len>=2;
+//                        int logNodeId = Integer.parseInt(lineArr[1]);
+//                        totalExecuted = scheduleLogRequest(logNodeId, totalExecuted);
+//                        break;
+//                    case "COMMIT":
+//                        assert len>=2;
+//                        int commitNodeId = Integer.parseInt(lineArr[1]);
+//                        totalExecuted = scheduleCommit(commitNodeId, totalExecuted);
+//                        break;
+//                    case "SEND_PROPOSAL":
+//                    case "SEND_COMMIT":
+//                        assert len>=3;
+//                        int s1 = Integer.parseInt(lineArr[1]);
+//                        int s2 = Integer.parseInt(lineArr[2]);
+//                        totalExecuted = scheduleLearnerHandlerMessage(s1, s2, totalExecuted);
+//                        break;
+                        case "LOG_REQUEST":
+                        case "COMMIT":
+                        case "SEND_PROPOSAL":
+                        case "SEND_COMMIT":
+                            totalExecuted = scheduleInternalEvent(eventSequenceStrategy, lineArr, totalExecuted);
                             break;
                         case "NODE_CRASH":
                             assert len==2;
@@ -1016,7 +1199,7 @@ public class TestingService implements TestingRemoteService {
     }
 
 
-    public int scheduleInternalEvent(ExternalModelStrategy strategy, String[] lineArr, int totalExecuted) throws SchedulerConfigurationException {
+    public int scheduleInternalEvent(EventSequenceStrategy strategy, String[] lineArr, int totalExecuted) throws SchedulerConfigurationException {
         try {
             synchronized (controlMonitor) {
                 long startTime = System.currentTimeMillis();
