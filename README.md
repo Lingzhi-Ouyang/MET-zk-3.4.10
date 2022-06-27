@@ -1,11 +1,8 @@
-# HitMC
+# MBT: Model-Based Testing
 
-This project builds a model checker for ZooKeeper ensembles using the idea of hitting families of schedules 
-(Chistikov, Majumdar, and Niksic, CAV 2016). More details can be found in the paper [Trace Aware Random Testing for Distributed Systems](https://dl.acm.org/doi/pdf/10.1145/3360606). 
-
-The project is develeped based on the implementation [here](https://gitlab.mpi-sws.org/rupak/hitmc).
-
-
+This project uses external model to generate traces, and verify the traces by reproducing them at the code level.
+Some modules are developed based on the testing system implementation [here](https://gitlab.mpi-sws.org/rupak/hitmc)
+appeared in the work [Trace Aware Random Testing for Distributed Systems](https://dl.acm.org/doi/pdf/10.1145/3360606). 
 
 ## Build Instructions
 
