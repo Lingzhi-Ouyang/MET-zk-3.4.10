@@ -18,6 +18,7 @@
         <compiler-plugin.version>3.5.1</compiler-plugin.version>
         <source.version>1.7</source.version>
         <spring.version>4.2.5.RELEASE</spring.version>
+        <fastjson.version>1.2.70</fastjson.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
 
@@ -41,6 +42,13 @@
                 <artifactId>logback-classic</artifactId>
                 <version>${logback.version}</version>
                 <scope>runtime</scope>
+            </dependency>
+
+            <!-- json -->
+            <dependency>
+                <groupId>com.alibaba</groupId>
+                <artifactId>fastjson</artifactId>
+                <version>${fastjson.version}</version>
             </dependency>
 
             <!-- Testing -->
