@@ -15,11 +15,15 @@ public class BaseEventExecutor {
         throw new NotImplementedException();
     }
 
+    public boolean execute(final ClientRequestEvent event) throws IOException {
+        throw new NotImplementedException();
+    }
+
     public boolean execute(final MessageEvent event) throws IOException {
         throw new NotImplementedException();
     }
 
-    public boolean execute(final ClientRequestEvent event) throws IOException {
+    public boolean execute(final InternalEvent event) throws IOException {
         throw new NotImplementedException();
     }
 
