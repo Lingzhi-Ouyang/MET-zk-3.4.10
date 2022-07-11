@@ -35,7 +35,7 @@ public class PartitionStartEvent extends AbstractEvent {
 
     @Override
     public String toString() {
-        return "PartitionStartEvent{" +
+        return "PartitionStart{" +
                 "id=" + getId() +
                 ", start partition nodes: [" + node1 + ", " +node2 + "]" +
                 getLabelString() +

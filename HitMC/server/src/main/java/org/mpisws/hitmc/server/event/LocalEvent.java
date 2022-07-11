@@ -1,14 +1,20 @@
 package org.mpisws.hitmc.server.event;
 
 import org.mpisws.hitmc.api.SubnodeType;
-import org.mpisws.hitmc.server.executor.RequestProcessorExecutor;
+import org.mpisws.hitmc.server.executor.LocalEventExecutor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 
-public class RequestEvent extends AbstractEvent{
-    private static final Logger LOG = LoggerFactory.getLogger(RequestEvent.class);
+/***
+ * This class describes the local event of a node, such as
+ *  -> log proposal to disk
+ *  -> commit
+ *  -> follower process DIFF / TRUNC / SNAP
+ */
+public class LocalEvent extends AbstractEvent{
+    private static final Logger LOG = LoggerFactory.getLogger(LocalEvent.class);
 
     private final int nodeId;
     private final int subnodeId;
@@ -16,9 +22,9 @@ public class RequestEvent extends AbstractEvent{
     private final String payload;
     private final long zxid;
 
-    public RequestEvent(final int id, final int nodeId, final int subnodeId, final SubnodeType subnodeType,
-                        final String payload, final long zxid, final RequestProcessorExecutor requestProcessorExecutor) {
-        super(id, requestProcessorExecutor);
+    public LocalEvent(final int id, final int nodeId, final int subnodeId, final SubnodeType subnodeType,
+                      final String payload, final long zxid, final LocalEventExecutor localEventExecutor) {
+        super(id, localEventExecutor);
         this.nodeId = nodeId;
         this.subnodeId = subnodeId;
         this.subnodeType = subnodeType;
@@ -47,7 +53,7 @@ public class RequestEvent extends AbstractEvent{
 
     @Override
     public String toString() {
-        return "RequestEvent{" +
+        return "LocalEvent{" +
                 "id=" + getId() +
                 ", nodeId=" + nodeId +
                 ", subnodeId=" + subnodeId +

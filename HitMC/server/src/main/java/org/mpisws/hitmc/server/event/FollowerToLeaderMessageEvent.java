@@ -1,24 +1,24 @@
 package org.mpisws.hitmc.server.event;
 
-import org.mpisws.hitmc.server.executor.InternalEventExecutor;
-import org.mpisws.hitmc.server.executor.LearnerHandlerMessageExecutor;
+import org.mpisws.hitmc.api.MessageType;
+import org.mpisws.hitmc.server.executor.FollowerToLeaderMessageExecutor;
 
 import java.io.IOException;
 
-public class InternalEvent extends AbstractEvent {
+public class FollowerToLeaderMessageEvent extends AbstractEvent {
     private final int sendingSubnodeId;
     private final int receivingNodeId;
     private final String payload;
     private final int type;
     private final long zxid;
 
-    public InternalEvent(final int id,
-                                      final int sendingSubnodeId,
-                                      final int receivingNodeId,
-                                      final int type,
-                                      final long zxid,
-                                      final String payload,
-                                      final InternalEventExecutor messageExecutor) {
+    public FollowerToLeaderMessageEvent(final int id,
+                                        final int sendingSubnodeId,
+                                        final int receivingNodeId,
+                                        final int type,
+                                        final long zxid,
+                                        final String payload,
+                                        final FollowerToLeaderMessageExecutor messageExecutor) {
         super(id, messageExecutor);
         this.sendingSubnodeId = sendingSubnodeId;
         this.receivingNodeId = receivingNodeId;
@@ -50,10 +50,20 @@ public class InternalEvent extends AbstractEvent {
 
     @Override
     public String toString() {
-        return "InternalEvent{" +
+        String action = "FollowerToLeaderMessageEvent";
+        switch (type) {
+            // Follower send type
+            case MessageType.ACK:  // For now we pass ACK of UPTODATE
+                action = "FollowerProcessNEWLEADER";
+                break;
+            default:
+                break;
+        }
+        return action + "{" +
                 "id=" + getId() +
                 ", receivingNodeId=" + receivingNodeId +
                 ", predecessors=" + getDirectPredecessorsString() +
+                ", type=" + type +
                 ", " + payload +
                 getLabelString() +
                 '}';

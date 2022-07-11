@@ -1,24 +1,24 @@
 package org.mpisws.hitmc.server.event;
 
 import org.mpisws.hitmc.api.MessageType;
-import org.mpisws.hitmc.server.executor.LearnerHandlerMessageExecutor;
+import org.mpisws.hitmc.server.executor.LeaderToFollowerMessageExecutor;
 
 import java.io.IOException;
 
-public class LearnerHandlerMessageEvent extends AbstractEvent{
+public class LeaderToFollowerMessageEvent extends AbstractEvent{
     private final int sendingSubnodeId;
     private final int receivingNodeId;
     private final String payload;
     private final int type;
     private final long zxid;
 
-    public LearnerHandlerMessageEvent(final int id,
-                                      final int sendingSubnodeId,
-                                      final int receivingNodeId,
-                                      final int type,
-                                      final long zxid,
-                                      final String payload,
-                                      final LearnerHandlerMessageExecutor messageExecutor) {
+    public LeaderToFollowerMessageEvent(final int id,
+                                        final int sendingSubnodeId,
+                                        final int receivingNodeId,
+                                        final int type,
+                                        final long zxid,
+                                        final String payload,
+                                        final LeaderToFollowerMessageExecutor messageExecutor) {
         super(id, messageExecutor);
         this.sendingSubnodeId = sendingSubnodeId;
         this.receivingNodeId = receivingNodeId;
@@ -50,10 +50,25 @@ public class LearnerHandlerMessageEvent extends AbstractEvent{
 
     @Override
     public String toString() {
-        return "LearnerHandlerMessageEvent{" +
+        String action = "LeaderToFollowerMessageEvent";
+        switch (type) {
+            case MessageType.DIFF:
+            case MessageType.TRUNC:
+            case MessageType.SNAP:
+                action = "LeaderSyncFollower";
+                break;
+            case MessageType.UPTODATE:
+                action = "LeaderProcessACKLD";
+                break;
+            case MessageType.COMMIT:
+                action = "LeaderProcessACK";
+                break;
+        }
+        return action + "{" +
                 "id=" + getId() +
                 ", receivingNodeId=" + receivingNodeId +
                 ", predecessors=" + getDirectPredecessorsString() +
+                ", type=" + type +
                 ", " + payload +
                 getLabelString() +
                 '}';

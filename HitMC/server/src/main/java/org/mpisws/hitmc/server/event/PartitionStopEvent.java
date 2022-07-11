@@ -36,7 +36,7 @@ public class PartitionStopEvent extends AbstractEvent {
 
     @Override
     public String toString() {
-        return "PartitionStopEvent{" +
+        return "PartitionRecover{" +
                 "id=" + getId() +
                 ", end partition nodes: [" + node1 + ", " +node2 + "]" +
                 getLabelString() +

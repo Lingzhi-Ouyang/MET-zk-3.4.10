@@ -16,7 +16,7 @@
         <mockito.version>1.10.19</mockito.version>
         <hamcrest.version>1.3</hamcrest.version>
         <compiler-plugin.version>3.5.1</compiler-plugin.version>
-        <source.version>1.7</source.version>
+        <source.version>1.8</source.version>
         <spring.version>4.2.5.RELEASE</spring.version>
         <fastjson.version>1.2.70</fastjson.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
