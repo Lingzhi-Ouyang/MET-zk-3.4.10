@@ -1,25 +1,28 @@
 package org.mpisws.hitmc.server.executor;
 
 import org.mpisws.hitmc.server.TestingService;
-import org.mpisws.hitmc.server.event.RequestEvent;
+import org.mpisws.hitmc.server.event.LocalEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 
-public class RequestProcessorExecutor extends BaseEventExecutor{
-    private static final Logger LOG = LoggerFactory.getLogger(RequestProcessorExecutor.class);
+/***
+ * Executor of local event
+ */
+public class LocalEventExecutor extends BaseEventExecutor{
+    private static final Logger LOG = LoggerFactory.getLogger(LocalEventExecutor.class);
 
     private final TestingService testingService;
 
-    public RequestProcessorExecutor(final TestingService testingService) {
+    public LocalEventExecutor(final TestingService testingService) {
         this.testingService = testingService;
     }
 
     @Override
-    public boolean execute(final RequestEvent event) throws IOException {
+    public boolean execute(final LocalEvent event) throws IOException {
         if (event.isExecuted()) {
-            LOG.info("Skipping an executed request processor event: {}", event.toString());
+            LOG.info("Skipping an executed local event: {}", event.toString());
             return false;
         }
         LOG.debug("Processing request: {}", event.toString());
@@ -40,7 +43,7 @@ public class RequestProcessorExecutor extends BaseEventExecutor{
                 break;
         }
         event.setExecuted();
-        LOG.debug("Request processor event executed: {}\n\n\n", event.toString());
+        LOG.debug("Local event executed: {}\n\n\n", event.toString());
         return true;
     }
 

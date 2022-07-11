@@ -23,15 +23,15 @@ public class BaseEventExecutor {
         throw new NotImplementedException();
     }
 
-    public boolean execute(final InternalEvent event) throws IOException {
+    public boolean execute(final FollowerToLeaderMessageEvent event) throws IOException {
         throw new NotImplementedException();
     }
 
-    public boolean execute(final RequestEvent event) throws IOException {
+    public boolean execute(final LocalEvent event) throws IOException {
         throw new NotImplementedException();
     }
 
-    public boolean execute(final LearnerHandlerMessageEvent event) throws IOException {
+    public boolean execute(final LeaderToFollowerMessageEvent event) throws IOException {
         throw new NotImplementedException();
     }
 
