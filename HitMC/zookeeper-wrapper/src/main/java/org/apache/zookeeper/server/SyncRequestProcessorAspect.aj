@@ -88,8 +88,10 @@ public aspect SyncRequestProcessorAspect {
     // candidate 1: processRequest() called by its previous processor
     // Use candidate 2: LinkedBlockingQueue.take() / poll()
 
-    // Intercept polling the receive queue of the queuedRequests within SyncRequestProcessor
-
+    /***
+     * Intercept polling the receive queue of the queuedRequests within SyncRequestProcessor
+     *  --> FollowerProcessPROPOSAL
+     */
     pointcut takeOrPollFromQueue(LinkedBlockingQueue queue):
             within(SyncRequestProcessor)
                     && (call(* LinkedBlockingQueue.take())
@@ -165,14 +167,14 @@ public aspect SyncRequestProcessorAspect {
 //                int lastSyncRequestId = intercepter.getTestingService().logRequestMessage(subnodeId, payload, type);
                 final long zxid = ((Request) request).zxid;
                 final int lastSyncRequestId =
-                        testingService.offerRequestProcessorMessage(subnodeId, SubnodeType.SYNC_PROCESSOR, zxid, payload);
+                        testingService.offerLocalEvent(subnodeId, SubnodeType.SYNC_PROCESSOR, zxid, payload);
                 LOG.debug("lastSyncRequestId = {}", lastSyncRequestId);
                 // after offerMessage: decrease sendingSubnodeNum and shutdown this node if sendingSubnodeNum == 0
                 quorumPeerAspect.postSend(subnodeId, lastSyncRequestId);
             } catch (RemoteException e) {
                 e.printStackTrace();
             }
-            // TODO: Here to decrement. Where to increment? >> Pre
+//            // TODO: Here to decrement. Where to increment? >> Pre
 //            msgsInQueuedRequests.decrementAndGet();
         }
     }

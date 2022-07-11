@@ -9,7 +9,6 @@ import org.slf4j.LoggerFactory;
 
 import java.rmi.RemoteException;
 import java.util.ArrayList;
-import java.util.LinkedList;
 
 public aspect CommitProcessorAspect {
     private static final Logger LOG = LoggerFactory.getLogger(CommitProcessorAspect.class);
@@ -46,6 +45,7 @@ public aspect CommitProcessorAspect {
     /***
      *  intercept adding a request to the queue toProcess
      *  The target method is called in CommitProcessor's run()
+     *   --> FollowerProcessCOMMIT
      */
     pointcut addToProcess(ArrayList queue, Object object):
             withincode(* org.apache.zookeeper.server.quorum.CommitProcessor.run())
@@ -90,7 +90,7 @@ public aspect CommitProcessorAspect {
 //            int lastCommitRequestId = intercepter.getTestingService().commit(subnodeId, payload, type);
             final long zxid = request.zxid;
             final int lastCommitRequestId =
-                    testingService.offerRequestProcessorMessage(subnodeId, SubnodeType.COMMIT_PROCESSOR, zxid, payload);
+                    testingService.offerLocalEvent(subnodeId, SubnodeType.COMMIT_PROCESSOR, zxid, payload);
             LOG.debug("lastCommitRequestId = {}", lastCommitRequestId);
             // after offerMessage: decrease sendingSubnodeNum and shutdown this node if sendingSubnodeNum == 0
             quorumPeerAspect.postSend(subnodeId, lastCommitRequestId);

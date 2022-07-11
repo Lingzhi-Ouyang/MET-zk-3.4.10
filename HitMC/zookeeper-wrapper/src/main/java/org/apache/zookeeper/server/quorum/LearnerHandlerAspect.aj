@@ -1,18 +1,12 @@
 package org.apache.zookeeper.server.quorum;
 
 import org.apache.jute.Record;
-import org.apache.zookeeper.server.util.SerializeUtils;
-import org.apache.zookeeper.txn.TxnHeader;
 import org.mpisws.hitmc.api.SubnodeType;
 import org.mpisws.hitmc.api.TestingDef;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.ByteArrayInputStream;
-import java.io.DataInputStream;
-import java.io.IOException;
 import java.rmi.RemoteException;
-import java.util.Map;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -449,7 +443,9 @@ public aspect LearnerHandlerAspect {
     /***
      * For LearnerHandlerSender sending messages to followers during SYNC & BROADCAST phase
      * For SYNC phase : do not intercept the PROPOSAL before UPTODATE
+     *  --> LeaderProcessACKLD: send UPTODATE
      * For BROADCAST phase
+     *  --> LeaderProcessACK : send COMMIT after receiving quorum's logRequest (PROPOSAL) ACKs
      */
     pointcut writeRecord(Record r, String s):
             within(org.apache.zookeeper.server.quorum.LearnerHandler) && !withincode(void java.lang.Runnable.run()) &&
@@ -479,7 +475,8 @@ public aspect LearnerHandlerAspect {
                 LOG.debug("-------sending UPTODATE!!!!-------begin to serve clients");
             case Leader.REQUEST:
             case Leader.ACK:
-//            case Leader.COMMIT:
+            case Leader.COMMIT:
+                LOG.debug("-------sending COMMIT!!!!");
 //            case Leader.PROPOSAL:
             case Leader.PING:
             case Leader.REVALIDATE:
@@ -496,7 +493,13 @@ public aspect LearnerHandlerAspect {
                 LOG.debug("---------Taking the packet ({}) from queued packets. Won't intercept. Subnode: {}",
                         payload, subnodeId);
         }
-        if (!intercepter.isSyncFinished() || (type != Leader.PROPOSAL && type != Leader.COMMIT)){
+//        if (!intercepter.isSyncFinished() || (type != Leader.PROPOSAL && type != Leader.COMMIT)){
+//            proceed(r, s);
+//            return;
+//        }
+
+        if (!intercepter.isSyncFinished() ||
+                (type != Leader.PROPOSAL && type != Leader.COMMIT && type != Leader.UPTODATE)){
             proceed(r, s);
             return;
         }
@@ -509,7 +512,7 @@ public aspect LearnerHandlerAspect {
             final String receivingAddr = threadName.split("-")[1];
             final long zxid = packet.getZxid();
             final int lastPacketId = intercepter.getTestingService()
-                    .offerMessageToFollower(subnodeId, receivingAddr, zxid, payload, type);
+                    .offerLeaderMessageToFollower(subnodeId, receivingAddr, zxid, payload, type);
             LOG.debug("lastPacketId = {}", lastPacketId);
 
             // to check if the node is crashed
@@ -534,9 +537,11 @@ public aspect LearnerHandlerAspect {
     /***
      * For LearnerHandler sending followers' message during SYNC phase immediately without adding to the queue
      * package type:
-     * (for ZAB1.0) LEADERINFO (17)
+     * (for ZAB1.0) LEADERINFO (17) /  NEWLEADER (10)
      * (for ZAB < 1.0) NEWLEADER (10)
      * (for ZAB1.0) DIFF (13) / TRUNC (14) / SNAP (15)
+     *  --> LeaderSyncFollower: QuorumPacket.getType() == DIFF / TRUNC / SNAP
+     *
      */
     pointcut learnerHandlerWriteRecord(Record r, String s):
             withincode(* org.apache.zookeeper.server.quorum.LearnerHandler.run()) &&
@@ -556,13 +561,16 @@ public aspect LearnerHandlerAspect {
             LOG.debug("--------catch exception: {}", e.toString());
             throw new RuntimeException(e);
         }
+
+        // Intercept QuorumPacket
         QuorumPacket packet = (QuorumPacket) r;
         final String payload = quorumPeerAspect.packetToString(packet);
 
-        LOG.debug("--------------I am a LearnerHandler. QuorumPacket {}. Set subnode {} to RECEIVING state.",
-                payload, subnodeId);
+
         final int type =  packet.getType();
-        // Set RECEIVING state sine there is nowhere else to set
+        LOG.debug("--------------I am a LearnerHandler. QuorumPacket {}. Set subnode {} to RECEIVING state. Type: {}",
+                payload, subnodeId, type);
+        // Set RECEIVING state since there is nowhere else to set
         try {
             intercepter.getTestingService().setReceivingState(subnodeId);
         } catch (final RemoteException e) {
@@ -570,14 +578,18 @@ public aspect LearnerHandlerAspect {
             throw new RuntimeException(e);
         }
 
-        // TODO: set type
-        if (type != Leader.PROPOSAL){
+        if (type != Leader.DIFF && type != Leader.TRUNC && type != Leader.SNAP){
             LOG.info("------------Type will always be LEADERINFO / DIFF / TRUNC / SNAP!---------");
             proceed(r, s);
             return;
         }
 
-        LOG.info("------------This will never be accessed!---------");
+//        if (type != Leader.PROPOSAL){
+//            LOG.info("------------Type will always be LEADERINFO / DIFF / TRUNC / SNAP!---------");
+//            proceed(r, s);
+//            return;
+//        }
+
         try {
             // before offerMessage: increase sendingSubnodeNum
             quorumPeerAspect.setSubnodeSending();
@@ -585,7 +597,9 @@ public aspect LearnerHandlerAspect {
             final String receivingAddr = threadName.split("-")[1];
             final long zxid = packet.getZxid();
             final int lastPacketId = intercepter.getTestingService()
-                    .offerMessageToFollower(subnodeId, receivingAddr, zxid, payload, type);
+                    .offerLeaderMessageToFollower(subnodeId, receivingAddr, zxid, payload, type);
+//            final int lastPacketId = intercepter.getTestingService()
+//                    .offerInternalMessageToFollower(subnodeId, receivingAddr, zxid, payload, type);
             LOG.debug("lastPacketId = {}", lastPacketId);
 
             // to check if the node is crashed

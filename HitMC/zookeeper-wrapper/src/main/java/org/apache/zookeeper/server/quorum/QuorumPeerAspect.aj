@@ -53,6 +53,8 @@ public aspect QuorumPeerAspect {
 
     private boolean syncFinished = false; // for follower
 
+    private boolean newLeaderDone = false; // for follower
+
     private Integer lastSentMessageId = null;
 
     private FastLeaderElection.Notification notification;
@@ -134,6 +136,7 @@ public aspect QuorumPeerAspect {
         public boolean isSyncFinished() {
             return syncFinished;
         }
+
     }
 
     public SubnodeIntercepter getIntercepter(long threadId) {
@@ -183,13 +186,23 @@ public aspect QuorumPeerAspect {
         return testingService;
     }
 
+    // For follower QuorumPeer thread
     public void setSyncFinished(boolean syncFinished) {
         this.syncFinished = syncFinished;
     }
-
+    // For follower QuorumPeer thread
     public boolean isSyncFinished() {
         return syncFinished;
     }
+    // For follower QuorumPeer thread
+    public void setNewLeaderDone(boolean newLeaderDone) {
+        this.newLeaderDone = newLeaderDone;
+    }
+    // For follower QuorumPeer thread
+    public boolean isNewLeaderDone() {
+        return newLeaderDone;
+    }
+
 
     // Identify the ID of this node
 
@@ -254,7 +267,8 @@ public aspect QuorumPeerAspect {
             && if (object instanceof FastLeaderElection.ToSend)
             && args(object);
 
-    before(final Object object): offerWithinFastLeaderElection(object) {
+    // TODO: change this to boolean around()
+    boolean around(final Object object): offerWithinFastLeaderElection(object) {
         final FastLeaderElection.ToSend toSend = (FastLeaderElection.ToSend) object;
 
         final Set<Integer> predecessorIds = new HashSet<>();
@@ -286,11 +300,22 @@ public aspect QuorumPeerAspect {
 //                    awaitShutdown(quorumPeerSubnodeId);
 //                }
 //            }
+
+//            // TODO: to check if the partition happens with around()
+            if (lastSentMessageId == TestingDef.RetCode.NODE_PAIR_IN_PARTITION){
+                // just drop the message
+                LOG.debug("partition occurs! just drop the message. What about other types of messages?");
+                testingService.setReceivingState(quorumPeerSubnodeId);
+                // confirm the return value
+                return false;
+            }
+            return proceed(object);
         } catch (final RemoteException e) {
             LOG.debug("Encountered a remote exception", e);
             throw new RuntimeException(e);
         } catch (final Exception e) {
-            LOG.debug("Uncaught exception", e);
+            LOG.debug("Uncaught exception when intercepting", e);
+            throw new RuntimeException(e); // new added
         }
     }
 
@@ -444,6 +469,8 @@ public aspect QuorumPeerAspect {
             LOG.debug("Node {} state: {}", myId, state);
             testingService.updateLeaderElectionState(myId, leState);
             if(leState == LeaderElectionState.LOOKING){
+                syncFinished = false;
+                newLeaderDone = false;
                 testingService.updateVote(myId, null);
             }
         } catch (final RemoteException e) {

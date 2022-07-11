@@ -1,5 +1,6 @@
 package org.apache.zookeeper.server.quorum;
 
+import org.mpisws.hitmc.api.TestingDef;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -52,7 +53,8 @@ public aspect WorkerReceiverAspect {
             && if (object instanceof FastLeaderElection.ToSend)
             && args(object);
 
-    before(final Object object): offerWithinWorkerReceiver(object) {
+    // TODO: change this to boolean around()
+    boolean around(final Object object): offerWithinWorkerReceiver(object) {
         final FastLeaderElection.ToSend toSend = (FastLeaderElection.ToSend) object;
 
         final Set<Integer> predecessorIds = new HashSet<>();
@@ -70,6 +72,17 @@ public aspect WorkerReceiverAspect {
             LOG.debug("lastSentMessageId = {}", lastSentMessageId);
             // after offerMessage: decrease sendingSubnodeNum and shutdown this node if sendingSubnodeNum == 0
             quorumPeerAspect.postSend(workerReceiverSubnodeId, lastSentMessageId);
+
+//            // TODO: to check if the partition happens with around()
+            if (lastSentMessageId == TestingDef.RetCode.NODE_PAIR_IN_PARTITION){
+                // just drop the message
+                LOG.debug("partition occurs! just drop the message. What about other types of messages?");
+
+                quorumPeerAspect.getTestingService().setReceivingState(workerReceiverSubnodeId);
+                // confirm the return value
+                return false;
+            }
+            return proceed(object);
         } catch (final RemoteException e) {
             LOG.debug("Encountered a remote exception", e);
             throw new RuntimeException(e);
