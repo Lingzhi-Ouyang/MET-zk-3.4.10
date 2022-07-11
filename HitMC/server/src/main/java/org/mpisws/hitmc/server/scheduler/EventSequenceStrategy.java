@@ -5,8 +5,8 @@ import org.mpisws.hitmc.api.SubnodeType;
 import org.mpisws.hitmc.api.configuration.SchedulerConfigurationException;
 import org.mpisws.hitmc.server.TestingService;
 import org.mpisws.hitmc.server.event.Event;
-import org.mpisws.hitmc.server.event.LearnerHandlerMessageEvent;
-import org.mpisws.hitmc.server.event.RequestEvent;
+import org.mpisws.hitmc.server.event.LeaderToFollowerMessageEvent;
+import org.mpisws.hitmc.server.event.LocalEvent;
 import org.mpisws.hitmc.server.state.Subnode;
 import org.mpisws.hitmc.server.statistics.ExternalModelStatistics;
 import org.slf4j.Logger;
@@ -26,9 +26,9 @@ public class EventSequenceStrategy implements SchedulingStrategy{
 
     private File dir;
     private File[] files;
-    private List<Trace> traces = new LinkedList<>();
+    private List<EventSequence> traces = new LinkedList<>();
     private int count = 0;
-    private Trace currentTrace = null;
+    private EventSequence currentTrace = null;
 
     private boolean nextEventPrepared = false;
     private Event nextEvent = null;
@@ -50,7 +50,7 @@ public class EventSequenceStrategy implements SchedulingStrategy{
         return count;
     }
 
-    public Trace getCurrentTrace(final int idx) {
+    public EventSequence getCurrentTrace(final int idx) {
         assert idx < count;
         currentTrace = traces.get(idx);
         return currentTrace;
@@ -136,7 +136,7 @@ public class EventSequenceStrategy implements SchedulingStrategy{
         try {
             for (File file : files) {
                 if (file.isFile() && file.exists()) {
-                    Trace trace = importTrace(file);
+                    EventSequence trace = importTrace(file);
                     if (null == trace) continue;
                     traces.add(trace);
                     count++;
@@ -152,7 +152,7 @@ public class EventSequenceStrategy implements SchedulingStrategy{
         }
     }
 
-    public Trace importTrace(File file) throws IOException {
+    public EventSequence importTrace(File file) throws IOException {
         String filename = file.getName();
         if(filename.startsWith(".")) {
             return null;
@@ -166,7 +166,7 @@ public class EventSequenceStrategy implements SchedulingStrategy{
         }
         assert read != null;
         BufferedReader bufferedReader = new BufferedReader(read);
-        Trace trace = new Trace(filename);
+        EventSequence trace = new EventSequence(filename);
         String lineTxt;
         while ((lineTxt = bufferedReader.readLine()) != null) {
             trace.addStep(lineTxt);
@@ -221,10 +221,10 @@ public class EventSequenceStrategy implements SchedulingStrategy{
 
     private void searchRequestEvent(String action, int len, String[] lineArr, List<Event> enabled) {
         for (final Event e : enabled) {
-            if (e instanceof RequestEvent) {
+            if (e instanceof LocalEvent) {
                 assert len >= 2;
 
-                final RequestEvent event = (RequestEvent) e;
+                final LocalEvent event = (LocalEvent) e;
                 final Long zxid = len > 2 ? Long.parseLong(lineArr[2]) : null;
                 if (zxid != null) {
                     final long eventZxid = event.getZxid();
@@ -253,10 +253,10 @@ public class EventSequenceStrategy implements SchedulingStrategy{
 
     public void searchLearnerHandlerMessage(String action, int len, String[] lineArr, List<Event> enabled) {
         for (final Event e : enabled) {
-            if (e instanceof LearnerHandlerMessageEvent) {
+            if (e instanceof LeaderToFollowerMessageEvent) {
                 assert len >= 3;
 
-                final LearnerHandlerMessageEvent event = (LearnerHandlerMessageEvent) e;
+                final LeaderToFollowerMessageEvent event = (LeaderToFollowerMessageEvent) e;
                 final Long zxid = len > 3 ? Long.parseLong(lineArr[3]) : null;
                 if (zxid != null) {
                     final long eventZxid = event.getZxid();
