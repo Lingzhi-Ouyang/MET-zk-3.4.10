@@ -1,4 +1,4 @@
-# MBT —— Model-Based Explorative Testing
+# MET —— Model-based Explorative Testing
 
 This project uses external model to generate traces, and verify the traces by reproducing them at the code level.
 Some modules are developed based on the testing system implementation [here](https://gitlab.mpi-sws.org/rupak/hitmc)
