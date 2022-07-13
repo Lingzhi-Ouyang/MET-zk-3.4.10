@@ -1,9 +1,6 @@
 package org.apache.zookeeper.server.quorum;
 
-import org.apache.jute.Record;
 import org.apache.zookeeper.server.Request;
-import org.apache.zookeeper.server.util.SerializeUtils;
-import org.apache.zookeeper.txn.TxnHeader;
 import org.mpisws.hitmc.api.TestingDef;
 import org.mpisws.hitmc.api.TestingRemoteService;
 import org.mpisws.hitmc.api.SubnodeType;
@@ -11,12 +8,7 @@ import org.mpisws.hitmc.api.state.LeaderElectionState;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.ByteArrayInputStream;
-import java.io.DataInputStream;
-import java.io.IOException;
-import java.net.InetAddress;
 import java.net.Socket;
-import java.net.SocketOptions;
 import java.rmi.NotBoundException;
 import java.rmi.RemoteException;
 import java.rmi.registry.LocateRegistry;
@@ -287,7 +279,7 @@ public aspect QuorumPeerAspect {
 //            }
             setSubnodeSending();
             final String payload = constructPayload(toSend);
-            lastSentMessageId = testingService.offerMessage(quorumPeerSubnodeId, (int) toSend.sid, predecessorIds, payload);
+            lastSentMessageId = testingService.offerElectionMessage(quorumPeerSubnodeId, (int) toSend.sid, predecessorIds, payload);
             LOG.debug("lastSentMessageId = {}", lastSentMessageId);
             postSend(quorumPeerSubnodeId, lastSentMessageId);
 //            synchronized (nodeOnlineMonitor) {

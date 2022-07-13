@@ -64,6 +64,7 @@ public aspect LearnerHandlerAspect {
         LOG.debug("before runLearnerHandler-------Thread: {}, {}------", threadId, threadName);
         quorumPeerAspect.registerSubnode(
                 Thread.currentThread().getId(), Thread.currentThread().getName(), SubnodeType.LEARNER_HANDLER);
+        // Set RECEIVING state since there is nowhere else to set
     }
 
     after(): runLearnerHandler() {
@@ -442,9 +443,10 @@ public aspect LearnerHandlerAspect {
 
     /***
      * For LearnerHandlerSender sending messages to followers during SYNC & BROADCAST phase
-     * For SYNC phase : do not intercept the PROPOSAL before UPTODATE
+     *  --> LeaderSyncFollower: send NEWLEADER
      *  --> LeaderProcessACKLD: send UPTODATE
      * For BROADCAST phase
+     *  --> LeaderProcessRequest: send PROPOSAL to quorum followers
      *  --> LeaderProcessACK : send COMMIT after receiving quorum's logRequest (PROPOSAL) ACKs
      */
     pointcut writeRecord(Record r, String s):
@@ -470,39 +472,47 @@ public aspect LearnerHandlerAspect {
         final String payload = quorumPeerAspect.packetToString(packet);
         final int type =  packet.getType();
         switch (type) {
+            case Leader.NEWLEADER:
+                LOG.debug("-------sending UPTODATE!!!!-------begin to serve clients");
+                break;
             case Leader.UPTODATE:
                 intercepter.setSyncFinished(true);
                 LOG.debug("-------sending UPTODATE!!!!-------begin to serve clients");
-            case Leader.REQUEST:
-            case Leader.ACK:
+                break;
             case Leader.COMMIT:
                 LOG.debug("-------sending COMMIT!!!!");
-//            case Leader.PROPOSAL:
+                break;
+            case Leader.PROPOSAL:
+                LOG.debug("-------sending PROPOSAL!!!!");
+                break;
+            case Leader.DIFF:
+            case Leader.TRUNC:
+            case Leader.SNAP:
+            case Leader.REQUEST:
+            case Leader.ACK:
             case Leader.PING:
             case Leader.REVALIDATE:
             case Leader.SYNC:
             case Leader.INFORM:
-            case Leader.NEWLEADER:
             case Leader.FOLLOWERINFO:
-            case Leader.DIFF:
-            case Leader.TRUNC:
-            case Leader.SNAP:
             case Leader.OBSERVERINFO:
             case Leader.LEADERINFO:
             case Leader.ACKEPOCH:
                 LOG.debug("---------Taking the packet ({}) from queued packets. Won't intercept. Subnode: {}",
                         payload, subnodeId);
+                proceed(r, s);
+                return;
         }
 //        if (!intercepter.isSyncFinished() || (type != Leader.PROPOSAL && type != Leader.COMMIT)){
 //            proceed(r, s);
 //            return;
 //        }
 
-        if (!intercepter.isSyncFinished() ||
-                (type != Leader.PROPOSAL && type != Leader.COMMIT && type != Leader.UPTODATE)){
-            proceed(r, s);
-            return;
-        }
+//        if (!intercepter.isSyncFinished() ||
+//                (type != Leader.PROPOSAL && type != Leader.COMMIT && type != Leader.UPTODATE && type != Leader.NEWLEADER)){
+//            proceed(r, s);
+//            return;
+//        }
 
 
         try {
@@ -512,12 +522,20 @@ public aspect LearnerHandlerAspect {
             final String receivingAddr = threadName.split("-")[1];
             final long zxid = packet.getZxid();
             final int lastPacketId = intercepter.getTestingService()
-                    .offerLeaderMessageToFollower(subnodeId, receivingAddr, zxid, payload, type);
+                    .offerLeaderToFollowerMessage(subnodeId, receivingAddr, zxid, payload, type);
             LOG.debug("lastPacketId = {}", lastPacketId);
 
             // to check if the node is crashed
             // after offerMessage: decrease sendingSubnodeNum and shutdown this node if sendingSubnodeNum == 0
             quorumPeerAspect.postSend(subnodeId, lastPacketId);
+
+            // TODO: confirm this check before partition check is ok by checking the code of LearnerHandler
+            if (type == Leader.UPTODATE) {
+                quorumPeerAspect.getTestingService().readyForBroadcast(subnodeId);
+            }
+
+            // Trick: set RECEIVING state here
+            intercepter.getTestingService().setReceivingState(subnodeId);
 
             // to check if the partition happens
             if (lastPacketId == TestingDef.RetCode.NODE_PAIR_IN_PARTITION){
@@ -537,12 +555,13 @@ public aspect LearnerHandlerAspect {
     /***
      * For LearnerHandler sending followers' message during SYNC phase immediately without adding to the queue
      * package type:
-     * (for ZAB1.0) LEADERINFO (17) /  NEWLEADER (10)
+     * (for ZAB1.0) LEADERINFO (17)
      * (for ZAB < 1.0) NEWLEADER (10)
      * (for ZAB1.0) DIFF (13) / TRUNC (14) / SNAP (15)
-     *  --> LeaderSyncFollower: QuorumPacket.getType() == DIFF / TRUNC / SNAP
-     *
+     *  --> since LeaderSyncFollower: QuorumPacket.getType() == NEWLEADER (10)
+     *  --> For now we pass DIFF (13) / TRUNC (14) / SNAP (15) so this pointcut is deprecated
      */
+    @Deprecated
     pointcut learnerHandlerWriteRecord(Record r, String s):
             withincode(* org.apache.zookeeper.server.quorum.LearnerHandler.run()) &&
                     call(* org.apache.jute.BinaryOutputArchive.writeRecord(Record, String)) && args(r, s);
@@ -578,71 +597,52 @@ public aspect LearnerHandlerAspect {
             throw new RuntimeException(e);
         }
 
-        if (type != Leader.DIFF && type != Leader.TRUNC && type != Leader.SNAP){
-            LOG.info("------------Type will always be LEADERINFO / DIFF / TRUNC / SNAP!---------");
-            proceed(r, s);
-            return;
-        }
+        proceed(r, s);
+        return;
 
-//        if (type != Leader.PROPOSAL){
+
+//        if (type != Leader.DIFF && type != Leader.TRUNC && type != Leader.SNAP){
 //            LOG.info("------------Type will always be LEADERINFO / DIFF / TRUNC / SNAP!---------");
 //            proceed(r, s);
 //            return;
 //        }
-
-        try {
-            // before offerMessage: increase sendingSubnodeNum
-            quorumPeerAspect.setSubnodeSending();
-
-            final String receivingAddr = threadName.split("-")[1];
-            final long zxid = packet.getZxid();
-            final int lastPacketId = intercepter.getTestingService()
-                    .offerLeaderMessageToFollower(subnodeId, receivingAddr, zxid, payload, type);
-//            final int lastPacketId = intercepter.getTestingService()
-//                    .offerInternalMessageToFollower(subnodeId, receivingAddr, zxid, payload, type);
-            LOG.debug("lastPacketId = {}", lastPacketId);
-
-            // to check if the node is crashed
-            // after offerMessage: decrease sendingSubnodeNum and shutdown this node if sendingSubnodeNum == 0
-            quorumPeerAspect.postSend(subnodeId, lastPacketId);
-
-            // Trick: set RECEIVING state here
-            intercepter.getTestingService().setReceivingState(subnodeId);
-
-            // to check if the partition happens
-            if (lastPacketId == TestingDef.RetCode.NODE_PAIR_IN_PARTITION){
-                // just drop the message
-                LOG.debug("partition occurs! just drop the message. What about other types of messages?");
-                return;
-            }
-            proceed(r, s);
-
-        } catch (RemoteException e) {
-            LOG.debug("Encountered a remote exception", e);
-            throw new RuntimeException(e);
-        }
-    }
-
-//    /***
-//     * set BROADCAST phase. Or use syncFinished in the subnodeInterceptor
-//     */
-//    pointcut sendUptodate(Object object):
-//            withincode(* org.apache.zookeeper.server.quorum.LearnerHandler.run())
-//                    && call(* java.util.AbstractQueue.add(java.lang.Object))
-//                    && if (object instanceof QuorumPacket)
-//                    && args(object);
 //
-//    after(final Object object) returning: sendUptodate(object) {
-//        final long threadId = Thread.currentThread().getId();
-//        final String threadName = Thread.currentThread().getName();
-//        LOG.debug("after sendUptodate-------Thread: {}, {}------", threadId, threadName);
-//        QuorumPacket qp = (QuorumPacket) object;
-//    }
-
-
-
-    // TODO: intercept the learner handler receiving messages from followers
-
-
-
+////        if (type != Leader.PROPOSAL){
+////            LOG.info("------------Type will always be LEADERINFO / DIFF / TRUNC / SNAP!---------");
+////            proceed(r, s);
+////            return;
+////        }
+//
+//        try {
+//            // before offerMessage: increase sendingSubnodeNum
+//            quorumPeerAspect.setSubnodeSending();
+//
+//            final String receivingAddr = threadName.split("-")[1];
+//            final long zxid = packet.getZxid();
+//            final int lastPacketId = intercepter.getTestingService()
+//                    .offerLeaderToFollowerMessage(subnodeId, receivingAddr, zxid, payload, type);
+////            final int lastPacketId = intercepter.getTestingService()
+////                    .offerInternalMessageToFollower(subnodeId, receivingAddr, zxid, payload, type);
+//            LOG.debug("lastPacketId = {}", lastPacketId);
+//
+//            // to check if the node is crashed
+//            // after offerMessage: decrease sendingSubnodeNum and shutdown this node if sendingSubnodeNum == 0
+//            quorumPeerAspect.postSend(subnodeId, lastPacketId);
+//
+//            // Trick: set RECEIVING state here
+//            intercepter.getTestingService().setReceivingState(subnodeId);
+//
+//            // to check if the partition happens
+//            if (lastPacketId == TestingDef.RetCode.NODE_PAIR_IN_PARTITION){
+//                // just drop the message
+//                LOG.debug("partition occurs! just drop the message. What about other types of messages?");
+//                return;
+//            }
+//            proceed(r, s);
+//
+//        } catch (RemoteException e) {
+//            LOG.debug("Encountered a remote exception", e);
+//            throw new RuntimeException(e);
+//        }
+    }
 }

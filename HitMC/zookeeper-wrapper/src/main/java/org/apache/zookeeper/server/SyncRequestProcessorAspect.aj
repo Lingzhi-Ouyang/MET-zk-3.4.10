@@ -167,7 +167,7 @@ public aspect SyncRequestProcessorAspect {
 //                int lastSyncRequestId = intercepter.getTestingService().logRequestMessage(subnodeId, payload, type);
                 final long zxid = ((Request) request).zxid;
                 final int lastSyncRequestId =
-                        testingService.offerLocalEvent(subnodeId, SubnodeType.SYNC_PROCESSOR, zxid, payload);
+                        testingService.offerLocalEvent(subnodeId, SubnodeType.SYNC_PROCESSOR, zxid, payload, type);
                 LOG.debug("lastSyncRequestId = {}", lastSyncRequestId);
                 // after offerMessage: decrease sendingSubnodeNum and shutdown this node if sendingSubnodeNum == 0
                 quorumPeerAspect.postSend(subnodeId, lastSyncRequestId);

@@ -90,7 +90,7 @@ public aspect CommitProcessorAspect {
 //            int lastCommitRequestId = intercepter.getTestingService().commit(subnodeId, payload, type);
             final long zxid = request.zxid;
             final int lastCommitRequestId =
-                    testingService.offerLocalEvent(subnodeId, SubnodeType.COMMIT_PROCESSOR, zxid, payload);
+                    testingService.offerLocalEvent(subnodeId, SubnodeType.COMMIT_PROCESSOR, zxid, payload, type);
             LOG.debug("lastCommitRequestId = {}", lastCommitRequestId);
             // after offerMessage: decrease sendingSubnodeNum and shutdown this node if sendingSubnodeNum == 0
             quorumPeerAspect.postSend(subnodeId, lastCommitRequestId);
