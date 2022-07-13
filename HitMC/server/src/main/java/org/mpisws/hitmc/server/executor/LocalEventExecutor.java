@@ -1,11 +1,15 @@
 package org.mpisws.hitmc.server.executor;
 
+import org.mpisws.hitmc.api.SubnodeState;
+import org.mpisws.hitmc.api.SubnodeType;
 import org.mpisws.hitmc.server.TestingService;
 import org.mpisws.hitmc.server.event.LocalEvent;
+import org.mpisws.hitmc.server.state.Subnode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.util.Map;
 
 /***
  * Executor of local event
@@ -26,8 +30,40 @@ public class LocalEventExecutor extends BaseEventExecutor{
             return false;
         }
         LOG.debug("Processing request: {}", event.toString());
-        testingService.releaseRequestProcessor(event);
+        releaseRequestProcessor(event);
+        event.setExecuted();
+        LOG.debug("Local event executed: {}\n\n\n", event.toString());
+        return true;
+    }
+
+    // Should be called while holding a lock on controlMonitor
+    /***
+     * For sync
+     * set SYNC_PROCESSOR / COMMIT_PROCESSOR to PROCESSING
+     * @param event
+     */
+    public void releaseRequestProcessor(final LocalEvent event) {
+//        logRequestInFlight = event.getId();
+        testingService.setMessageInFlight(event.getId());
+        SubnodeType subnodeType = event.getSubnodeType();
+        if (SubnodeType.SYNC_PROCESSOR.equals(subnodeType)) {
+            final Long zxid = event.getZxid();
+            Map<Long, Integer> zxidSyncedMap = testingService.getZxidSyncedMap();
+            testingService.getZxidSyncedMap().put(zxid, zxidSyncedMap.getOrDefault(zxid, 0) + 1);
+        }
+        final Subnode subnode = testingService.getSubnodes().get(event.getSubnodeId());
+        // set the corresponding subnode to be PROCESSING
+        subnode.setState(SubnodeState.PROCESSING);
+        testingService.getControlMonitor().notifyAll();
+
+        // Post-condition
         switch (event.getSubnodeType()) {
+            case QUORUM_PEER: // for FollowerProcessSyncMessage & UPTODATE
+                // for FollowerProcessSyncMessage: wait itself to SENDING state
+                testingService.waitSubnodeInSendingState(event.getSubnodeId());
+                // for UPTODATE: wait its node to BROADCAST state
+                testingService.waitAllNodesSteady();
+                break;
             case SYNC_PROCESSOR:
                 if (quorumSynced(event.getZxid())){
                     // If learnerHandler's COMMIT is not intercepted
@@ -42,10 +78,9 @@ public class LocalEventExecutor extends BaseEventExecutor{
                 testingService.waitAllNodesSteady();
                 break;
         }
-        event.setExecuted();
-        LOG.debug("Local event executed: {}\n\n\n", event.toString());
-        return true;
     }
+
+
 
     public boolean quorumSynced(final long zxid) {
         if (testingService.getZxidSyncedMap().containsKey(zxid)){

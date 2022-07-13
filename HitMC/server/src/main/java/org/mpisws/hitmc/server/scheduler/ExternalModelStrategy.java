@@ -3,11 +3,13 @@ package org.mpisws.hitmc.server.scheduler;
 import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONObject;
 import org.mpisws.hitmc.api.MessageType;
+import org.mpisws.hitmc.api.SubnodeType;
 import org.mpisws.hitmc.api.configuration.SchedulerConfigurationException;
 import org.mpisws.hitmc.server.TestingService;
 import org.mpisws.hitmc.server.event.Event;
 import org.mpisws.hitmc.server.event.FollowerToLeaderMessageEvent;
 import org.mpisws.hitmc.server.event.LeaderToFollowerMessageEvent;
+import org.mpisws.hitmc.server.event.LocalEvent;
 import org.mpisws.hitmc.server.state.Subnode;
 import org.mpisws.hitmc.server.statistics.ExternalModelStatistics;
 import org.slf4j.Logger;
@@ -239,11 +241,13 @@ public class ExternalModelStrategy implements SchedulingStrategy{
             case "LeaderProcessACKLD": // send UPTODATE
             // PHASE broadcast
             case "LeaderProcessACK": // SEND_COMMIT
-                searchLearnerHandlerMessage(action, nodeId, peerId, enabled);
+                searchLeaderMessage(action, nodeId, peerId, enabled);
                 break;
             // For follower
             // PHASE SYNC
             case "FollowerProcessSyncMessage": // DIFF / TRUNC / SNAP
+                searchLocalMessage(action, nodeId, peerId, enabled);
+                break;
             case "FollowerProcessPROPOSALInSync":
             case "FollowerProcessCOMMITInSync":
             case "FollowerProcessNEWLEADER":
@@ -265,7 +269,7 @@ public class ExternalModelStrategy implements SchedulingStrategy{
         return nextEvent;
     }
 
-    public void searchLearnerHandlerMessage(final String action, final int nodeId, final int peerId, List<Event> enabled) {
+    public void searchLeaderMessage(final String action, final int nodeId, final int peerId, List<Event> enabled) {
         for (final Event e : enabled) {
             if (e instanceof LeaderToFollowerMessageEvent) {
                 final LeaderToFollowerMessageEvent event = (LeaderToFollowerMessageEvent) e;
@@ -276,9 +280,7 @@ public class ExternalModelStrategy implements SchedulingStrategy{
                 if (sendingNodeId != nodeId || receivingNodeId != peerId) continue;
                 final int type = event.getType();
                 switch (type) {
-                    case MessageType.DIFF:
-                    case MessageType.TRUNC:
-                    case MessageType.SNAP:
+                    case MessageType.NEWLEADER:
                         if (!action.equals("LeaderSyncFollower")) continue;
                         break;
                     case MessageType.UPTODATE:
@@ -287,6 +289,8 @@ public class ExternalModelStrategy implements SchedulingStrategy{
                     case MessageType.COMMIT:
                         if (!action.equals("LeaderProcessACK")) continue;
                         break;
+                    default:
+                        continue;
                 }
                 nextEvent = event;
                 events.remove(nextEvent);
@@ -304,13 +308,40 @@ public class ExternalModelStrategy implements SchedulingStrategy{
                 final Subnode sendingSubnode = testingService.getSubnodes().get(sendingSubnodeId);
                 final int sendingNodeId = sendingSubnode.getNodeId();
                 if (sendingNodeId != nodeId || receivingNodeId != peerId) continue;
-                final int type = event.getType();
+                final int type = event.getType(); // this describes the message type that this ACK replies to
                 switch (type) {
-                    case MessageType.ACK:
+                    case MessageType.NEWLEADER:
                         if (!action.equals("FollowerProcessNEWLEADER")) continue;
                         break;
-                    default:
+                    case MessageType.UPTODATE:
+                        if (!action.equals("FollowerProcessUPTODATE")) continue;
                         break;
+                    case MessageType.COMMIT:
+                        if (!action.equals("FollowerProcessPROPOSAL")) continue;
+                        break;
+                    default:
+                        continue;
+                }
+                nextEvent = event;
+                events.remove(nextEvent);
+                break;
+            }
+        }
+    }
+
+    public void searchLocalMessage(final String action, final int nodeId, final int peerId, List<Event> enabled) {
+        for (final Event e : enabled) {
+            if (e instanceof LocalEvent) {
+                final LocalEvent event = (LocalEvent) e;
+                final int eventNodeId = event.getNodeId();
+                if (eventNodeId != nodeId) continue;
+                final SubnodeType subnodeType = event.getSubnodeType();
+                switch (subnodeType) {
+                    case QUORUM_PEER:
+                        if (!action.equals("FollowerProcessSyncMessage")) continue;
+                        break;
+                    default:
+                        continue;
                 }
                 nextEvent = event;
                 events.remove(nextEvent);

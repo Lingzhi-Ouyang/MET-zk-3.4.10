@@ -1,7 +1,7 @@
 package org.mpisws.hitmc.server.scheduler;
 
 import org.mpisws.hitmc.server.event.Event;
-import org.mpisws.hitmc.server.event.MessageEvent;
+import org.mpisws.hitmc.server.event.ElectionMessageEvent;
 import org.mpisws.hitmc.server.event.NodeCrashEvent;
 import org.mpisws.hitmc.server.statistics.RAPOSstatistics;
 import org.slf4j.Logger;
@@ -141,13 +141,13 @@ public class RAPOSstrategy implements SchedulingStrategy {
             return res;
     }
     private boolean isRacy (Event e1, Event e2){
-        if (e1 instanceof MessageEvent && e2 instanceof MessageEvent) {
-            if (((MessageEvent) e1).getReceivingNodeId() == ((MessageEvent) e2).getReceivingNodeId()) {
+        if (e1 instanceof ElectionMessageEvent && e2 instanceof ElectionMessageEvent) {
+            if (((ElectionMessageEvent) e1).getReceivingNodeId() == ((ElectionMessageEvent) e2).getReceivingNodeId()) {
                 return true;
             }
         }
-        if (e1 instanceof MessageEvent && e2 instanceof NodeCrashEvent) {
-            if (((MessageEvent) e1).getReceivingNodeId() == ((NodeCrashEvent) e2).getNodeId()) {
+        if (e1 instanceof ElectionMessageEvent && e2 instanceof NodeCrashEvent) {
+            if (((ElectionMessageEvent) e1).getReceivingNodeId() == ((NodeCrashEvent) e2).getNodeId()) {
                 return true;
             }
         }

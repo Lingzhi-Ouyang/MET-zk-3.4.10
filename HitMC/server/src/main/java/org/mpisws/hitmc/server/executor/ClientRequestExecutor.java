@@ -58,6 +58,7 @@ public class ClientRequestExecutor extends BaseEventExecutor {
                 testingService.getRequestQueue(clientId).offer(event);
                 testingService.getControlMonitor().notifyAll();
 
+                // Post-condition
                 if (waitForResponse) {
                     // When we want to get the result immediately
                     // This will not generate later events automatically
@@ -87,6 +88,8 @@ public class ClientRequestExecutor extends BaseEventExecutor {
                 testingService.getRequestQueue(clientId).offer(event);
                 // notifyAll() should be called after related states have been changed
                 testingService.getControlMonitor().notifyAll();
+
+                // Post-condition
                 testingService.waitAllNodesSteadyAfterMutation();
                 break;
         }

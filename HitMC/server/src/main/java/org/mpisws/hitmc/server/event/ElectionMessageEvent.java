@@ -1,17 +1,17 @@
 package org.mpisws.hitmc.server.event;
 
-import org.mpisws.hitmc.server.executor.MessageExecutor;
+import org.mpisws.hitmc.server.executor.ElectionMessageExecutor;
 
 import java.io.IOException;
 
-public class MessageEvent extends AbstractEvent {
+public class ElectionMessageEvent extends AbstractEvent {
 
     private final int sendingSubnodeId;
     private final int receivingNodeId;
     private final String payload;
 
-    public MessageEvent(final int id, final int sendingSubnodeId, final int receivingNodeId, final String payload, final MessageExecutor messageExecutor) {
-        super(id, messageExecutor);
+    public ElectionMessageEvent(final int id, final int sendingSubnodeId, final int receivingNodeId, final String payload, final ElectionMessageExecutor electionMessageExecutor) {
+        super(id, electionMessageExecutor);
         this.sendingSubnodeId = sendingSubnodeId;
         this.receivingNodeId = receivingNodeId;
         this.payload = payload;
@@ -32,7 +32,7 @@ public class MessageEvent extends AbstractEvent {
 
     @Override
     public String toString() {
-        return "MessageEvent{" +
+        return "ElectionMessageEvent{" +
                 "id=" + getId() +
                 ", predecessors=" + getDirectPredecessorsString() +
                 ", " + payload +

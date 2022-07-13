@@ -1,25 +1,24 @@
 package org.mpisws.hitmc.server.executor;
 
 import org.mpisws.hitmc.server.TestingService;
-import org.mpisws.hitmc.server.event.MessageEvent;
+import org.mpisws.hitmc.server.event.ElectionMessageEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.FileWriter;
 import java.io.IOException;
 
-public class MessageExecutor extends BaseEventExecutor {
+public class ElectionMessageExecutor extends BaseEventExecutor {
 
-    private static final Logger LOG = LoggerFactory.getLogger(MessageExecutor.class);
+    private static final Logger LOG = LoggerFactory.getLogger(ElectionMessageExecutor.class);
 
     private final TestingService testingService;
 
-    public  MessageExecutor(final TestingService testingService) {
+    public ElectionMessageExecutor(final TestingService testingService) {
         this.testingService = testingService;
     }
 
     @Override
-    public boolean execute(final MessageEvent event) throws IOException {
+    public boolean execute(final ElectionMessageEvent event) throws IOException {
         if (event.isExecuted()) {
             LOG.info("Skipping an executed message event: {}", event.toString());
             return false;

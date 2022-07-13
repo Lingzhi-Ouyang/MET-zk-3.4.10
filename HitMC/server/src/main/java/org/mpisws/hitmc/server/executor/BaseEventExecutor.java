@@ -19,7 +19,7 @@ public class BaseEventExecutor {
         throw new NotImplementedException();
     }
 
-    public boolean execute(final MessageEvent event) throws IOException {
+    public boolean execute(final ElectionMessageEvent event) throws IOException {
         throw new NotImplementedException();
     }
 

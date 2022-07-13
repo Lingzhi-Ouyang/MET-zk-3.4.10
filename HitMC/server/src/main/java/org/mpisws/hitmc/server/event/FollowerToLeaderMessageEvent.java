@@ -9,7 +9,7 @@ public class FollowerToLeaderMessageEvent extends AbstractEvent {
     private final int sendingSubnodeId;
     private final int receivingNodeId;
     private final String payload;
-    private final int type;
+    private final int type; // this describes the message type that this ACK replies to
     private final long zxid;
 
     public FollowerToLeaderMessageEvent(final int id,
@@ -50,13 +50,16 @@ public class FollowerToLeaderMessageEvent extends AbstractEvent {
 
     @Override
     public String toString() {
-        String action = "FollowerToLeaderMessageEvent";
+        String action = "ACKto";
         switch (type) {
-            // Follower send type
-            case MessageType.ACK:  // For now we pass ACK of UPTODATE
-                action = "FollowerProcessNEWLEADER";
+            case MessageType.NEWLEADER:
+                action += "NEWLEADER";
                 break;
-            default:
+            case MessageType.UPTODATE:
+                action += "UPTODATE";
+                break;
+            case MessageType.PROPOSAL:
+                action += "PROPOSAL";
                 break;
         }
         return action + "{" +
