@@ -1,5 +1,7 @@
 package org.mpisws.hitmc.server;
 
+import com.alibaba.fastjson.JSONArray;
+import com.alibaba.fastjson.JSONObject;
 import org.mpisws.hitmc.api.*;
 import org.mpisws.hitmc.api.configuration.SchedulerConfiguration;
 import org.mpisws.hitmc.api.configuration.SchedulerConfigurationException;
@@ -54,9 +56,10 @@ public class TestingService implements TestingRemoteService {
     private PartitionStopExecutor partitionStopExecutor;
 
     // Internal event executors
-    private MessageExecutor messageExecutor; // for election
-    private RequestProcessorExecutor requestProcessorExecutor; // for logging
-    private LearnerHandlerMessageExecutor learnerHandlerMessageExecutor; // for learnerHandler-follower
+    private ElectionMessageExecutor electionMessageExecutor; // for election
+    private LocalEventExecutor localEventExecutor; // for logging
+    private LeaderToFollowerMessageExecutor leaderToFollowerMessageExecutor; // for learnerHandler-follower
+    private FollowerToLeaderMessageExecutor followerToLeaderMessageExecutor; // for follower-leader
 
     // statistics
     private Statistics statistics;
@@ -87,6 +90,8 @@ public class TestingService implements TestingRemoteService {
     private final List<Set<Subnode>> subnodeSets = new ArrayList<>();
 
     private final List<String> followerSocketAddressBook = new ArrayList<>();
+    private final List<Integer> followerLearnerHandlerMap = new ArrayList<>();
+    private final List<Integer> followerLearnerHandlerSenderMap = new ArrayList<>();
 
     private final List<NodeStateForClientRequest> nodeStateForClientRequests = new ArrayList<>();
 
@@ -100,6 +105,7 @@ public class TestingService implements TestingRemoteService {
 
     private final List<List<Long>> allZxidRecords = new ArrayList<>();
 
+    private final Map<Integer, Integer> leaderSyncFollowerCountMap = new HashMap<>();
     private final Map<Long, Integer> zxidSyncedMap = new HashMap<>();
     private final Map<Long, Integer> zxidToCommitMap = new HashMap<>();
 
@@ -112,8 +118,8 @@ public class TestingService implements TestingRemoteService {
     private final AtomicInteger clientIdGenerator = new AtomicInteger();
 
     // for event dependency
-    private final Map<Integer, MessageEvent> messageEventMap = new HashMap<>();
-//    private final Map<Integer, LearnerHandlerMessageEvent> followerMessageEventMap = new HashMap<>();
+    private final Map<Integer, ElectionMessageEvent> messageEventMap = new HashMap<>();
+//    private final Map<Integer, LeaderToFollowerMessageEvent> followerMessageEventMap = new HashMap<>();
 
     private final List<NodeStartEvent> lastNodeStartEvents = new ArrayList<>();
     // TODO: firstMessage should be renewed whenever election occurs.
@@ -122,6 +128,22 @@ public class TestingService implements TestingRemoteService {
     private int messageInFlight;
 
     private int logRequestInFlight;
+
+    public void setMessageInFlight(int messageInFlight) {
+        this.messageInFlight = messageInFlight;
+    }
+
+    public List<Phase> getNodePhases() {
+        return nodePhases;
+    }
+
+    public List<List<Boolean>> getPartitionMap() {
+        return partitionMap;
+    }
+
+    public void setPartitionMap(List<List<Boolean>> partitionMap) {
+        this.partitionMap = partitionMap;
+    }
 
     public List<List<Long>> getAllZxidRecords() {
         return allZxidRecords;
@@ -133,6 +155,10 @@ public class TestingService implements TestingRemoteService {
 
     public Map<Long, Integer> getZxidSyncedMap() {
         return zxidSyncedMap;
+    }
+
+    public Map<Integer, Integer> getLeaderSyncFollowerCountMap() {
+        return leaderSyncFollowerCountMap;
     }
 
     public Map<Long, Integer> getZxidToCommitMap() {
@@ -169,6 +195,14 @@ public class TestingService implements TestingRemoteService {
 
     public List<String> getFollowerSocketAddressBook() {
         return followerSocketAddressBook;
+    }
+
+    public List<Integer> getFollowerLearnerHandlerMap() {
+        return followerLearnerHandlerMap;
+    }
+
+    public List<Integer> getFollowerLearnerHandlerSenderMap() {
+        return followerLearnerHandlerSenderMap;
     }
 
     public List<Vote> getVotes() {
@@ -292,21 +326,39 @@ public class TestingService implements TestingRemoteService {
     public void startWithExternalModel() throws SchedulerConfigurationException, IOException {
         LOG.debug("Starting the testing service by external model");
         ExternalModelStatistics externalModelStatistics = new ExternalModelStatistics();
-        EventSequenceStrategy eventSequenceStrategy = new EventSequenceStrategy(this, new Random(1), schedulerConfiguration.getTraceDir(), externalModelStatistics);
+        ExternalModelStrategy externalModelStrategy = new ExternalModelStrategy(this, new Random(1), schedulerConfiguration.getTraceDir(), externalModelStatistics);
 
         long startTime = System.currentTimeMillis();
-        int traceNum = eventSequenceStrategy.getTracesNum();
+        int traceNum = externalModelStrategy.getTracesNum();
         LOG.debug("traceNum: {}", traceNum);
 
+        Map<String, Integer> serverIdMap = new HashMap<>(3);
+        serverIdMap.put("s0", 2);
+        serverIdMap.put("s1", 1);
+        serverIdMap.put("s2", 0);
+
         for (int executionId = 1; executionId <= traceNum; ++executionId) {
-            eventSequenceStrategy.clearEvents();
-            schedulingStrategy = eventSequenceStrategy;
+            externalModelStrategy.clearEvents();
+            schedulingStrategy = externalModelStrategy;
             statistics = externalModelStatistics;
 
-            Trace trace = eventSequenceStrategy.getCurrentTrace(executionId - 1);
+            Trace trace = externalModelStrategy.getCurrentTrace(executionId - 1);
             String traceName = trace.getTraceName();
-            int stepCount = trace.getStepNum();
+            int stepCount = trace.getStepCount();
             LOG.info("currentTrace: {}, total steps: {}", trace, stepCount);
+
+            // get event info
+            Set<String> keys = new HashSet<>();
+
+            int crnt = 1;
+            for (; crnt <= stepCount; ++crnt) {
+                JSONObject jsonObject = trace.nextStep();
+                String key = jsonObject.keySet().iterator().next();
+                keys.add(key);
+            }
+            LOG.debug("keySize: {}", keys.size());
+            LOG.debug("keys: {}", keys);
+
 
             ensemble.configureEnsemble(traceName);
 //            configureSchedulingStrategy(executionId);
@@ -327,126 +379,109 @@ public class TestingService implements TestingRemoteService {
             // Start the timer for recoding statistics
             statistics.startTimer();
 
-            int currentStep = 1;
-            String line = null;
+            int currentStep = 0;
             try {
-                for (; currentStep <= stepCount; ++currentStep) {
-                    line = trace.nextStep();
-                    LOG.debug("nextStep: {}", line);
+                for (; currentStep < stepCount; ++currentStep) {
+                    JSONObject jsonObject = trace.getStep(currentStep);
+                    String action = jsonObject.keySet().iterator().next();
+                    JSONObject elements = jsonObject.getJSONObject(action);
+                    LOG.debug("nextStep: {}", jsonObject);
+                    LOG.debug("nextStep: {}", action);
 
-                    String[] lineArr = line.split(" ");
-                    int len = lineArr.length;
-
-                    String action = lineArr[0];
                     switch (action) {
-                        case "ELECTION":
-                            Integer leaderId = len > 1 ? Integer.parseInt(lineArr[1]) : null;
-                            LOG.debug("election leader: {}", leaderId);
-                            totalExecuted = scheduleElection(currentStep, line, leaderId, totalExecuted);
-                            break;
-//                    case "LOG_REQUEST":
-//                        assert len>=2;
-//                        int logNodeId = Integer.parseInt(lineArr[1]);
-//                        totalExecuted = scheduleLogRequest(logNodeId, totalExecuted);
-//                        break;
-//                    case "COMMIT":
-//                        assert len>=2;
-//                        int commitNodeId = Integer.parseInt(lineArr[1]);
-//                        totalExecuted = scheduleCommit(commitNodeId, totalExecuted);
-//                        break;
-//                    case "SEND_PROPOSAL":
-//                    case "SEND_COMMIT":
-//                        assert len>=3;
-//                        int s1 = Integer.parseInt(lineArr[1]);
-//                        int s2 = Integer.parseInt(lineArr[2]);
-//                        totalExecuted = scheduleLearnerHandlerMessage(s1, s2, totalExecuted);
-//                        break;
-                        case "LOG_REQUEST":
-                        case "COMMIT":
-                        case "SEND_PROPOSAL":
-                        case "SEND_COMMIT":
-                            totalExecuted = scheduleInternalEvent(eventSequenceStrategy, lineArr, totalExecuted);
-                            break;
-                        case "NODE_CRASH":
-                            assert len==2;
-                            int crashNodeId = Integer.parseInt(lineArr[1]);
+                        // external events
+                        case "NodeCrash":
+                            int crashNodeId = serverIdMap.get(elements.getString("nodeId"));
                             totalExecuted = scheduleNodeCrash(crashNodeId, totalExecuted);
                             break;
-                        case "NODE_START":
-                            assert len==2;
-                            int startNodeId = Integer.parseInt(lineArr[1]);
+                        case "NodeStart":
+                            int startNodeId = serverIdMap.get(elements.getString("nodeId"));
                             totalExecuted = scheduleNodeStart(startNodeId, totalExecuted);
                             break;
-                        case "PARTITION_START":
-                            assert len==3;
-                            int node1 = Integer.parseInt(lineArr[1]);
-                            int node2 = Integer.parseInt(lineArr[2]);
-                            LOG.debug("----PARTITION_START: {}, {}", node1, node2);
+                        case "PartitionStart":
+                            int node1 = serverIdMap.get(elements.getString("nodeId"));
+                            int node2 = serverIdMap.get(elements.getString("peerId"));
+                            LOG.debug("----PARTITION START: {}, {}", node1, node2);
                             totalExecuted = schedulePartitionStart(node1, node2, totalExecuted);
                             break;
-                        case "PARTITION_STOP":
-                            assert len==3;
-                            int node3 = Integer.parseInt(lineArr[1]);
-                            int node4 = Integer.parseInt(lineArr[2]);
-                            LOG.debug("----PARTITION_STOP: {}, {}", node3, node4);
+                        case "PartitionRecover":
+                            int node3 = serverIdMap.get(elements.getString("nodeId"));
+                            int node4 = serverIdMap.get(elements.getString("peerId"));
+                            LOG.debug("----PARTITION RECOVER: {}, {}", node3, node4);
                             totalExecuted = schedulePartitionStop(node3, node4, totalExecuted);
                             break;
-                        case "ESTABLISH_SESSION":
-                            assert len==3;
-                            int clientId = Integer.parseInt(lineArr[1]);
-                            int serverId = Integer.parseInt(lineArr[2]);
-                            String serverAddr = getServerAddr(serverId);
-                            LOG.debug("client establish connection with server {}", serverAddr);
-                            establishSession(clientId, true, serverAddr);
-                            break;
-                        case "GET_DATA":
-                            assert len>=3;
-                            int getDataClientId = Integer.parseInt(lineArr[1]);
-                            int sid = Integer.parseInt(lineArr[2]);
-                            Integer result = len > 3 ? Integer.parseInt(lineArr[3]) : null;
-                            totalExecuted = scheduleGetData(currentStep, line, getDataClientId, sid, result, totalExecuted);
-                            break;
-                        case "SET_DATA":
-                            assert len>=3;
-                            int setDataClientId = Integer.parseInt(lineArr[1]);
-                            int sid2 = Integer.parseInt(lineArr[2]);
-                            String data = len > 3 ? lineArr[3] : null;
+                        case "LeaderProcessRequest":
+                            // suppose the client id is always the same
+                            int setDataClientId = 1;
+                            int sid2 = serverIdMap.get(elements.getString("nodeId"));
+                            String data = null;
                             totalExecuted = scheduleSetData(setDataClientId, sid2, data, totalExecuted);
                             break;
-                        case "LEADER_PROCESS_REQUEST":
+
+                        // internal events
+                        // Phase election & discovery
+                        case "ElectionAndDiscovery":
+                            Integer leaderId = serverIdMap.get(elements.getString("nodeId"));
+                            JSONArray participants = elements.getJSONArray("peerId");
+                            List<Integer> peers = new ArrayList<>();
+                            for (Object peer: participants) {
+                                peers.add(serverIdMap.get(peer.toString()));
+                            }
+                            LOG.debug("election leader: {}, other participants: {}", leaderId, peers);
+                            totalExecuted = scheduleElectionAndDiscovery(currentStep, leaderId, peers, totalExecuted);
                             break;
-                        case "FOLLOWER_PROCESS_PROPOSAL":
-                            break;
-                        case "LEADER_PROCESS_PROPOSAL_ACK":
-                            break;
-                        case "LEADER_SEND_COMMIT":
-                            break;
-                        case "LEADER_SEND_NEWLEADER":
-                            break;
-                        case "LEADER_PROCESS_NEWLEADER_ACK":
-                            break;
-                        case "LEADER_SEND_UPTODATE":
-                            break;
-                        case "LEADER_PROCESS_UPTODATE_ACK":
+
+                        case "FollowerProcessSyncMessage":
+//                            // For now we pass this one at the code level
+//                            // In fact this will update the last processed zxid
+//                            long startTime0 = System.currentTimeMillis();
+//                            int nodeId0 = serverIdMap.get(elements.getString("nodeId"));
+//                            int peerId0 = serverIdMap.get(elements.getString("peerId"));
+//                            ++totalExecuted;
+//                            LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted);
+//                            executionWriter.write("\n---Step: " + totalExecuted + "--->");
+//                            executionWriter.write("FollowerProcessSyncMessage{sender:" + nodeId0 + ", receiver:" + peerId0 + "}");
+//                            executionWriter.write("\nlastProcessedZxid: 0x");
+//                            // Property verification
+//                            for (int nodeId = 0; nodeId < schedulerConfiguration.getNumNodes(); nodeId++) {
+//                                executionWriter.write(Long.toHexString(lastProcessedZxids.get(nodeId)) + " # ");
+//                            }
+//                            executionWriter.write("\ntime/ms: " + (System.currentTimeMillis() - startTime0) + "\n");
+//                            executionWriter.flush();
+//                            break;
+
+                        case "LeaderSyncFollower": // send DIFF /TRUNC
+                        case "LeaderProcessACKLD": // send UPTODATE
+                        case "LeaderProcessACK": // send COMMIT
+                        case "FollowerProcessPROPOSALInSync":
+                        case "FollowerProcessCOMMITInSync":
+                        case "FollowerProcessNEWLEADER": // send ACK
+                        case "FollowerProcessUPTODATE": // send ACK
+                        case "FollowerProcessPROPOSAL": // send ACK
+                        case "FollowerProcessCOMMIT":
+                            int nodeId = serverIdMap.get(elements.getString("nodeId"));
+                            int peerId = serverIdMap.get(elements.getString("peerId"));
+                            totalExecuted = scheduleInternalEvent(externalModelStrategy,
+                                    action, nodeId, peerId, totalExecuted);
                             break;
                     }
                 }
             } catch (SchedulerConfigurationException e) {
-                LOG.info("SchedulerConfigurationException found when scheduling Trace {} in Step {} / {}. " +
-                        "Complete trace: {}", traceName, currentStep, stepCount, trace);
+                LOG.info("SchedulerConfigurationException found when scheduling EventSequence {} in Step {} / {}. " +
+                        "Complete trace:", traceName, currentStep, stepCount);
                 tracePassed = false;
             } finally {
                 statistics.endTimer();
 
-                // report statistics of total trace
-                traceVerifier.setTraceLen(stepCount);
-                traceVerifier.setExecutedStep(currentStep);
-                traceVerifier.verify();
-                if (currentStep > stepCount) line = "COMPLETE";
-                statistics.reportCurrentStep("[LINE " + currentStep + "]-" + line);
-                statistics.reportTotalExecutedEvents(totalExecuted);
-                statisticsWriter.write(statistics.toString() + "\n\n");
-                LOG.info(statistics.toString() + "\n\n\n\n\n");
+//                // report statistics of total trace
+//                traceVerifier.setTraceLen(stepCount);
+//                traceVerifier.setExecutedStep(currentStep);
+//                traceVerifier.verify();
+//                if (currentStep > stepCount) line = "COMPLETE";
+//                statistics.reportCurrentStep("[LINE " + currentStep + "]-" + line);
+//                statistics.reportTotalExecutedEvents(totalExecuted);
+//                statisticsWriter.write(statistics.toString() + "\n\n");
+//                LOG.info(statistics.toString() + "\n\n\n\n\n");
 
                 // shutdown clients & servers
                 for (Integer i: clientMap.keySet()) {
@@ -486,7 +521,7 @@ public class TestingService implements TestingRemoteService {
             schedulingStrategy = eventSequenceStrategy;
             statistics = externalModelStatistics;
 
-            Trace trace = eventSequenceStrategy.getCurrentTrace(executionId - 1);
+            EventSequence trace = eventSequenceStrategy.getCurrentTrace(executionId - 1);
             String traceName = trace.getTraceName();
             int stepCount = trace.getStepNum();
             LOG.info("currentTrace: {}, total steps: {}", trace, stepCount);
@@ -548,7 +583,7 @@ public class TestingService implements TestingRemoteService {
                         case "COMMIT":
                         case "SEND_PROPOSAL":
                         case "SEND_COMMIT":
-                            totalExecuted = scheduleInternalEvent(eventSequenceStrategy, lineArr, totalExecuted);
+                            totalExecuted = scheduleInternalEventInSequence(eventSequenceStrategy, lineArr, totalExecuted);
                             break;
                         case "NODE_CRASH":
                             assert len==2;
@@ -615,7 +650,7 @@ public class TestingService implements TestingRemoteService {
                     }
                 }
             } catch (SchedulerConfigurationException e) {
-                LOG.info("SchedulerConfigurationException found when scheduling Trace {} in Step {} / {}. " +
+                LOG.info("SchedulerConfigurationException found when scheduling EventSequence {} in Step {} / {}. " +
                                 "Complete trace: {}", traceName, currentStep, stepCount, trace);
                 tracePassed = false;
             } finally {
@@ -780,9 +815,10 @@ public class TestingService implements TestingRemoteService {
         partitionStopExecutor = new PartitionStopExecutor(this, 10);
 
         // Configure internal event executors
-        messageExecutor = new MessageExecutor(this);
-        requestProcessorExecutor = new RequestProcessorExecutor(this);
-        learnerHandlerMessageExecutor = new LearnerHandlerMessageExecutor(this);
+        electionMessageExecutor = new ElectionMessageExecutor(this);
+        localEventExecutor = new LocalEventExecutor(this);
+        leaderToFollowerMessageExecutor = new LeaderToFollowerMessageExecutor(this);
+        followerToLeaderMessageExecutor = new FollowerToLeaderMessageExecutor(this);
 
         // Configure checkers
         traceVerifier = new TraceVerifier(this, statistics);
@@ -803,6 +839,7 @@ public class TestingService implements TestingRemoteService {
 
         zxidSyncedMap.clear();
         zxidToCommitMap.clear();
+        leaderSyncFollowerCountMap.clear();
 
         traceMatched = true;
         tracePassed = true;
@@ -816,6 +853,8 @@ public class TestingService implements TestingRemoteService {
         subnodes.clear();
         nodeStateForClientRequests.clear();
         followerSocketAddressBook.clear();
+        followerLearnerHandlerMap.clear();
+        followerLearnerHandlerSenderMap.clear();
 
         // configure client map
         clientMap.clear();
@@ -833,6 +872,8 @@ public class TestingService implements TestingRemoteService {
             lastProcessedZxids.add(0L);
             nodeStateForClientRequests.add(NodeStateForClientRequest.SET_DONE);
             followerSocketAddressBook.add(null);
+            followerLearnerHandlerMap.add(null);
+            followerLearnerHandlerSenderMap.add(null);
 
             partitionMap.add(new ArrayList<>(Collections.nCopies(nodeNum, false)));
 
@@ -877,6 +918,76 @@ public class TestingService implements TestingRemoteService {
 
     /***
      * The schedule process of leader election
+     * Pre-condition: all alive nodes steady
+     * Post-condition: all nodes voted & all nodes steady before request
+     * Property check: one leader has been elected
+     * @param leaderId the leader that model specifies
+     * @param totalExecuted the number of previous executed events
+     * @return the number of executed events
+     */
+    public int scheduleElectionAndDiscovery(final Integer currentStep,
+                                            final Integer leaderId,
+                                            final List<Integer> peers,
+                                            int totalExecuted) {
+        try{
+//            statistics.startTimer();
+            synchronized (controlMonitor) {
+                // pre-condition
+//                waitAllNodesSteady();
+                waitAliveNodesInLookingState();
+                // Make all message events during election one single step
+                ++totalExecuted;
+                boolean leaderExists = false;
+                while (!leaderExists) {
+                    while (schedulingStrategy.hasNextEvent() && totalExecuted < 100) {
+                        long begintime = System.currentTimeMillis();
+                        LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted);
+                        final Event event = schedulingStrategy.nextEvent();
+                        if (event instanceof LeaderToFollowerMessageEvent) {
+                            final int sendingSubnodeId = ((LeaderToFollowerMessageEvent) event).getSendingSubnodeId();
+                            // confirm this works / use partition / let
+                            deregisterSubnode(sendingSubnodeId);
+                            ((LeaderToFollowerMessageEvent) event).setExecuted();
+                            LOG.debug("----Do not let the previous learner handler message occur here! So pass this event---------\n\n\n");
+                            continue;
+                        }
+                        if (event.execute()) {
+                            recordProperties(totalExecuted, begintime, event);
+                        }
+                        if (!event.execute()) {
+                            LOG.debug("something wrong during election when executing {}", event);
+                        }
+                    }
+                    // pre-condition for election property check
+                    leaderExists = waitAllNodesVoted();
+                }
+                // it is needed to wait for the event LeaderSyncFollower
+                leaderSyncFollowerCountMap.put(leaderId, peers.size());
+                waitLeaderSyncReady(leaderId, peers);
+//                waitAllNodesSteadyBeforeRequest();
+            }
+            statistics.endTimer();
+            // check election results
+            leaderElectionVerifier.setModelResult(leaderId);
+            leaderElectionVerifier.verify();
+            // report statistics
+            if (currentStep != null && peers != null) {
+                statistics.reportCurrentStep("[LINE " + currentStep + "]-"
+                        + "ElectionAndDiscovery, leader: " + leaderId
+                        + "peers: " + peers);
+            }
+            statistics.reportTotalExecutedEvents(totalExecuted);
+            statisticsWriter.write(statistics.toString() + "\n\n");
+            LOG.info(statistics.toString() + "\n\n\n\n\n");
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return totalExecuted;
+    }
+
+
+    /***
+     * The schedule process of leader election
      * Pre-condition: all nodes steady
      * Post-condition: all nodes voted & all nodes steady before request
      * Property check: one leader has been elected
@@ -896,11 +1007,11 @@ public class TestingService implements TestingRemoteService {
                     long begintime = System.currentTimeMillis();
                     LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
                     final Event event = schedulingStrategy.nextEvent();
-                    if (event instanceof LearnerHandlerMessageEvent) {
-                        final int sendingSubnodeId = ((LearnerHandlerMessageEvent) event).getSendingSubnodeId();
+                    if (event instanceof LeaderToFollowerMessageEvent) {
+                        final int sendingSubnodeId = ((LeaderToFollowerMessageEvent) event).getSendingSubnodeId();
                         // confirm this works / use partition / let
                         deregisterSubnode(sendingSubnodeId);
-                        ((LearnerHandlerMessageEvent) event).setExecuted();
+                        ((LeaderToFollowerMessageEvent) event).setExecuted();
                         LOG.debug("----Do not let the previous learner handler message occur here! So pass this event---------\n\n\n");
                         continue;
                     }
@@ -1100,7 +1211,9 @@ public class TestingService implements TestingRemoteService {
      * Note: when client is initializing, servers are better not allowed to be intercepted
      *      o.w. the initialization may be blocked and fail.
      */
-    private void establishSession(final int clientId, final boolean resetConnectionState, final String serverList) {
+    private void establishSession(final int clientId,
+                                  final boolean resetConnectionState,
+                                  final String serverList) {
         synchronized (controlMonitor) {
             // pre-condition
             waitAllNodesSteadyBeforeRequest();
@@ -1126,7 +1239,10 @@ public class TestingService implements TestingRemoteService {
      * setData with specific data
      * if without specific data, will use eventId as its written string value
      */
-    private int scheduleSetData(final int clientId, final int serverId, final String data, int totalExecuted) {
+    private int scheduleSetData(final int clientId,
+                                final int serverId,
+                                final String data,
+                                int totalExecuted) {
         try {
             ClientProxy clientProxy = clientMap.get(clientId);
             if (clientProxy == null || clientProxy.isStop()) {
@@ -1161,7 +1277,12 @@ public class TestingService implements TestingRemoteService {
     /***
      * getData
      */
-    private int scheduleGetData(final Integer currentStep, final String line, final int clientId, final int serverId, final Integer modelResult, int totalExecuted) {
+    private int scheduleGetData(final Integer currentStep,
+                                final String line,
+                                final int clientId,
+                                final int serverId,
+                                final Integer modelResult,
+                                int totalExecuted) {
         try {
             ClientProxy clientProxy = clientMap.get(clientId);
             if (clientProxy == null || clientProxy.isStop())  {
@@ -1198,8 +1319,35 @@ public class TestingService implements TestingRemoteService {
         return totalExecuted;
     }
 
+    public int scheduleInternalEvent(ExternalModelStrategy strategy,
+                                     final String eventStr,
+                                     final int nodeId,
+                                     final int peerId,
+                                     int totalExecuted) throws SchedulerConfigurationException {
+        try {
+            synchronized (controlMonitor) {
+                long startTime = System.currentTimeMillis();
+                Event event = strategy.getNextInternalEvent(eventStr, nodeId, peerId);
+                assert event != null;
+                LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
+                LOG.debug("prepare to execute event: {}", event);
+                if (event.execute()) {
+                    ++totalExecuted;
+                    recordProperties(totalExecuted, startTime, event);
+                }
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        } catch (SchedulerConfigurationException e2) {
+            LOG.debug("SchedulerConfigurationException found when scheduling {}!", eventStr);
+            throw e2;
+        }
+        return totalExecuted;
+    }
 
-    public int scheduleInternalEvent(EventSequenceStrategy strategy, String[] lineArr, int totalExecuted) throws SchedulerConfigurationException {
+    public int scheduleInternalEventInSequence(EventSequenceStrategy strategy,
+                                               String[] lineArr,
+                                               int totalExecuted) throws SchedulerConfigurationException {
         try {
             synchronized (controlMonitor) {
                 long startTime = System.currentTimeMillis();
@@ -1231,9 +1379,9 @@ public class TestingService implements TestingRemoteService {
                 long startTime = System.currentTimeMillis();
                 Event event = schedulingStrategy.nextEvent();
                 // may be trapped in loop
-                while (!(event instanceof RequestEvent) ||
-                        !(SubnodeType.SYNC_PROCESSOR.equals(((RequestEvent) event).getSubnodeType())) ||
-                        ((RequestEvent) event).getNodeId() != nodeId){
+                while (!(event instanceof LocalEvent) ||
+                        !(SubnodeType.SYNC_PROCESSOR.equals(((LocalEvent) event).getSubnodeType())) ||
+                        ((LocalEvent) event).getNodeId() != nodeId){
                     LOG.debug("-------need node {} 's SyncRequestEvent! get event: {}", nodeId, event);
                     addEvent(event);
                     event = schedulingStrategy.nextEvent();
@@ -1260,9 +1408,9 @@ public class TestingService implements TestingRemoteService {
                 long startTime = System.currentTimeMillis();
                 Event event = schedulingStrategy.nextEvent();
                 // this may be trapped in loop
-                while (!(event instanceof RequestEvent) ||
-                        !(SubnodeType.COMMIT_PROCESSOR.equals(((RequestEvent) event).getSubnodeType())) ||
-                        ((RequestEvent) event).getNodeId() != nodeId){
+                while (!(event instanceof LocalEvent) ||
+                        !(SubnodeType.COMMIT_PROCESSOR.equals(((LocalEvent) event).getSubnodeType())) ||
+                        ((LocalEvent) event).getNodeId() != nodeId){
                     LOG.debug("-------need node {} 's CommitEvent! get event: {}", nodeId, event);
                     addEvent(event);
                     event = schedulingStrategy.nextEvent();
@@ -1289,9 +1437,9 @@ public class TestingService implements TestingRemoteService {
                 long startTime = System.currentTimeMillis();
                 Event event = schedulingStrategy.nextEvent();
                 // this may be trapped in loop
-                while (!(event instanceof LearnerHandlerMessageEvent) ||
-                        ((LearnerHandlerMessageEvent) event).getReceivingNodeId() != receivingNode){
-                    LOG.debug("-------need node {} 's LearnerHandlerMessageEvent to node {}! get event: {}",
+                while (!(event instanceof LeaderToFollowerMessageEvent) ||
+                        ((LeaderToFollowerMessageEvent) event).getReceivingNodeId() != receivingNode){
+                    LOG.debug("-------need node {} 's LeaderToFollowerMessageEvent to node {}! get event: {}",
                             sendingNode, receivingNode, event);
                     addEvent(event);
                     event = schedulingStrategy.nextEvent();
@@ -1483,7 +1631,7 @@ public class TestingService implements TestingRemoteService {
                 // Step 2. leader log
                 startTime = System.currentTimeMillis();
                 event = schedulingStrategy.nextEvent();
-                while (!(event instanceof RequestEvent)){
+                while (!(event instanceof LocalEvent)){
                     LOG.debug("-------need SyncRequestEvent! get event: {}", event);
                     addEvent(event);
                     event = schedulingStrategy.nextEvent();
@@ -1588,7 +1736,7 @@ public class TestingService implements TestingRemoteService {
                 // Step 2. leader log
                 startTime = System.currentTimeMillis();
                 event = schedulingStrategy.nextEvent();
-                while (!(event instanceof RequestEvent)){
+                while (!(event instanceof LocalEvent)){
                     LOG.debug("-------need SyncRequestEvent! get event: {}", event);
                     addEvent(event);
                     event = schedulingStrategy.nextEvent();
@@ -1658,17 +1806,17 @@ public class TestingService implements TestingRemoteService {
 //                        event = schedulingStrategy.nextEvent();
 //                        LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
 //                        LOG.debug("prepare to execute event: {}", event.toString());
-//                        if (event instanceof LearnerHandlerMessageEvent) {
-//                            final int sendingSubnodeId = ((LearnerHandlerMessageEvent) event).getSendingSubnodeId();
+//                        if (event instanceof LeaderToFollowerMessageEvent) {
+//                            final int sendingSubnodeId = ((LeaderToFollowerMessageEvent) event).getSendingSubnodeId();
 //                            // confirm this works / use partition / let
 //                            deregisterSubnode(sendingSubnodeId);
-//                            ((LearnerHandlerMessageEvent) event).setExecuted();
+//                            ((LeaderToFollowerMessageEvent) event).setExecuted();
 //
 ////                        schedulingStrategy.remove(event);
 //                            LOG.debug("----Do not let the previous learner handler message occur here! So pass this event---------\n\n\n");
 //                            continue;
 //                        }
-//                        else if (!(event instanceof MessageEvent)) {
+//                        else if (!(event instanceof ElectionMessageEvent)) {
 //                            LOG.debug("not message event: {}, " +
 //                                    "which means this follower begins to sync", event.toString());
 //                            addEvent(event);
@@ -1693,16 +1841,16 @@ public class TestingService implements TestingRemoteService {
                     event = schedulingStrategy.nextEvent();
                     LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
                     LOG.debug("prepare to execute event: {}", event.toString());
-                    if (event instanceof LearnerHandlerMessageEvent) {
-                        final int sendingSubnodeId = ((LearnerHandlerMessageEvent) event).getSendingSubnodeId();
+                    if (event instanceof LeaderToFollowerMessageEvent) {
+                        final int sendingSubnodeId = ((LeaderToFollowerMessageEvent) event).getSendingSubnodeId();
                         // confirm this works / use partition / let
                         deregisterSubnode(sendingSubnodeId);
-                        ((LearnerHandlerMessageEvent) event).setExecuted();
+                        ((LeaderToFollowerMessageEvent) event).setExecuted();
                         LOG.debug("----Do not let the previous learner handler message occur here! So pass this event---------\n\n\n");
                         continue;
                     }
-//                    else if (event instanceof MessageEvent) {
-//                        MessageEvent event1 = (MessageEvent) event;
+//                    else if (event instanceof ElectionMessageEvent) {
+//                        ElectionMessageEvent event1 = (ElectionMessageEvent) event;
 //                        final int sendingSubnodeId = event1.getSendingSubnodeId();
 //                        final int receivingNodeId = event1.getReceivingNodeId();
 //                        final Subnode sendingSubnode = subnodes.get(sendingSubnodeId);
@@ -1900,14 +2048,20 @@ public class TestingService implements TestingRemoteService {
     }
 
     @Override
-    public int offerMessage(final int sendingSubnodeId, final int receivingNodeId, final Set<Integer> predecessorMessageIds, final String payload) {
+    public int offerElectionMessage(final int sendingSubnodeId, final int receivingNodeId, final Set<Integer> predecessorMessageIds, final String payload) {
         final List<Event> predecessorEvents = new ArrayList<>();
-        for (final int messageId : predecessorMessageIds) {
-            predecessorEvents.add(messageEventMap.get(messageId));
-        }
+//        for (final int messageId : predecessorMessageIds) {
+//            predecessorEvents.add(messageEventMap.get(messageId));
+//        }
         final Subnode sendingSubnode = subnodes.get(sendingSubnodeId);
         final int sendingNodeId = sendingSubnode.getNodeId();
 //        getSubNodeByID.put(sendingSubnodeId, sendingNodeId);
+
+//        // TODO: mute the effect of events before adding it to the scheduling list. Why this makes election cost more time?
+//        // Problem: It will make the message that come immediately after the node restarts to be missed
+        if (partitionMap.get(sendingNodeId).get(receivingNodeId)){
+            return TestingDef.RetCode.NODE_PAIR_IN_PARTITION;
+        }
 
         // We want to determinize the order in which the first messages are added, so we wait until
         // all nodes with smaller ids have offered their first message.
@@ -1917,21 +2071,21 @@ public class TestingService implements TestingRemoteService {
             }
         }
 
-        final NodeStartEvent lastNodeStartEvent = lastNodeStartEvents.get(sendingNodeId);
-        if (null != lastNodeStartEvent) {
-            predecessorEvents.add(lastNodeStartEvent);
-        }
+//        final NodeStartEvent lastNodeStartEvent = lastNodeStartEvents.get(sendingNodeId);
+//        if (null != lastNodeStartEvent) {
+//            predecessorEvents.add(lastNodeStartEvent);
+//        }
 
         int id = generateEventId();
-        final MessageEvent messageEvent = new MessageEvent(id, sendingSubnodeId, receivingNodeId, payload, messageExecutor);
-        messageEvent.addAllDirectPredecessors(predecessorEvents);
+        final ElectionMessageEvent electionMessageEvent = new ElectionMessageEvent(id, sendingSubnodeId, receivingNodeId, payload, electionMessageExecutor);
+        electionMessageEvent.addAllDirectPredecessors(predecessorEvents);
 
         synchronized (controlMonitor) {
             LOG.debug("Node {} is offering a message: msgId = {}, predecessors = {}, " +
                             "set subnode {} to SENDING state", sendingNodeId,
                     id, predecessorMessageIds.toString(), sendingSubnodeId);
-            messageEventMap.put(id, messageEvent);
-            addEvent(messageEvent);
+            messageEventMap.put(id, electionMessageEvent);
+            addEvent(electionMessageEvent);
             if (firstMessage.get(sendingNodeId) == null) {
                 firstMessage.set(sendingNodeId, true);
             }
@@ -1943,15 +2097,15 @@ public class TestingService implements TestingRemoteService {
             // case 1: this event is released since the sending node is stopping
             if (NodeState.STOPPING.equals(nodeStates.get(sendingNodeId))) {
                 id = TestingDef.RetCode.NODE_CRASH;
-                messageEvent.setExecuted();
-                schedulingStrategy.remove(messageEvent);
+                electionMessageEvent.setExecuted();
+                schedulingStrategy.remove(electionMessageEvent);
             }
             // case 2: this event is released when the network partition occurs
-            // todo: to confirm (tricky part: do not release this event until it is scheduled)
+            // TODO: move partition effects to the beginning of this method. Use around() to mute the effect
             else if (partitionMap.get(sendingNodeId).get(receivingNodeId)) {
                 id = TestingDef.RetCode.NODE_PAIR_IN_PARTITION;
-                messageEvent.setExecuted();
-                schedulingStrategy.remove(messageEvent);
+                electionMessageEvent.setExecuted();
+                schedulingStrategy.remove(electionMessageEvent);
             }
 
         }
@@ -1960,36 +2114,38 @@ public class TestingService implements TestingRemoteService {
     }
 
     @Override
-    public int offerMessageToFollower(int sendingSubnodeId, String receivingAddr, long zxid, String payload, int type) throws RemoteException {
-        if (!clientInitializationDone) {
-            LOG.debug("----client initialization is not done!---");
-            return TestingDef.RetCode.CLIENT_INITIALIZATION_NOT_DONE;
-        }
-        final List<Event> predecessorEvents = new ArrayList<>();
+    public int offerFollowerToLeaderMessage(int sendingSubnodeId, long zxid, String payload, int type) throws RemoteException {
+        LOG.debug("type: {}", type);
 
         final Subnode sendingSubnode = subnodes.get(sendingSubnodeId);
         final int sendingNodeId = sendingSubnode.getNodeId();
-//        getSubNodeByID.put(sendingSubnodeId, sendingNodeId);
 
-        int receivingNodeId;
-        synchronized (controlMonitor) {
-            waitFollowerSocketAddrRegistered(receivingAddr);
-            receivingNodeId = followerSocketAddressBook.indexOf(receivingAddr);
-            LOG.debug("receivingNodeId: {}, {}", receivingNodeId, receivingAddr);
+        Phase phase = nodePhases.get(sendingNodeId);
+        if (phase.equals(Phase.BROADCAST)) {
+            if (!clientInitializationDone) {
+                LOG.debug("----client initialization is not done!---");
+                return TestingDef.RetCode.CLIENT_INITIALIZATION_NOT_DONE;
+            }
         }
+        final List<Event> predecessorEvents = new ArrayList<>();
 
+        // check who is the leader
+        assert leaderElectionStates.contains(LeaderElectionState.LEADING);
+        final int receivingNodeId = leaderElectionStates.indexOf(LeaderElectionState.LEADING);
+
+        // mute the effect of events before adding it to the scheduling list
         if (partitionMap.get(sendingNodeId).get(receivingNodeId)){
             return TestingDef.RetCode.NODE_PAIR_IN_PARTITION;
         }
 
         int id = generateEventId();
-        final LearnerHandlerMessageEvent messageEvent = new LearnerHandlerMessageEvent(
-                id, sendingSubnodeId, receivingNodeId, type, zxid, payload, learnerHandlerMessageExecutor);
+        final FollowerToLeaderMessageEvent messageEvent = new FollowerToLeaderMessageEvent(
+                id, sendingSubnodeId, receivingNodeId, type, zxid, payload, followerToLeaderMessageExecutor);
         messageEvent.addAllDirectPredecessors(predecessorEvents);
 
         synchronized (controlMonitor) {
-            LOG.debug("Leader {} is offering a proposal to follower {}: msgId = {}, " +
-                    "set subnode {} to SENDING state", sendingNodeId, receivingNodeId, id, sendingSubnodeId);
+            LOG.debug("Follower {} is offering a a type={} message to leader {}: msgId = {}, " +
+                    "set subnode {} to SENDING state", sendingNodeId, type, receivingNodeId, id, sendingSubnodeId);
 
             addEvent(messageEvent);
             sendingSubnode.setState(SubnodeState.SENDING);
@@ -2016,22 +2172,120 @@ public class TestingService implements TestingRemoteService {
     }
 
     @Override
-    public int offerRequestProcessorMessage(int subnodeId, SubnodeType subnodeType, long zxid, String payload) throws RemoteException {
-        if (!clientInitializationDone) {
-            LOG.debug("----client initialization is not done!---");
-            return TestingDef.RetCode.CLIENT_INITIALIZATION_NOT_DONE;
+    public int offerLeaderToFollowerMessage(int sendingSubnodeId, String receivingAddr, long zxid, String payload, int type) throws RemoteException {
+//        if (!clientInitializationDone) {
+//            LOG.debug("----client initialization is not done!---");
+//            return TestingDef.RetCode.CLIENT_INITIALIZATION_NOT_DONE;
+//        }
+        LOG.debug("type: {}", type);
+
+        final Subnode sendingSubnode = subnodes.get(sendingSubnodeId);
+        final int sendingNodeId = sendingSubnode.getNodeId();
+
+        Phase phase = nodePhases.get(sendingNodeId);
+
+        if (phase.equals(Phase.BROADCAST)) {
+            if (!clientInitializationDone) {
+                LOG.debug("----client initialization is not done!---");
+                return TestingDef.RetCode.CLIENT_INITIALIZATION_NOT_DONE;
+            }
         }
+        final List<Event> predecessorEvents = new ArrayList<>();
+
+        int receivingNodeId;
+        synchronized (controlMonitor) {
+            waitFollowerSocketAddrRegistered(receivingAddr);
+            receivingNodeId = followerSocketAddressBook.indexOf(receivingAddr);
+            LOG.debug("receivingNodeId: {}, {}", receivingNodeId, receivingAddr);
+            switch (type) {
+//                case MessageType.DIFF:
+//                case MessageType.TRUNC:
+//                case MessageType.SNAP:
+//                    assert leaderSyncFollowerCountMap.containsKey(sendingNodeId);
+//                    leaderSyncFollowerCountMap.put(sendingNodeId, leaderSyncFollowerCountMap.get(sendingNodeId) - 1);
+//                    // LearnerHandler
+//                    followerLearnerHandlerMap.set(receivingNodeId, sendingSubnodeId);
+//                    break;
+                case MessageType.NEWLEADER:
+                    assert leaderSyncFollowerCountMap.containsKey(sendingNodeId);
+                    leaderSyncFollowerCountMap.put(sendingNodeId, leaderSyncFollowerCountMap.get(sendingNodeId) - 1);
+                    // LearnerHandlerSender
+                    followerLearnerHandlerSenderMap.set(receivingNodeId, sendingSubnodeId);
+                    break;
+                case MessageType.UPTODATE:
+                    // LearnerHandlerSender
+                    followerLearnerHandlerSenderMap.set(receivingNodeId, sendingSubnodeId);
+                    break;
+                case MessageType.PROPOSAL:
+                case MessageType.COMMIT:
+                    // check if the follower is in sync or broadcast
+                    if (!Phase.BROADCAST.equals(nodePhases.get(receivingNodeId))) {
+                        followerLearnerHandlerMap.set(receivingNodeId, sendingSubnodeId);
+                    } else {
+                        followerLearnerHandlerSenderMap.set(receivingNodeId, sendingSubnodeId);
+                    }
+                    break;
+            }
+        }
+
+        // mute the effect of events before adding it to the scheduling list
+        if (partitionMap.get(sendingNodeId).get(receivingNodeId)){
+            return TestingDef.RetCode.NODE_PAIR_IN_PARTITION;
+        }
+
+        int id = generateEventId();
+        final LeaderToFollowerMessageEvent messageEvent = new LeaderToFollowerMessageEvent(
+                id, sendingSubnodeId, receivingNodeId, type, zxid, payload, leaderToFollowerMessageExecutor);
+        messageEvent.addAllDirectPredecessors(predecessorEvents);
+
+        synchronized (controlMonitor) {
+            LOG.debug("Leader {} is offering a a type={} message to follower {}: msgId = {}, " +
+                    "set subnode {} to SENDING state", sendingNodeId, type, receivingNodeId, id, sendingSubnodeId);
+
+            addEvent(messageEvent);
+            sendingSubnode.setState(SubnodeState.SENDING);
+            controlMonitor.notifyAll();
+
+            waitMessageReleased(id, sendingNodeId);
+
+            // normally, this event is released when scheduled except:
+            // case 1: this event is released since the sending node is stopping
+            if (NodeState.STOPPING.equals(nodeStates.get(sendingNodeId))) {
+                id = TestingDef.RetCode.NODE_CRASH;
+                messageEvent.setExecuted();
+                schedulingStrategy.remove(messageEvent);
+            }
+            // case 2: this event is released when the network partition occurs
+            else if (partitionMap.get(sendingNodeId).get(receivingNodeId)) {
+                sendingSubnode.setState(SubnodeState.RECEIVING);
+                id = TestingDef.RetCode.NODE_PAIR_IN_PARTITION;
+                messageEvent.setExecuted();
+                schedulingStrategy.remove(messageEvent);
+            }
+        }
+        return id;
+    }
+
+    @Override
+    public int offerLocalEvent(int subnodeId, SubnodeType subnodeType, long zxid, String payload, int type) throws RemoteException {
+        if (!subnodeType.equals(SubnodeType.QUORUM_PEER)) {
+            if (!clientInitializationDone) {
+                LOG.debug("----client initialization is not done!---");
+                return TestingDef.RetCode.CLIENT_INITIALIZATION_NOT_DONE;
+            }
+        }
+
         final Subnode subnode = subnodes.get(subnodeId);
         final int nodeId = subnode.getNodeId();
 //        getSubNodeByID.put(subnodeId, nodeId);
 
         int id = generateEventId();
-        final RequestEvent requestEvent =
-                new RequestEvent(id, nodeId, subnodeId, subnodeType, payload, zxid, requestProcessorExecutor);
+        final LocalEvent localEvent =
+                new LocalEvent(id, nodeId, subnodeId, subnodeType, payload, zxid, localEventExecutor);
         synchronized (controlMonitor) {
             LOG.debug("{} {} of Node {} is about to process the request ({}): msgId = {}, " +
                     "set subnode {} to SENDING state", subnodeType, subnodeId, nodeId, payload, id, subnodeId);
-            addEvent(requestEvent);
+            addEvent(localEvent);
             subnode.setState(SubnodeState.SENDING);
             if (SubnodeType.COMMIT_PROCESSOR.equals(subnodeType)) {
                 zxidToCommitMap.put(zxid, zxidToCommitMap.getOrDefault(zxid, 0) + 1);
@@ -2039,12 +2293,13 @@ public class TestingService implements TestingRemoteService {
             controlMonitor.notifyAll();
 //            waitLogRequestReleased(id, nodeId);
             waitMessageReleased(id, nodeId);
+
             // If this message is released due to the STOPPING node state, then set the id = -1
             if (NodeState.STOPPING.equals(nodeStates.get(nodeId))) {
-                LOG.debug("----------setting requestEvent executed. {}", requestEvent);
+                LOG.debug("----------setting localEvent executed. {}", localEvent);
                 id = TestingDef.RetCode.NODE_CRASH;
-                requestEvent.setExecuted();
-                schedulingStrategy.remove(requestEvent);
+                localEvent.setExecuted();
+                schedulingStrategy.remove(localEvent);
             }
         }
         return id;
@@ -2056,7 +2311,7 @@ public class TestingService implements TestingRemoteService {
      * set sendingSubnode and receivingSubnode WORKER_RECEIVER to PROCESSING
      * @param event
      */
-    public void releaseMessage(final MessageEvent event) {
+    public void releaseMessage(final ElectionMessageEvent event) {
         messageInFlight = event.getId();
         final Subnode sendingSubnode = subnodes.get(event.getSendingSubnodeId());
         // set the sending subnode to be PROCESSING
@@ -2073,67 +2328,6 @@ public class TestingService implements TestingRemoteService {
         controlMonitor.notifyAll();
     }
 
-    /***
-     * From leader to follower
-     * set sendingSubnode and receivingSubnode SYNC_PROCESSOR to PROCESSING
-     */
-    public void releaseMessageToFollower(final LearnerHandlerMessageEvent event) {
-        messageInFlight = event.getId();
-        final Subnode sendingSubnode = subnodes.get(event.getSendingSubnodeId());
-
-        // set the sending subnode to be PROCESSING
-        sendingSubnode.setState(SubnodeState.PROCESSING);
-
-        // if in partition, then just drop it
-        final int sendingNodeId = sendingSubnode.getNodeId();
-        final int receivingNodeId = event.getReceivingNodeId();
-        if (partitionMap.get(sendingNodeId).get(receivingNodeId)) {
-            return;
-        }
-
-        // not int partition
-        final int type = event.getType();
-        if (MessageType.PROPOSAL == type) {
-            for (final Subnode subnode : subnodeSets.get(event.getReceivingNodeId())) {
-                if (subnode.getSubnodeType() == SubnodeType.SYNC_PROCESSOR
-                        && SubnodeState.RECEIVING.equals(subnode.getState())) {
-                    // set the receiving subnode to be PROCESSING
-                    subnode.setState(SubnodeState.PROCESSING);
-                    break;
-                }
-            }
-        } else if (MessageType.COMMIT == type){
-            for (final Subnode subnode : subnodeSets.get(event.getReceivingNodeId())) {
-                if (subnode.getSubnodeType() == SubnodeType.COMMIT_PROCESSOR
-                        && SubnodeState.RECEIVING.equals(subnode.getState())) {
-                    // set the receiving subnode to be PROCESSING
-                    subnode.setState(SubnodeState.PROCESSING);
-                    break;
-                }
-            }
-        }
-        controlMonitor.notifyAll();
-    }
-
-    // Should be called while holding a lock on controlMonitor
-    /***
-     * For sync
-     * set SYNC_PROCESSOR to PROCESSING
-     * @param event
-     */
-    public void releaseRequestProcessor(final RequestEvent event) {
-//        logRequestInFlight = event.getId();
-        messageInFlight = event.getId();
-        SubnodeType subnodeType = event.getSubnodeType();
-        if (SubnodeType.SYNC_PROCESSOR.equals(subnodeType)) {
-            final Long zxid = event.getZxid();
-            zxidSyncedMap.put(zxid, zxidSyncedMap.getOrDefault(zxid, 0) + 1);
-        }
-        final Subnode syncSubnode = subnodes.get(event.getSubnodeId());
-        // set the corresponding subnode to be PROCESSING
-        syncSubnode.setState(SubnodeState.PROCESSING);
-        controlMonitor.notifyAll();
-    }
 
     @Override
     public int registerSubnode(final int nodeId, final SubnodeType subnodeType) throws RemoteException {
@@ -2232,6 +2426,11 @@ public class TestingService implements TestingRemoteService {
         nodeStateForClientRequests.set(nodeId, NodeStateForClientRequest.SET_DONE);
         votes.set(nodeId, null);
         leaderElectionStates.set(nodeId, LeaderElectionState.LOOKING);
+        followerSocketAddressBook.set(nodeId, null);
+        followerLearnerHandlerMap.set(nodeId, null);
+        followerLearnerHandlerSenderMap.set(nodeId, null);
+
+
         // 2. EXECUTION
         ensemble.startNode(nodeId);
         // 3. POST_EXECUTION: wait for the state to be stable
@@ -2280,11 +2479,19 @@ public class TestingService implements TestingRemoteService {
         nodeStateForClientRequests.set(nodeId, NodeStateForClientRequest.SET_DONE);
         for (int id = 0; id < schedulerConfiguration.getNumNodes(); id++) {
             LOG.debug("--------nodeid: {}: phase: {}", id, nodePhases.get(id));
+
+            // node crash will not reset the partition
+//            // recover the partition with this node
+//            partitionMap.get(nodeId).set(id, false);
+//            partitionMap.get(id).set(nodeId, false);
         }
 
         votes.set(nodeId, null);
-        // still keep the role info before crash, this is for further property check
-//        leaderElectionStates.set(nodeId, LeaderElectionState.NULL);
+        // is it needed to still keep the role info before crash for further property check？
+        leaderElectionStates.set(nodeId, LeaderElectionState.NULL);
+        followerSocketAddressBook.set(nodeId, null);
+        followerLearnerHandlerMap.set(nodeId, null);
+        followerLearnerHandlerSenderMap.set(nodeId, null);
 
         // 2. EXECUTION
         ensemble.stopNode(nodeId);
@@ -2377,6 +2584,10 @@ public class TestingService implements TestingRemoteService {
             leaderElectionStates.set(nodeId, state);
             if (LeaderElectionState.LOOKING.equals(state)) {
                 nodePhases.set(nodeId, Phase.DISCOVERY);
+                votes.set(nodeId, null);
+                followerSocketAddressBook.set(nodeId, null);
+                followerLearnerHandlerMap.set(nodeId, null);
+                followerLearnerHandlerSenderMap.set(nodeId, null);
             } else {
                 nodePhases.set(nodeId, Phase.SYNC);
             }
@@ -2459,7 +2670,7 @@ public class TestingService implements TestingRemoteService {
 
     @Override
     public void readyForBroadcast(int subnodeId) throws RemoteException {
-        // TODO: Leader needs to collect quorum. Here we suppose 1 learnerHanlder is enough
+        // TODO: Leader needs to collect quorum. Here we suppose 1 learnerHanlder is enough for 3-node ensemble
         final Subnode subnode = subnodes.get(subnodeId);
         final int nodeId = subnode.getNodeId();
         LOG.debug("Node {} is ready to broadcast", nodeId);
@@ -2500,11 +2711,26 @@ public class TestingService implements TestingRemoteService {
      */
     private final WaitPredicate allNodesVoted = new AllNodesVoted(this);
     // Should be called while holding a lock on controlMonitor
-    private void waitAllNodesVoted() {
-        wait(allNodesVoted, 1000L);
+    private boolean waitAllNodesVoted() {
+        wait(allNodesVoted, 100L);
+        for (int nodeId = 0; nodeId < schedulerConfiguration.getNumNodes(); ++nodeId) {
+            if (LeaderElectionState.LEADING.equals(leaderElectionStates.get(nodeId))) {
+                return true;
+            }
+        }
+        LOG.debug("Leader does not exist after voting!");
+        return false;
     }
     private void waitAllNodesVoted(final long timeout) {
         wait(allNodesVoted, timeout);
+    }
+
+    /***
+     * Post-condition for election & Pre-condition for LeaderSyncFollowers
+     */
+    private void waitLeaderSyncReady(final int leaderId, List<Integer> peers) {
+        WaitPredicate leaderSyncReady = new LeaderSyncReady(this, leaderId, peers);
+        wait(leaderSyncReady, 0L);
     }
 
     /***
@@ -2608,7 +2834,7 @@ public class TestingService implements TestingRemoteService {
      * o.w. use global predicate AllNodesSteadyAfterQuorumSynced
      * Post-condition for scheduling quorum log message events
      */
-    public void waitQuorumToCommit(final RequestEvent event) {
+    public void waitQuorumToCommit(final LocalEvent event) {
         final long zxid = event.getZxid();
         final int nodeNum = schedulerConfiguration.getNumNodes();
         final WaitPredicate quorumToCommit = new QuorumToCommit(this, zxid, nodeNum);
@@ -2628,6 +2854,19 @@ public class TestingService implements TestingRemoteService {
         final WaitPredicate aliveNodesInLookingState = new AliveNodesInLookingState(this);
         wait(aliveNodesInLookingState, 0L);
 
+    }
+
+    public void waitFollowerMappingLearnerHandlerSender(final int subnodeId) {
+        final WaitPredicate followerMappingLearnerHandlerSender = new FollowerMappingLearnerHandlerSender(this, subnodeId);
+        wait(followerMappingLearnerHandlerSender, 0L);
+    }
+
+    /***
+     * Post-condition for specific subnode in SENDING state
+     */
+    public void waitSubnodeInSendingState(final int subnodeId) {
+        final WaitPredicate subnodeInSendingState = new SubnodeInSendingState(this, subnodeId);
+        wait(subnodeInSendingState, 0L);
     }
 
     private void wait(final WaitPredicate predicate, final long timeout) {

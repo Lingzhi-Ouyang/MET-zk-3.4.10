@@ -63,7 +63,7 @@ public interface TestingRemoteService extends Remote {
      * @param payload String representation of the message payload
      * @return The scheduler generates and returns a unique identifier of the current message
      */
-    int offerMessage(int sendingSubnodeId, int receivingNodeId, Set<Integer> predecessorMessageIds, String payload) throws RemoteException;
+    int offerElectionMessage(int sendingSubnodeId, int receivingNodeId, Set<Integer> predecessorMessageIds, String payload) throws RemoteException;
 
     /**
      * Indicates an internal message between nodes is about to be sent. Change its state to <code>{@link SubnodeState.SENDING}</code>,
@@ -71,7 +71,7 @@ public interface TestingRemoteService extends Remote {
      *
      * @return The scheduler generates and returns a unique identifier of the current message
      */
-    int offerFollowerMessageToLeader(int sendingSubnodeId, long zxid, String payload, int type) throws RemoteException;
+    int offerFollowerToLeaderMessage(int sendingSubnodeId, long zxid, String payload, int type) throws RemoteException;
 
     /**
      * Indicates a learnerHandler subnode is about to send a message to a learner. Change its state to <code>{@link SubnodeState.SENDING}</code>,
@@ -79,7 +79,7 @@ public interface TestingRemoteService extends Remote {
      *
      * @return The scheduler generates and returns a unique identifier of the current message
      */
-    int offerLeaderMessageToFollower(int sendingSubnodeId, String receivingAddr, long zxid, String payload, int type) throws RemoteException;
+    int offerLeaderToFollowerMessage(int sendingSubnodeId, String receivingAddr, long zxid, String payload, int type) throws RemoteException;
 
     /**
      * Indicates a subnode is about to do a local event (sync a request log to disk or to commit a request). Change its state to <code>{@link SubnodeState.SENDING}</code>,
@@ -87,7 +87,7 @@ public interface TestingRemoteService extends Remote {
      *
      * @return The scheduler generates and returns a unique identifier of the current message
      */
-    int offerLocalEvent(int subnodeId, SubnodeType subnodeType, long zxid, String payload) throws RemoteException;
+    int offerLocalEvent(int subnodeId, SubnodeType subnodeType, long zxid, String payload, int type) throws RemoteException;
 
     /**
      * If the subnode is in the state <code>{@link SubnodeState.RECEIVING}</code>, change it to
