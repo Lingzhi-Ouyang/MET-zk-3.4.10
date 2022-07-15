@@ -260,7 +260,7 @@ public class ExternalModelStrategy implements SchedulingStrategy{
             throw new SchedulerConfigurationException();
         }
 
-        nextEventPrepared = true;
+        nextEventPrepared = false;
         return nextEvent;
     }
 
