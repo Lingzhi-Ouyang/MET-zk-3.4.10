@@ -235,26 +235,21 @@ public class ExternalModelStrategy implements SchedulingStrategy{
 
         // 2. search specific event type
         switch (action) {
-            // For learnerHandler
-            // PHASE SYNC
-            case "LeaderSyncFollower": // send QuorumPacket.getType() == DIFF / TRUNC. NOTE: SNAP is beyond consideration.
+            case "LeaderSyncFollower": // send NEWLEADER. for now we pass DIFF / TRUNC. NOTE: SNAP is beyond consideration.
             case "LeaderProcessACKLD": // send UPTODATE
-            // PHASE broadcast
-            case "LeaderProcessACK": // SEND_COMMIT
+            case "LeaderProcessACK": // SEND COMMIT
                 searchLeaderMessage(action, nodeId, peerId, enabled);
                 break;
-            // For follower
-            // PHASE SYNC
-            case "FollowerProcessSyncMessage": // DIFF / TRUNC / SNAP
-                searchLocalMessage(action, nodeId, peerId, enabled);
-                break;
-            case "FollowerProcessPROPOSALInSync":
-            case "FollowerProcessCOMMITInSync":
-            case "FollowerProcessNEWLEADER":
-            case "FollowerProcessUPTODATE":
-                // PHASE broadcast
-            case "FollowerProcessPROPOSAL":  // LOG_REQUEST
+            case "LeaderProcessRequest":
+            case "FollowerProcessSyncMessage": // no ACK. process DIFF / TRUNC / SNAP
+            case "FollowerProcessPROPOSALInSync": // no reply
+            case "FollowerProcessCOMMITInSync": // no reply
             case "FollowerProcessCOMMIT": // COMMIT
+                searchLocalMessage(action, nodeId, enabled);
+                break;
+            case "FollowerProcessNEWLEADER": // ACK to NEWLEADER
+            case "FollowerProcessUPTODATE": // ACK to UPTODATE
+            case "FollowerProcessPROPOSAL":  // LOG_REQUEST
                 searchFollowerMessage(action, nodeId, peerId, enabled);
                 break;
         }
@@ -329,17 +324,23 @@ public class ExternalModelStrategy implements SchedulingStrategy{
         }
     }
 
-    public void searchLocalMessage(final String action, final int nodeId, final int peerId, List<Event> enabled) {
+    public void searchLocalMessage(final String action, final int nodeId, List<Event> enabled) {
         for (final Event e : enabled) {
             if (e instanceof LocalEvent) {
                 final LocalEvent event = (LocalEvent) e;
                 final int eventNodeId = event.getNodeId();
                 if (eventNodeId != nodeId) continue;
                 final SubnodeType subnodeType = event.getSubnodeType();
-                switch (subnodeType) {
-                    case QUORUM_PEER:
-                        if (!action.equals("FollowerProcessSyncMessage")) continue;
+                switch (action) {
+                    case "LeaderProcessRequest":
+                        if (!subnodeType.equals(SubnodeType.SYNC_PROCESSOR)) continue;
                         break;
+                    case "FollowerProcessSyncMessage": // no ACK. process DIFF / TRUNC / SNAP
+                        if (!subnodeType.equals(SubnodeType.QUORUM_PEER)) continue;
+                        break;
+                    case "FollowerProcessPROPOSALInSync": // no reply
+                    case "FollowerProcessCOMMITInSync": // no reply
+                    case "FollowerProcessCOMMIT": // no reply
                     default:
                         continue;
                 }
