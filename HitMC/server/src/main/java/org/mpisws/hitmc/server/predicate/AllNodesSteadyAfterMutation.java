@@ -42,7 +42,7 @@ public class AllNodesSteadyAfterMutation implements WaitPredicate {
                     LOG.debug("-----------Node {} status: {}", nodeId, nodeState);
             }
             LeaderElectionState leaderElectionState = testingService.getLeaderElectionStates().get(nodeId);
-            // TODO: LOOKING ???
+            // TODO: LOOKING ??? for now we miss this
             if (LeaderElectionState.LEADING.equals(leaderElectionState)) {
                 if (!leaderSteadyAfterMutation(nodeId)) {
                     return false;
@@ -103,6 +103,12 @@ public class AllNodesSteadyAfterMutation implements WaitPredicate {
         return syncProcessorExisted && commitProcessorExisted && learnerHandlerSenderExisted;
     }
 
+    /***
+     * For now we simplify the check logic
+     * TODO: add partition factor
+     * @param nodeId
+     * @return
+     */
     private boolean followerSteadyAfterMutation(final int nodeId) {
         boolean syncProcessorExisted = false;
         boolean commitProcessorExisted = false;
