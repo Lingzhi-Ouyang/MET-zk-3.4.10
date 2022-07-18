@@ -338,13 +338,14 @@ public aspect QuorumPeerAspect {
     public void setSubnodeSending() {
         synchronized (nodeOnlineMonitor) {
             sendingSubnodeNum.incrementAndGet();
-            LOG.debug("sendingSubnodeNum: {}", sendingSubnodeNum.get());
+            LOG.debug("add sendingSubnodeNum: {}", sendingSubnodeNum.get());
         }
     }
 
     public void postSend(final int subnodeId, final int msgId) throws RemoteException {
         synchronized (nodeOnlineMonitor) {
             final int existingSendingSubnodeNum = sendingSubnodeNum.decrementAndGet();
+            LOG.debug("decrease sendingSubnodeNum: {}", sendingSubnodeNum.get());
             if (msgId == TestingDef.RetCode.NODE_CRASH) {
                 // The last existing subnode is responsible to set the node state as offline
                 LOG.debug("-----subnodeId: {}, msgId: {}, existingSendingSubnodeNum: {}", subnodeId, msgId, existingSendingSubnodeNum);

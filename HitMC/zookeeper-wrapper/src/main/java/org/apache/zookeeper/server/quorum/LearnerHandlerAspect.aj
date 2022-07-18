@@ -445,6 +445,7 @@ public aspect LearnerHandlerAspect {
      * For LearnerHandlerSender sending messages to followers during SYNC & BROADCAST phase
      *  --> LeaderSyncFollower: send NEWLEADER
      *  --> LeaderProcessACKLD: send UPTODATE
+     *  --> For now we pass PROPOSAL & COMMIT in SYNC phase
      * For BROADCAST phase
      *  --> LeaderProcessRequest: send PROPOSAL to quorum followers
      *  --> LeaderProcessACK : send COMMIT after receiving quorum's logRequest (PROPOSAL) ACKs
@@ -481,9 +482,21 @@ public aspect LearnerHandlerAspect {
                 break;
             case Leader.COMMIT:
                 LOG.debug("-------sending COMMIT!!!!");
+                if (!intercepter.isSyncFinished()) {
+                    LOG.debug("---------Taking the packet ({}) from queued packets. Won't intercept. Subnode: {}",
+                            payload, subnodeId);
+                    proceed(r, s);
+                    return;
+                }
                 break;
             case Leader.PROPOSAL:
                 LOG.debug("-------sending PROPOSAL!!!!");
+                if (!intercepter.isSyncFinished()) {
+                    LOG.debug("---------Taking the packet ({}) from queued packets. Won't intercept. Subnode: {}",
+                            payload, subnodeId);
+                    proceed(r, s);
+                    return;
+                }
                 break;
             case Leader.DIFF:
             case Leader.TRUNC:
@@ -503,7 +516,10 @@ public aspect LearnerHandlerAspect {
                 proceed(r, s);
                 return;
         }
+
+//        // Pass the PROPOSAL or COMMIT in SYNC
 //        if (!intercepter.isSyncFinished() || (type != Leader.PROPOSAL && type != Leader.COMMIT)){
+//            LOG.debug("Pass the PROPOSAL or COMMIT in SYNC");
 //            proceed(r, s);
 //            return;
 //        }

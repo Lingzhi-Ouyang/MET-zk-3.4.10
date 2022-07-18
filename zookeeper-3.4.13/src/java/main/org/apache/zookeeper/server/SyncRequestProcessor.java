@@ -117,6 +117,7 @@ public class SyncRequestProcessor extends ZooKeeperCriticalThread implements Req
     public void run() {
         try {
             int logCount = 0;
+            LOG.debug("snapCount: {}", snapCount);
 
             // we do this in an attempt to ensure that not all of the servers
             // in the ensemble take a snapshot at the same time
@@ -139,6 +140,7 @@ public class SyncRequestProcessor extends ZooKeeperCriticalThread implements Req
                     // track the number of records written to the log
                     if (zks.getZKDatabase().append(si)) {
                         logCount++;
+                        LOG.debug("logCount: {}", logCount);
                         if (logCount > (snapCount / 2 + randRoll)) {
                             setRandRoll(r.nextInt(snapCount/2));
                             // roll the log

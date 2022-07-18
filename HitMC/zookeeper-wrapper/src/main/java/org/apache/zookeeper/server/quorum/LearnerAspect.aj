@@ -21,8 +21,8 @@ public aspect LearnerAspect {
     /***
      * For follower's sync with leader process without replying (partition will not work)
      *  --> FollowerProcessSyncMessage : will not send anything.
-     *  --> FollowerProcessPROPOSALInSync :  will not send anything. pass for now
-     *  --> FollowerProcessCOMMITInSync : will not send anything. pass for now
+     *  --> FollowerProcessPROPOSALInSync :  will not send anything.
+     *  --> FollowerProcessCOMMITInSync : will not send anything.
      * Related code: Learner.java
      */
     pointcut readPacketInSyncWithLeader(QuorumPacket packet):
@@ -49,7 +49,8 @@ public aspect LearnerAspect {
         LOG.debug("---------readPacket: ({}). Subnode: {}", payload, quorumPeerSubnodeId);
         final int type =  packet.getType();
         lastReadType = type;
-        if (type == Leader.DIFF || type == Leader.TRUNC || type == Leader.SNAP) {
+        if (type == Leader.DIFF || type == Leader.TRUNC || type == Leader.SNAP
+                || type == Leader.PROPOSAL || type == Leader.COMMIT) {
             try {
                 // before offerMessage: increase sendingSubnodeNum
                 quorumPeerAspect.setSubnodeSending();
@@ -100,6 +101,7 @@ public aspect LearnerAspect {
             try {
                 LOG.debug("-------receiving UPTODATE!!!!-------begin to serve clients");
 
+                quorumPeerAspect.setSubnodeSending();
                 final long zxid = packet.getZxid();
                 final int followerWritePacketId = quorumPeerAspect.getTestingService().offerFollowerToLeaderMessage(quorumPeerSubnodeId, zxid, payload, lastReadType);
 
@@ -131,6 +133,7 @@ public aspect LearnerAspect {
                 quorumPeerAspect.setSyncFinished(false);
                 quorumPeerAspect.setNewLeaderDone(true);
                 LOG.debug("-------receiving NEWLEADER!!!!-------reply ACK");
+                quorumPeerAspect.setSubnodeSending();
                 final long zxid = packet.getZxid();
                 final int followerWritePacketId = quorumPeerAspect.getTestingService().offerFollowerToLeaderMessage(quorumPeerSubnodeId, zxid, payload, lastReadType);
 
