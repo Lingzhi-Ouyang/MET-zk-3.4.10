@@ -311,7 +311,7 @@ public class ExternalModelStrategy implements SchedulingStrategy{
                     case MessageType.UPTODATE:
                         if (!action.equals("FollowerProcessUPTODATE")) continue;
                         break;
-                    case MessageType.COMMIT:
+                    case MessageType.PROPOSAL:
                         if (!action.equals("FollowerProcessPROPOSAL")) continue;
                         break;
                     default:
@@ -335,12 +335,18 @@ public class ExternalModelStrategy implements SchedulingStrategy{
                     case "LeaderProcessRequest":
                         if (!subnodeType.equals(SubnodeType.SYNC_PROCESSOR)) continue;
                         break;
-                    case "FollowerProcessSyncMessage": // no ACK. process DIFF / TRUNC / SNAP
+                    case "FollowerProcessSyncMessage": // no ACK. process DIFF / TRUNC / SNAP /
                         if (!subnodeType.equals(SubnodeType.QUORUM_PEER)) continue;
                         break;
                     case "FollowerProcessPROPOSALInSync": // no reply
+                        if (!subnodeType.equals(SubnodeType.QUORUM_PEER)) continue;
+                        break;
                     case "FollowerProcessCOMMITInSync": // no reply
+                        if (!subnodeType.equals(SubnodeType.QUORUM_PEER)) continue;
+                        break;
                     case "FollowerProcessCOMMIT": // no reply
+                        if (!subnodeType.equals(SubnodeType.COMMIT_PROCESSOR)) continue;
+                        break;
                     default:
                         continue;
                 }
