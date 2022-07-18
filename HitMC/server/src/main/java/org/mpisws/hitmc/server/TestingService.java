@@ -411,13 +411,17 @@ public class TestingService implements TestingRemoteService {
                             totalExecuted = schedulePartitionStop(node3, node4, totalExecuted);
                             break;
                         case "LeaderProcessRequest":
-                            // suppose the client id is always the same
-                            int setDataClientId = 1;
+                            // TODO: auto-generate the client id
+                            int setDataClientId = elements.getInteger("clientId");
                             int sid2 = serverIdMap.get(elements.getString("nodeId"));
                             String data = null;
-                            totalExecuted = scheduleSetData(setDataClientId, sid2, data, totalExecuted);
+                            totalExecuted = scheduleLeaderProcessRequest(externalModelStrategy, setDataClientId, sid2, data, totalExecuted);
                             break;
-
+                        case "ClientGetData":
+                            int getDataClientId = elements.getInteger("clientId");
+                            int sid3 = serverIdMap.get(elements.getString("nodeId"));
+                            totalExecuted = scheduleClientGetData(currentStep, getDataClientId, sid3, totalExecuted);
+                            break;
                         // internal events
                         // Phase election & discovery
                         case "ElectionAndDiscovery":
@@ -432,24 +436,6 @@ public class TestingService implements TestingRemoteService {
                             break;
 
                         case "FollowerProcessSyncMessage":
-//                            // For now we pass this one at the code level
-//                            // In fact this will update the last processed zxid
-//                            long startTime0 = System.currentTimeMillis();
-//                            int nodeId0 = serverIdMap.get(elements.getString("nodeId"));
-//                            int peerId0 = serverIdMap.get(elements.getString("peerId"));
-//                            ++totalExecuted;
-//                            LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted);
-//                            executionWriter.write("\n---Step: " + totalExecuted + "--->");
-//                            executionWriter.write("FollowerProcessSyncMessage{sender:" + nodeId0 + ", receiver:" + peerId0 + "}");
-//                            executionWriter.write("\nlastProcessedZxid: 0x");
-//                            // Property verification
-//                            for (int nodeId = 0; nodeId < schedulerConfiguration.getNumNodes(); nodeId++) {
-//                                executionWriter.write(Long.toHexString(lastProcessedZxids.get(nodeId)) + " # ");
-//                            }
-//                            executionWriter.write("\ntime/ms: " + (System.currentTimeMillis() - startTime0) + "\n");
-//                            executionWriter.flush();
-//                            break;
-
                         case "LeaderSyncFollower": // send DIFF /TRUNC
                         case "LeaderProcessACKLD": // send UPTODATE
                         case "LeaderProcessACK": // send COMMIT
@@ -459,16 +445,16 @@ public class TestingService implements TestingRemoteService {
                         case "FollowerProcessUPTODATE": // send ACK
                         case "FollowerProcessPROPOSAL": // send ACK
                         case "FollowerProcessCOMMIT":
-                            int nodeId = serverIdMap.get(elements.getString("nodeId"));
-                            int peerId = serverIdMap.get(elements.getString("peerId"));
+                            Integer nodeId = serverIdMap.get(elements.getString("nodeId"));
+                            Integer peerId = serverIdMap.get(elements.getString("peerId"));
                             totalExecuted = scheduleInternalEvent(externalModelStrategy,
                                     action, nodeId, peerId, totalExecuted);
                             break;
                     }
                 }
             } catch (SchedulerConfigurationException e) {
-                LOG.info("SchedulerConfigurationException found when scheduling EventSequence {} in Step {} / {}. " +
-                        "Complete trace:", traceName, currentStep, stepCount);
+                LOG.info("SchedulerConfigurationException found when scheduling Trace {} in Step {} / {}. ",
+                        traceName, currentStep, stepCount);
                 tracePassed = false;
             } finally {
                 statistics.endTimer();
@@ -630,22 +616,6 @@ public class TestingService implements TestingRemoteService {
                             int sid2 = Integer.parseInt(lineArr[2]);
                             String data = len > 3 ? lineArr[3] : null;
                             totalExecuted = scheduleSetData(setDataClientId, sid2, data, totalExecuted);
-                            break;
-                        case "LEADER_PROCESS_REQUEST":
-                            break;
-                        case "FOLLOWER_PROCESS_PROPOSAL":
-                            break;
-                        case "LEADER_PROCESS_PROPOSAL_ACK":
-                            break;
-                        case "LEADER_SEND_COMMIT":
-                            break;
-                        case "LEADER_SEND_NEWLEADER":
-                            break;
-                        case "LEADER_PROCESS_NEWLEADER_ACK":
-                            break;
-                        case "LEADER_SEND_UPTODATE":
-                            break;
-                        case "LEADER_PROCESS_UPTODATE_ACK":
                             break;
                     }
                 }
@@ -934,34 +904,57 @@ public class TestingService implements TestingRemoteService {
             synchronized (controlMonitor) {
                 // pre-condition
 //                waitAllNodesSteady();
-                waitAliveNodesInLookingState();
+                if (peers.size() > schedulerConfiguration.getNumNodes() / 2) {
+                    waitAliveNodesInLookingState();
+                } else {
+                    waitAliveNodesInLookingState(peers);
+                }
                 // Make all message events during election one single step
                 ++totalExecuted;
                 boolean leaderExists = false;
+                Set<Event> nonElectionEvents = new HashSet<>();
+                // TODO: how to terminate?
                 while (!leaderExists) {
                     while (schedulingStrategy.hasNextEvent() && totalExecuted < 100) {
                         long begintime = System.currentTimeMillis();
                         LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted);
                         final Event event = schedulingStrategy.nextEvent();
+                        // TODO: this may wrongly delete newly produced LeaderToFollowerMessageEvent!
+                        // TODO: should be make executed when the node crash
                         if (event instanceof LeaderToFollowerMessageEvent) {
                             final int sendingSubnodeId = ((LeaderToFollowerMessageEvent) event).getSendingSubnodeId();
-                            // confirm this works / use partition / let
-                            deregisterSubnode(sendingSubnodeId);
-                            ((LeaderToFollowerMessageEvent) event).setExecuted();
-                            LOG.debug("----Do not let the previous learner handler message occur here! So pass this event---------\n\n\n");
+
+                            final int receivingNodeId = ((LeaderToFollowerMessageEvent) event).getReceivingNodeId();
+                            if (peers.contains(receivingNodeId)) {
+                                // confirm this works / use partition / let
+                                deregisterSubnode(sendingSubnodeId);
+                                ((LeaderToFollowerMessageEvent) event).setExecuted();
+                                LOG.debug("----Do not let the previous learner handler message occur here! So pass this event---------\n\n\n");
+                                continue;
+                            }
+                        }
+                        if (!(event instanceof ElectionMessageEvent)) {
+                            nonElectionEvents.add(event);
                             continue;
                         }
                         if (event.execute()) {
                             recordProperties(totalExecuted, begintime, event);
                         }
-                        if (!event.execute()) {
-                            LOG.debug("something wrong during election when executing {}", event);
-                        }
+//                        if (!event.execute()) {
+//                            LOG.debug("something wrong during election when executing {}", event);
+//                        }
                     }
                     // pre-condition for election property check
-                    leaderExists = waitAllNodesVoted();
+                    List<Integer> participants = new ArrayList<>(peers);
+                    participants.add(leaderId);
+                    leaderExists = waitAllParticipantsVoted(participants);
                 }
-                // it is needed to wait for the event LeaderSyncFollower
+                for (Event e: nonElectionEvents) {
+                    LOG.debug("Adding back event that is missed during election: {}", e);
+                    addEvent(e);
+                }
+
+                // TODO: how to wait for the event LeaderSyncFollower?
                 leaderSyncFollowerCountMap.put(leaderId, peers.size());
                 waitLeaderSyncReady(leaderId, peers);
 //                waitAllNodesSteadyBeforeRequest();
@@ -1236,6 +1229,55 @@ public class TestingService implements TestingRemoteService {
     }
 
     /***
+     * This triggers two events :
+     *  --> setData
+     *  --> Leader log proposal
+     *  Note: if without specific data, will use eventId as its written string value
+     */
+    private int scheduleLeaderProcessRequest(ExternalModelStrategy strategy,
+                                             final int clientId,
+                                             final int serverId,
+                                             final String data,
+                                             int totalExecuted) throws SchedulerConfigurationException {
+        try {
+            ClientProxy clientProxy = clientMap.get(clientId);
+            if (clientProxy == null || clientProxy.isStop()) {
+                String serverAddr = getServerAddr(serverId);
+                LOG.debug("client establish connection with server {}", serverAddr);
+                establishSession(clientId, true, serverAddr);
+            }
+            synchronized (controlMonitor) {
+
+                // Step 1. setData
+                waitAllNodesSteadyBeforeRequest();
+                long startTime = System.currentTimeMillis();
+                Event event;
+                if (data == null) {
+                    event = new ClientRequestEvent(generateEventId(), clientId,
+                            ClientRequestType.SET_DATA, clientRequestExecutor);
+                } else {
+                    event = new ClientRequestEvent(generateEventId(), clientId,
+                            ClientRequestType.SET_DATA, data, clientRequestExecutor);
+                }
+                LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
+                LOG.debug("prepare to execute event: {}", event);
+                if (event.execute()) {
+//                    ++totalExecuted;
+                    recordProperties(totalExecuted + 1, startTime, event);
+                }
+
+                // Step 2. Leader log proposal
+                totalExecuted = scheduleInternalEvent(strategy, "LeaderProcessRequest", serverId, -1, totalExecuted);
+
+            }
+
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return totalExecuted;
+    }
+
+    /***
      * setData with specific data
      * if without specific data, will use eventId as its written string value
      */
@@ -1268,6 +1310,49 @@ public class TestingService implements TestingRemoteService {
                     recordProperties(totalExecuted, startTime, event);
                 }
             }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return totalExecuted;
+    }
+
+    /***
+     * getData
+     */
+    private int scheduleClientGetData(final Integer currentStep,
+                                final int clientId,
+                                final int serverId,
+                                int totalExecuted) {
+        try {
+            ClientProxy clientProxy = clientMap.get(clientId);
+            if (clientProxy == null || clientProxy.isStop())  {
+                String serverAddr = getServerAddr(serverId);
+                LOG.debug("client establish connection with server {}", serverAddr);
+                establishSession(clientId, true, serverAddr);
+            }
+            synchronized (controlMonitor) {
+                waitAllNodesSteadyBeforeRequest();
+                long startTime = System.currentTimeMillis();
+                Event event = new ClientRequestEvent(generateEventId(), clientId,
+                        ClientRequestType.GET_DATA, clientRequestWaitingResponseExecutor);
+                LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
+                LOG.debug("prepare to execute event: {}", event);
+                if (event.execute()) {
+                    ++totalExecuted;
+                    recordProperties(totalExecuted, startTime, event);
+                }
+            }
+//            statistics.endTimer();
+//            // check election results
+//            getDataVerifier.setModelResult(modelResult);
+//            getDataVerifier.verify();
+//            // report statistics
+//            if (currentStep != null && line != null) {
+//                statistics.reportCurrentStep("[LINE " + currentStep + "]-" + line);
+//            }
+//            statistics.reportTotalExecutedEvents(totalExecuted);
+//            statisticsWriter.write(statistics.toString() + "\n\n");
+//            LOG.info(statistics.toString() + "\n\n\n\n\n");
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -2437,7 +2522,7 @@ public class TestingService implements TestingRemoteService {
         // the started node will call for remote service of nodeOnline(..)
         for (int id = 0; id < schedulerConfiguration.getNumNodes(); id++) {
             LOG.debug("--------nodeid: {}: phase: {}, leaderElectionState: {}",
-                    id, nodePhases.get(id), leaderElectionStates.get(nodeId));
+                    id, nodePhases.get(id), leaderElectionStates.get(id));
         }
     }
 
@@ -2721,6 +2806,24 @@ public class TestingService implements TestingRemoteService {
         LOG.debug("Leader does not exist after voting!");
         return false;
     }
+
+    /***
+     * Pre-condition for election vote property check for particular peers
+     */
+    // Should be called while holding a lock on controlMonitor
+    private boolean waitAllParticipantsVoted(final List<Integer> participants) {
+        final WaitPredicate allParticipantsVoted = new AllNodesVoted(this, participants);
+        wait(allParticipantsVoted, 100L);
+        for (int nodeId = 0; nodeId < schedulerConfiguration.getNumNodes(); ++nodeId) {
+            if (LeaderElectionState.LEADING.equals(leaderElectionStates.get(nodeId))) {
+                return true;
+            }
+        }
+        LOG.debug("Leader does not exist after voting!");
+        return false;
+    }
+
+
     private void waitAllNodesVoted(final long timeout) {
         wait(allNodesVoted, timeout);
     }
@@ -2741,6 +2844,17 @@ public class TestingService implements TestingRemoteService {
     // Should be called while holding a lock on controlMonitor
     public void waitAllNodesSteadyBeforeRequest() {
         wait(allNodesSteadyBeforeRequest, 0L);
+    }
+
+    /***
+     * Post-condition for a follower process UPTODATE.
+     * Note: session creation is all a type of client request, so this is better placed before client session creation.
+     */
+    // Should be called while holding a lock on controlMonitor
+    public void waitFollowerSteadyAfterProcessingUPTODATE(final int followerId) {
+        final WaitPredicate followerSteadyAfterProcessingUPTODATE =
+                new FollowerSteadyAfterProcessingUPTODATE(this, followerId);
+        wait(followerSteadyAfterProcessingUPTODATE, 0L);
     }
 
     /***
@@ -2853,8 +2967,13 @@ public class TestingService implements TestingRemoteService {
     private void waitAliveNodesInLookingState() {
         final WaitPredicate aliveNodesInLookingState = new AliveNodesInLookingState(this);
         wait(aliveNodesInLookingState, 0L);
-
     }
+
+    private void waitAliveNodesInLookingState(final List<Integer> peers) {
+        final WaitPredicate aliveNodesInLookingState = new AliveNodesInLookingState(this, peers);
+        wait(aliveNodesInLookingState, 0L);
+    }
+
 
     public void waitFollowerMappingLearnerHandlerSender(final int subnodeId) {
         final WaitPredicate followerMappingLearnerHandlerSender = new FollowerMappingLearnerHandlerSender(this, subnodeId);
