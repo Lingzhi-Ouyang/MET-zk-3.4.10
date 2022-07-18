@@ -17,17 +17,34 @@ public class MessageReleased implements WaitPredicate {
 
     private final int msgId;
     private final int sendingNodeId;
+    private final Integer receivingNodeId;
 
     public MessageReleased(final TestingService testingService, int msgId, int sendingNodeId) {
         this.testingService = testingService;
         this.msgId = msgId;
         this.sendingNodeId = sendingNodeId;
+        this.receivingNodeId = null;
     }
+
+    public MessageReleased(final TestingService testingService, int msgId, int sendingNodeId, int receivingNodeId) {
+        this.testingService = testingService;
+        this.msgId = msgId;
+        this.sendingNodeId = sendingNodeId;
+        this.receivingNodeId = receivingNodeId;
+    }
+
+
 
     @Override
     public boolean isTrue() {
-        return testingService.getMessageInFlight() == msgId ||
-                NodeState.STOPPING.equals(testingService.getNodeStates().get(sendingNodeId));
+        if (receivingNodeId == null) {
+            return testingService.getMessageInFlight() == msgId ||
+                    NodeState.STOPPING.equals(testingService.getNodeStates().get(sendingNodeId));
+        } else {
+            return testingService.getMessageInFlight() == msgId ||
+                    NodeState.STOPPING.equals(testingService.getNodeStates().get(sendingNodeId)) ||
+                    NodeState.STOPPING.equals(testingService.getNodeStates().get(receivingNodeId));
+        }
     }
 
     @Override
