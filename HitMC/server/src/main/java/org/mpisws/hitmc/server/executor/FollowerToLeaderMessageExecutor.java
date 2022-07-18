@@ -50,9 +50,9 @@ public class FollowerToLeaderMessageExecutor extends BaseEventExecutor {
         sendingSubnode.setState(SubnodeState.PROCESSING);
 
         // if in partition, then just drop it
-        final int sendingNodeId = sendingSubnode.getNodeId();
-        final int receivingNodeId = event.getReceivingNodeId();
-        if (testingService.getPartitionMap().get(sendingNodeId).get(receivingNodeId)) {
+        final int followerId = sendingSubnode.getNodeId();
+        final int leaderId = event.getReceivingNodeId();
+        if (testingService.getPartitionMap().get(followerId).get(leaderId)) {
             return;
         }
 
@@ -85,18 +85,20 @@ public class FollowerToLeaderMessageExecutor extends BaseEventExecutor {
         // this describes the message type that this ACK replies to
         if (type == MessageType.NEWLEADER) {
             // wait for the leader send UPTODATE
-            final Phase followerPhase = testingService.getNodePhases().get(sendingNodeId);
-            final int leaderId = event.getReceivingNodeId();
-            if (testingService.getFollowerLearnerHandlerSenderMap().get(sendingNodeId) == null) {
-                testingService.waitFollowerMappingLearnerHandlerSender(sendingNodeId);
+            final Phase followerPhase = testingService.getNodePhases().get(followerId);
+            if (testingService.getFollowerLearnerHandlerSenderMap().get(followerId) == null) {
+                testingService.waitFollowerMappingLearnerHandlerSender(followerId);
             }
-            final int learnerHanlderSubnodId = testingService.getFollowerLearnerHandlerSenderMap().get(sendingNodeId);
+            final int learnerHanlderSubnodId = testingService.getFollowerLearnerHandlerSenderMap().get(followerId);
             // distinguish UPTODATE / COMMIT by checking the follower phase sync / broadcast
             if (followerPhase.equals(Phase.SYNC)) {
                 // get according learnerHandlerSender
                 testingService.waitSubnodeInSendingState(learnerHanlderSubnodId);
             }
-        } else {
+        } else if (type == MessageType.UPTODATE) {
+            testingService.waitFollowerSteadyAfterProcessingUPTODATE(followerId);
+        }
+        else {
             LOG.info("follower replies to previous message type : {}", type);
         }
         testingService.waitAllNodesSteady();
