@@ -380,10 +380,11 @@ public class TestingService implements TestingRemoteService {
             statistics.startTimer();
 
             int currentStep = 0;
+            String action = "";
             try {
                 for (; currentStep < stepCount; ++currentStep) {
                     JSONObject jsonObject = trace.getStep(currentStep);
-                    String action = jsonObject.keySet().iterator().next();
+                    action = jsonObject.keySet().iterator().next();
                     JSONObject elements = jsonObject.getJSONObject(action);
                     LOG.debug("nextStep: {}", jsonObject);
                     LOG.debug("nextStep: {}", action);
@@ -411,16 +412,17 @@ public class TestingService implements TestingRemoteService {
                             totalExecuted = schedulePartitionStop(node3, node4, totalExecuted);
                             break;
                         case "LeaderProcessRequest":
-                            // TODO: auto-generate the client id
                             int setDataClientId = elements.getInteger("clientId");
                             int sid2 = serverIdMap.get(elements.getString("nodeId"));
-                            String data = null;
-                            totalExecuted = scheduleLeaderProcessRequest(externalModelStrategy, setDataClientId, sid2, data, totalExecuted);
+                            Integer data = elements.getInteger("data");
+                            String writtenVal = data != null ? data.toString() : null;
+                            totalExecuted = scheduleLeaderProcessRequest(externalModelStrategy, setDataClientId, sid2, writtenVal, totalExecuted);
                             break;
                         case "ClientGetData":
                             int getDataClientId = elements.getInteger("clientId");
                             int sid3 = serverIdMap.get(elements.getString("nodeId"));
-                            totalExecuted = scheduleClientGetData(currentStep, getDataClientId, sid3, totalExecuted);
+                            Integer returnedData = elements.getInteger("data");
+                            totalExecuted = scheduleClientGetData(currentStep, getDataClientId, sid3, returnedData, totalExecuted);
                             break;
                         // internal events
                         // Phase election & discovery
@@ -459,15 +461,16 @@ public class TestingService implements TestingRemoteService {
             } finally {
                 statistics.endTimer();
 
-//                // report statistics of total trace
-//                traceVerifier.setTraceLen(stepCount);
-//                traceVerifier.setExecutedStep(currentStep);
-//                traceVerifier.verify();
-//                if (currentStep > stepCount) line = "COMPLETE";
-//                statistics.reportCurrentStep("[LINE " + currentStep + "]-" + line);
-//                statistics.reportTotalExecutedEvents(totalExecuted);
-//                statisticsWriter.write(statistics.toString() + "\n\n");
-//                LOG.info(statistics.toString() + "\n\n\n\n\n");
+                // report statistics of total trace
+                LOG.info("setTraceLen: {}, setExecutedStep: {} ", stepCount, currentStep);
+                traceVerifier.setTraceLen(stepCount);
+                traceVerifier.setExecutedStep(currentStep);
+                traceVerifier.verify();
+                String info = currentStep >= stepCount ? "COMPLETE" : action;
+                statistics.reportCurrentStep("[Step " + currentStep + "]-" + info);
+                statistics.reportTotalExecutedEvents(totalExecuted);
+                statisticsWriter.write(statistics.toString() + "\n\n");
+                LOG.info(statistics.toString() + "\n\n\n\n\n");
 
                 // shutdown clients & servers
                 for (Integer i: clientMap.keySet()) {
@@ -965,9 +968,9 @@ public class TestingService implements TestingRemoteService {
             leaderElectionVerifier.verify();
             // report statistics
             if (currentStep != null && peers != null) {
-                statistics.reportCurrentStep("[LINE " + currentStep + "]-"
+                statistics.reportCurrentStep("[Step " + currentStep + "]-"
                         + "ElectionAndDiscovery, leader: " + leaderId
-                        + "peers: " + peers);
+                        + " peers: " + peers);
             }
             statistics.reportTotalExecutedEvents(totalExecuted);
             statisticsWriter.write(statistics.toString() + "\n\n");
@@ -1317,12 +1320,13 @@ public class TestingService implements TestingRemoteService {
     }
 
     /***
-     * getData
+     * getData for externalModelStrategy
      */
     private int scheduleClientGetData(final Integer currentStep,
-                                final int clientId,
-                                final int serverId,
-                                int totalExecuted) {
+                                      final int clientId,
+                                      final int serverId,
+                                      final Integer modelResult,
+                                      int totalExecuted) {
         try {
             ClientProxy clientProxy = clientMap.get(clientId);
             if (clientProxy == null || clientProxy.isStop())  {
@@ -1342,17 +1346,17 @@ public class TestingService implements TestingRemoteService {
                     recordProperties(totalExecuted, startTime, event);
                 }
             }
-//            statistics.endTimer();
-//            // check election results
-//            getDataVerifier.setModelResult(modelResult);
-//            getDataVerifier.verify();
-//            // report statistics
-//            if (currentStep != null && line != null) {
-//                statistics.reportCurrentStep("[LINE " + currentStep + "]-" + line);
-//            }
-//            statistics.reportTotalExecutedEvents(totalExecuted);
-//            statisticsWriter.write(statistics.toString() + "\n\n");
-//            LOG.info(statistics.toString() + "\n\n\n\n\n");
+            statistics.endTimer();
+            // check election results
+            getDataVerifier.setModelResult(modelResult);
+            getDataVerifier.verify();
+            // report statistics
+            if (currentStep != null ) {
+                statistics.reportCurrentStep("[Step " + currentStep + "]-ClientGetData");
+            }
+            statistics.reportTotalExecutedEvents(totalExecuted);
+            statisticsWriter.write(statistics.toString() + "\n\n");
+            LOG.info(statistics.toString() + "\n\n\n\n\n");
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -2176,11 +2180,12 @@ public class TestingService implements TestingRemoteService {
             }
             sendingSubnode.setState(SubnodeState.SENDING);
             controlMonitor.notifyAll();
+//            waitMessageReleased(id, sendingNodeId, receivingNodeId);
             waitMessageReleased(id, sendingNodeId);
 
             // normally, this event is released when scheduled except:
             // case 1: this event is released since the sending node is stopping
-            if (NodeState.STOPPING.equals(nodeStates.get(sendingNodeId))) {
+            if (NodeState.STOPPING.equals(nodeStates.get(sendingNodeId)) ) {
                 id = TestingDef.RetCode.NODE_CRASH;
                 electionMessageEvent.setExecuted();
                 schedulingStrategy.remove(electionMessageEvent);
@@ -2236,11 +2241,12 @@ public class TestingService implements TestingRemoteService {
             sendingSubnode.setState(SubnodeState.SENDING);
             controlMonitor.notifyAll();
 
+//            waitMessageReleased(id, sendingNodeId, receivingNodeId);
             waitMessageReleased(id, sendingNodeId);
 
             // normally, this event is released when scheduled except:
             // case 1: this event is released since the sending node is stopping
-            if (NodeState.STOPPING.equals(nodeStates.get(sendingNodeId))) {
+            if (NodeState.STOPPING.equals(nodeStates.get(sendingNodeId)) ) {
                 id = TestingDef.RetCode.NODE_CRASH;
                 messageEvent.setExecuted();
                 schedulingStrategy.remove(messageEvent);
@@ -2331,11 +2337,12 @@ public class TestingService implements TestingRemoteService {
             sendingSubnode.setState(SubnodeState.SENDING);
             controlMonitor.notifyAll();
 
+//            waitMessageReleased(id, sendingNodeId, receivingNodeId);
             waitMessageReleased(id, sendingNodeId);
 
             // normally, this event is released when scheduled except:
             // case 1: this event is released since the sending node is stopping
-            if (NodeState.STOPPING.equals(nodeStates.get(sendingNodeId))) {
+            if (NodeState.STOPPING.equals(nodeStates.get(sendingNodeId)) ) {
                 id = TestingDef.RetCode.NODE_CRASH;
                 messageEvent.setExecuted();
                 schedulingStrategy.remove(messageEvent);
@@ -2541,6 +2548,26 @@ public class TestingService implements TestingRemoteService {
                 break;
             }
         }
+
+//        // This will make the client session socket close immediately
+//        if (leaderElectionStates.get(nodeId).equals(LeaderElectionState.FOLLOWING)) {
+//            Integer learnerHandlerId = followerLearnerHandlerMap.get(nodeId);
+//            Subnode learnerHandler = subnodes.get(learnerHandlerId);
+//            if (SubnodeState.SENDING.equals(learnerHandler.getState())) {
+//                LOG.debug("----Node {} still has SENDING subnode {} {}: {}",
+//                        nodeId, learnerHandler.getSubnodeType(), learnerHandler.getId(), learnerHandler.getState());
+//                hasSending = true;
+//            }
+//
+//            Integer learnerHandlerSenderId = followerLearnerHandlerSenderMap.get(nodeId);
+//            Subnode learnerHandlerSender = subnodes.get(learnerHandlerSenderId);
+//            if (SubnodeState.SENDING.equals(learnerHandlerSender.getState())) {
+//                LOG.debug("----Node {} still has SENDING subnode {} {}: {}",
+//                        nodeId, learnerHandlerSender.getSubnodeType(), learnerHandlerSender.getId(), learnerHandlerSender.getState());
+//                hasSending = true;
+//            }
+//        }
+
         // IF there exists any threads about to send a message, then set the corresponding event executed
         if (hasSending) {
             // STOPPING state will make the pending message to be released immediately
@@ -2550,6 +2577,7 @@ public class TestingService implements TestingRemoteService {
             // This node will be set to OFFLINE by the last existing thread that release a sending message
             waitAllNodesSteady();
         }
+
         // Subnode management
         for (final Subnode subnode : subnodeSets.get(nodeId)) {
             subnode.setState(SubnodeState.UNREGISTERED);
@@ -2919,6 +2947,11 @@ public class TestingService implements TestingRemoteService {
      */
     private void waitMessageReleased(final int msgId, final int sendingNodeId) {
         final WaitPredicate messageReleased = new MessageReleased(this, msgId, sendingNodeId);
+        wait(messageReleased, 0L);
+    }
+
+    private void waitMessageReleased(final int msgId, final int sendingNodeId, final int receivingNodeId) {
+        final WaitPredicate messageReleased = new MessageReleased(this, msgId, sendingNodeId, receivingNodeId);
         wait(messageReleased, 0L);
     }
 

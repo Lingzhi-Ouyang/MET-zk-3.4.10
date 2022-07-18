@@ -41,7 +41,7 @@ public class TraceVerifier implements Verifier{
         String matchModel = "UNMATCHED";
         if (traceLen == null || executedStep == null) {
             matchModel = "UNKNOWN";
-        } else if (executedStep == traceLen + 1) {
+        } else if (executedStep >= traceLen) {
             matchModel = "MATCHED";
         }
         if (matchModel.equals("UNMATCHED")) {
