@@ -21,15 +21,17 @@ public class LocalEvent extends AbstractEvent{
     private final SubnodeType subnodeType;
     private final String payload;
     private final long zxid;
+    private final int type;
 
     public LocalEvent(final int id, final int nodeId, final int subnodeId, final SubnodeType subnodeType,
-                      final String payload, final long zxid, final LocalEventExecutor localEventExecutor) {
+                      final String payload, final long zxid, final int type, final LocalEventExecutor localEventExecutor) {
         super(id, localEventExecutor);
         this.nodeId = nodeId;
         this.subnodeId = subnodeId;
         this.subnodeType = subnodeType;
         this.payload = payload;
         this.zxid = zxid;
+        this.type = type;
     }
 
     public int getNodeId() {
@@ -44,6 +46,10 @@ public class LocalEvent extends AbstractEvent{
 
     public long getZxid() {
         return zxid;
+    }
+
+    public int getType() {
+        return type;
     }
 
     @Override
