@@ -6,6 +6,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.List;
+import java.util.Set;
 
 /***
  * Wait Predicate for the end of an execution.
@@ -16,14 +17,14 @@ public class AllNodesVoted implements WaitPredicate {
 
     private final TestingService testingService;
 
-    private final List<Integer> participants;
+    private final Set<Integer> participants;
 
     public AllNodesVoted(final TestingService testingService) {
         this.testingService = testingService;
         this.participants = null;
     }
 
-    public AllNodesVoted(final TestingService testingService, final List<Integer> participants) {
+    public AllNodesVoted(final TestingService testingService, final Set<Integer> participants) {
         this.testingService = testingService;
         this.participants = participants;
     }
