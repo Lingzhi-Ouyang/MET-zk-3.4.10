@@ -8,6 +8,7 @@ import org.mpisws.hitmc.api.configuration.SchedulerConfigurationException;
 import org.mpisws.hitmc.api.state.ClientRequestType;
 import org.mpisws.hitmc.api.state.LeaderElectionState;
 import org.mpisws.hitmc.api.state.Vote;
+import org.mpisws.hitmc.server.checker.CommittedLogVerifier;
 import org.mpisws.hitmc.server.checker.GetDataVerifier;
 import org.mpisws.hitmc.server.checker.LeaderElectionVerifier;
 import org.mpisws.hitmc.server.checker.TraceVerifier;
@@ -68,6 +69,7 @@ public class TestingService implements TestingRemoteService {
     private TraceVerifier traceVerifier;
     private LeaderElectionVerifier leaderElectionVerifier;
     private GetDataVerifier getDataVerifier;
+    private CommittedLogVerifier committedLogVerifier;
 
     // writer
     private FileWriter statisticsWriter;
@@ -95,19 +97,48 @@ public class TestingService implements TestingRemoteService {
 
     private final List<NodeStateForClientRequest> nodeStateForClientRequests = new ArrayList<>();
 
-    // properties
-    private final List<Long> lastProcessedZxids = new ArrayList<>();
+    private Set<Integer> participants = new HashSet<>();
 
+    /***
+     * properties to check
+     */
+
+    // record each node's vote for check after election
     private final List<Vote> votes = new ArrayList<>();
+    // record each node's role for check after election
     private final List<LeaderElectionState> leaderElectionStates = new ArrayList<>();
 
-    private final List<Integer> returnedDataList = new ArrayList<>();
+    // record each node's lastProcessedZxid
+    private final List<Long> lastProcessedZxids = new ArrayList<>();
 
+    // record all nodes' lastProcessedZxid history
+    // Note: do not record zxid whose counter is 0 when the epoch >= 1
+    // but set 0 as its first record for check convenience
     private final List<List<Long>> allZxidRecords = new ArrayList<>();
 
+    // record the returned values of GetData according to the timeline
+    private final List<Integer> returnedDataList = new ArrayList<>();
+
+    // record the committed / applied history (may be visible by clients)
+    // Note: do not record zxid whose counter is 0 when the epoch >= 1 (since this zxid does not map to a real commit)
+    // ( which is firstly produced by the leader during discovery phase in each epoch)
+    // only record the committed zxid during broadcast phase
+    // but set 0 as its first record for check convenience
+    private final List<Long> lastCommittedZxid = new ArrayList<>();
+
+    // record the number of followers.
+    // For post-predicate of ElectionAndDiscovery event
     private final Map<Integer, Integer> leaderSyncFollowerCountMap = new HashMap<>();
+
+    // record the number of nodes that have logged the proposal with specific zxid.
+    // For pre-predicate of leader's commit message event
     private final Map<Long, Integer> zxidSyncedMap = new HashMap<>();
+
+    // record the number of nodes that have committed with specific zxid.
     private final Map<Long, Integer> zxidToCommitMap = new HashMap<>();
+
+    // record the sync type : DIFF / TRUNC / SNAP
+    private final List<Integer> syncTypeList = new ArrayList<>();
 
     public boolean traceMatched;
     public boolean tracePassed;
@@ -171,6 +202,14 @@ public class TestingService implements TestingRemoteService {
 
     public long getLastProcessedZxid(int nodeId) {
         return lastProcessedZxids.get(nodeId);
+    }
+
+    public List<Long> getLastCommittedZxid() {
+        return lastCommittedZxid;
+    }
+
+    public List<Integer> getSyncTypeList() {
+        return syncTypeList;
     }
 
     public List<NodeStateForClientRequest> getNodeStateForClientRequests() {
@@ -382,6 +421,9 @@ public class TestingService implements TestingRemoteService {
             int currentStep = 0;
             String action = "";
             try {
+                synchronized (controlMonitor) {
+                    waitAllNodesSteady();
+                }
                 for (; currentStep < stepCount; ++currentStep) {
                     JSONObject jsonObject = trace.getStep(currentStep);
                     action = jsonObject.keySet().iterator().next();
@@ -411,7 +453,7 @@ public class TestingService implements TestingRemoteService {
                             LOG.debug("----PARTITION RECOVER: {}, {}", node3, node4);
                             totalExecuted = schedulePartitionStop(node3, node4, totalExecuted);
                             break;
-                        case "LeaderProcessRequest":
+                        case "LeaderProcessRequest":  // set data & leader log & send proposal
                             int setDataClientId = elements.getInteger("clientId");
                             int sid2 = serverIdMap.get(elements.getString("nodeId"));
                             Integer data = elements.getInteger("data");
@@ -436,16 +478,24 @@ public class TestingService implements TestingRemoteService {
                             LOG.debug("election leader: {}, other participants: {}", leaderId, peers);
                             totalExecuted = scheduleElectionAndDiscovery(currentStep, leaderId, peers, totalExecuted);
                             break;
-
+                        case "LeaderProcessACK": // send COMMIT
+                            Integer nodeId1 = serverIdMap.get(elements.getString("nodeId"));
+                            Integer peerId1 = serverIdMap.get(elements.getString("peerId"));
+                            totalExecuted = scheduleLeaderProcessACK(externalModelStrategy, nodeId1, peerId1, totalExecuted);
+                            break;
+                        case "FollowerProcessPROPOSAL": // followr log & send ACK
+//                            Integer fId = serverIdMap.get(elements.getString("nodeId"));
+//                            Integer lId = serverIdMap.get(elements.getString("peerId"));
+//                            totalExecuted = scheduleFollowerProcessPROPOSAL(externalModelStrategy,
+//                                    action, fId, lId, totalExecuted);
+//                            break;
                         case "FollowerProcessSyncMessage":
                         case "LeaderSyncFollower": // send DIFF /TRUNC
                         case "LeaderProcessACKLD": // send UPTODATE
-                        case "LeaderProcessACK": // send COMMIT
                         case "FollowerProcessPROPOSALInSync":
                         case "FollowerProcessCOMMITInSync":
                         case "FollowerProcessNEWLEADER": // send ACK
                         case "FollowerProcessUPTODATE": // send ACK
-                        case "FollowerProcessPROPOSAL": // send ACK
                         case "FollowerProcessCOMMIT":
                             Integer nodeId = serverIdMap.get(elements.getString("nodeId"));
                             Integer peerId = serverIdMap.get(elements.getString("peerId"));
@@ -453,6 +503,11 @@ public class TestingService implements TestingRemoteService {
                                     action, nodeId, peerId, totalExecuted);
                             break;
                     }
+                    committedLogVerifier.verify();
+                    statistics.reportCurrentStep("[Step " + currentStep + "]-" + action);
+                    statistics.reportTotalExecutedEvents(totalExecuted);
+                    statisticsWriter.write(statistics.toString() + "\n\n");
+                    LOG.info(statistics.toString() + "\n\n\n\n\n");
                 }
             } catch (SchedulerConfigurationException e) {
                 LOG.info("SchedulerConfigurationException found when scheduling Trace {} in Step {} / {}. ",
@@ -797,6 +852,7 @@ public class TestingService implements TestingRemoteService {
         traceVerifier = new TraceVerifier(this, statistics);
         leaderElectionVerifier = new LeaderElectionVerifier(this, statistics);
         getDataVerifier = new GetDataVerifier(this, statistics);
+        committedLogVerifier = new CommittedLogVerifier(this, statistics);
 
         // for property check
         votes.clear();
@@ -808,17 +864,23 @@ public class TestingService implements TestingRemoteService {
         returnedDataList.clear();
         returnedDataList.add(0);
 
+        lastCommittedZxid.clear();
+        lastCommittedZxid.add(0L);
+
+        lastProcessedZxids.clear();
         allZxidRecords.clear();
 
         zxidSyncedMap.clear();
         zxidToCommitMap.clear();
         leaderSyncFollowerCountMap.clear();
 
+        syncTypeList.clear();
+
         traceMatched = true;
         tracePassed = true;
 
         // Configure nodes and subnodes
-        lastProcessedZxids.clear();
+
         nodeStates.clear();
         nodePhases.clear();
 
@@ -828,6 +890,8 @@ public class TestingService implements TestingRemoteService {
         followerSocketAddressBook.clear();
         followerLearnerHandlerMap.clear();
         followerLearnerHandlerSenderMap.clear();
+
+        participants.clear();
 
         // configure client map
         clientMap.clear();
@@ -848,9 +912,10 @@ public class TestingService implements TestingRemoteService {
             followerLearnerHandlerMap.add(null);
             followerLearnerHandlerSenderMap.add(null);
 
+            syncTypeList.add(-1);
+
             partitionMap.add(new ArrayList<>(Collections.nCopies(nodeNum, false)));
 
-//            allZxidRecords.add(new ArrayList<Long>(){{add(0L);}});
             allZxidRecords.add(new ArrayList<>(Arrays.asList(0L)));
         }
 
@@ -948,7 +1013,9 @@ public class TestingService implements TestingRemoteService {
 //                        }
                     }
                     // pre-condition for election property check
-                    List<Integer> participants = new ArrayList<>(peers);
+                    for (Integer peer : peers) {
+                        participants.add(peer);
+                    }
                     participants.add(leaderId);
                     leaderExists = waitAllParticipantsVoted(participants);
                 }
@@ -1235,6 +1302,7 @@ public class TestingService implements TestingRemoteService {
      * This triggers two events :
      *  --> setData
      *  --> Leader log proposal
+     *  --> release LeaderToFollowerMessageEvent(PROPOSAL) if partition un-exists
      *  Note: if without specific data, will use eventId as its written string value
      */
     private int scheduleLeaderProcessRequest(ExternalModelStrategy strategy,
@@ -1243,15 +1311,16 @@ public class TestingService implements TestingRemoteService {
                                              final String data,
                                              int totalExecuted) throws SchedulerConfigurationException {
         try {
+            // Step 0. establish session if un-exists
             ClientProxy clientProxy = clientMap.get(clientId);
             if (clientProxy == null || clientProxy.isStop()) {
                 String serverAddr = getServerAddr(serverId);
                 LOG.debug("client establish connection with server {}", serverAddr);
                 establishSession(clientId, true, serverAddr);
             }
-            synchronized (controlMonitor) {
 
-                // Step 1. setData
+            // Step 1. setData
+            synchronized (controlMonitor) {
                 waitAllNodesSteadyBeforeRequest();
                 long startTime = System.currentTimeMillis();
                 Event event;
@@ -1268,15 +1337,68 @@ public class TestingService implements TestingRemoteService {
 //                    ++totalExecuted;
                     recordProperties(totalExecuted + 1, startTime, event);
                 }
-
-                // Step 2. Leader log proposal
-                totalExecuted = scheduleInternalEvent(strategy, "LeaderProcessRequest", serverId, -1, totalExecuted);
-
             }
-
         } catch (IOException e) {
             e.printStackTrace();
         }
+
+        // Step 2. Leader log proposal
+        totalExecuted = scheduleInternalEvent(strategy, "LeaderLogPROPOSAL", serverId, -1, totalExecuted);
+
+        // Step 3. release LeaderToFollowerPROPOSAL(PROPOSAL) if partition un-exists
+        totalExecuted = scheduleLeaderToFollowerPROPOSAL(strategy, totalExecuted);
+
+        return totalExecuted;
+    }
+
+    private int scheduleLeaderToFollowerPROPOSAL(ExternalModelStrategy strategy,
+                                                 int totalExecuted) throws SchedulerConfigurationException {
+        try {
+            synchronized (controlMonitor) {
+                Set<Event> otherEvents = new HashSet<>();
+                while (schedulingStrategy.hasNextEvent() && totalExecuted < 100) {
+                    long begintime = System.currentTimeMillis();
+                    LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted);
+                    final Event event = schedulingStrategy.nextEvent();
+                    if (! (event instanceof LeaderToFollowerMessageEvent)) {
+                        otherEvents.add(event);
+                        continue;
+                    }
+                    LeaderToFollowerMessageEvent e = (LeaderToFollowerMessageEvent) event;
+                    if (MessageType.PROPOSAL != e.getType()) {
+                        otherEvents.add(event);
+                        continue;
+                    }
+                    if (event.execute()) {
+                        recordProperties(totalExecuted, begintime, event);
+                    }
+                }
+                for (Event e: otherEvents) {
+                    LOG.debug("Adding back event that is missed during LeaderToFollowerPROPOSAL: {}", e);
+                    addEvent(e);
+                }
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return totalExecuted;
+    }
+
+    private int scheduleLeaderProcessACK(ExternalModelStrategy strategy,
+                                             final int leaderId,
+                                             final int followerId,
+                                             int totalExecuted) throws SchedulerConfigurationException {
+
+        // Step 1. check leader's local commit is done
+        try {
+            LOG.debug("try to schedule LeaderProcessCOMMIT leaderId: {}", leaderId);
+            scheduleInternalEvent(strategy, "LeaderProcessCOMMIT", leaderId, -1, totalExecuted);
+        } catch (SchedulerConfigurationException e2) {
+            LOG.debug("SchedulerConfigurationException found when scheduling leader's local commit! This will be fine.");
+        }
+        LOG.debug("try to schedule LeaderToFollowerCOMMIT leaderId: {}, followerId: {}", leaderId, followerId);
+        totalExecuted =scheduleInternalEvent(strategy, "LeaderToFollowerCOMMIT", leaderId, followerId, totalExecuted);
+
         return totalExecuted;
     }
 
@@ -2373,7 +2495,7 @@ public class TestingService implements TestingRemoteService {
 
         int id = generateEventId();
         final LocalEvent localEvent =
-                new LocalEvent(id, nodeId, subnodeId, subnodeType, payload, zxid, localEventExecutor);
+                new LocalEvent(id, nodeId, subnodeId, subnodeType, payload, zxid, type, localEventExecutor);
         synchronized (controlMonitor) {
             LOG.debug("{} {} of Node {} is about to process the request ({}): msgId = {}, " +
                     "set subnode {} to SENDING state", subnodeType, subnodeId, nodeId, payload, id, subnodeId);
@@ -2521,6 +2643,7 @@ public class TestingService implements TestingRemoteService {
         followerSocketAddressBook.set(nodeId, null);
         followerLearnerHandlerMap.set(nodeId, null);
         followerLearnerHandlerSenderMap.set(nodeId, null);
+        syncTypeList.set(nodeId, -1);
 
 
         // 2. EXECUTION
@@ -2605,6 +2728,8 @@ public class TestingService implements TestingRemoteService {
         followerSocketAddressBook.set(nodeId, null);
         followerLearnerHandlerMap.set(nodeId, null);
         followerLearnerHandlerSenderMap.set(nodeId, null);
+        syncTypeList.set(nodeId, -1);
+        participants.remove(nodeId);
 
         // 2. EXECUTION
         ensemble.stopNode(nodeId);
@@ -2701,6 +2826,8 @@ public class TestingService implements TestingRemoteService {
                 followerSocketAddressBook.set(nodeId, null);
                 followerLearnerHandlerMap.set(nodeId, null);
                 followerLearnerHandlerSenderMap.set(nodeId, null);
+                syncTypeList.set(nodeId, -1);
+                participants.remove(nodeId);
             } else {
                 nodePhases.set(nodeId, Phase.SYNC);
             }
@@ -2737,17 +2864,43 @@ public class TestingService implements TestingRemoteService {
             lastProcessedZxids.set(nodeId, lastProcessedZxid);
             nodeStateForClientRequests.set(nodeId, NodeStateForClientRequest.SET_DONE);
 
-            List<Long> zxidRecord = allZxidRecords.get(nodeId);
-            int len = zxidRecord.size();
-            LOG.debug("Node " + nodeId + " record: {}", zxidRecord);
-
             try {
-                if (zxidRecord.get(len - 1) < lastProcessedZxid) {
+                // Update allZxidRecords
+                List<Long> zxidRecord = allZxidRecords.get(nodeId);
+                int len = zxidRecord.size();
+                LOG.debug("Node " + nodeId + " record: {}", zxidRecord);
+                // TODO: buggy
+//                if (syncTypeList.get(nodeId).equals(MessageType.SNAP) || syncTypeList.get(nodeId).equals(MessageType.TRUNC)) {
+//                    LOG.debug("{}, {}", lastProcessedZxid, lastCommittedZxid);
+////                    allZxidRecords.clear();
+////                    for (Long zxid: lastCommittedZxid) {
+////                        zxidRecord.add(zxid);
+////                    }
+//                    int idx = lastCommittedZxid.indexOf(lastProcessedZxid);
+//                    allZxidRecords.set(nodeId, new ArrayList<>(lastCommittedZxid.subList(0, idx+1)));
+//                    LOG.debug("syncTypeList({}): SNAP / TRUNC, {}, {}", nodeId, zxidRecord, allZxidRecords.get(nodeId));
+//                    syncTypeList.set(nodeId, -1);
+//                    executionWriter.write(
+//                            "\n---just update Node " + nodeId + "'s last record: " + allZxidRecords.get(nodeId));
+//                } else
+                if (zxidRecord.get(len - 1) < lastProcessedZxid
+                        && (lastProcessedZxid & 0xffffffffL) != 0L  ){
                     zxidRecord.add(lastProcessedZxid);
 //                allZxidRecords.get(nodeId).add(lastProcessedZxid);
                     executionWriter.write(
                             "\n---just update Node " + nodeId + "'s last record: " + allZxidRecords.get(nodeId));
                 }
+
+                // Update lastCommittedZxid by leader
+                if (NodeState.ONLINE.equals(nodeStates.get(nodeId))
+                        && LeaderElectionState.LEADING.equals(leaderElectionStates.get(nodeId))
+                        && Phase.BROADCAST.equals(nodePhases.get(nodeId))) {
+
+                    lastCommittedZxid.add(lastProcessedZxid);
+                    executionWriter.write(
+                            "\n---Update lastCommittedZxid " + lastCommittedZxid);
+                }
+
                 executionWriter.write(
                         "\n---Update Node " + nodeId + "'s lastProcessedZxid: 0x" + Long.toHexString(lastProcessedZxid));
 //                for (int i = 0; i < schedulerConfiguration.getNumNodes(); i++) {
@@ -2839,7 +2992,7 @@ public class TestingService implements TestingRemoteService {
      * Pre-condition for election vote property check for particular peers
      */
     // Should be called while holding a lock on controlMonitor
-    private boolean waitAllParticipantsVoted(final List<Integer> participants) {
+    private boolean waitAllParticipantsVoted(final Set<Integer> participants) {
         final WaitPredicate allParticipantsVoted = new AllNodesVoted(this, participants);
         wait(allParticipantsVoted, 100L);
         for (int nodeId = 0; nodeId < schedulerConfiguration.getNumNodes(); ++nodeId) {

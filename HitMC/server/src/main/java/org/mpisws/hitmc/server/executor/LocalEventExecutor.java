@@ -58,13 +58,16 @@ public class LocalEventExecutor extends BaseEventExecutor{
 
         // Post-condition
         switch (event.getSubnodeType()) {
-            case QUORUM_PEER: // for FollowerProcessSyncMessage & UPTODATE
-                // for FollowerProcessSyncMessage: wait itself to SENDING state
+            case QUORUM_PEER: // for FollowerProcessSyncMessage
+                // for FollowerProcessSyncMessage: wait itself to SENDING state since ACK_NEWLEADER will come later anyway
+                testingService.getSyncTypeList().set(event.getNodeId(), event.getType());
                 testingService.waitSubnodeInSendingState(event.getSubnodeId());
-                // for UPTODATE: wait its node to BROADCAST state
                 testingService.waitAllNodesSteady();
                 break;
             case SYNC_PROCESSOR:
+                // TODO: this should a composite action including local event and ack message
+                // till now we do not yet intercept follower's ack to leader, which means we assume that after the proposal logs,
+                // the follower will ack to leader successfully
                 if (quorumSynced(event.getZxid())){
                     // If learnerHandler's COMMIT is not intercepted
 //                    testingService.waitQuorumToCommit(event);

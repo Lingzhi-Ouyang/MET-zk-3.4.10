@@ -98,7 +98,6 @@ public class LeaderToFollowerMessageExecutor extends BaseEventExecutor {
                     }
                     testingService.waitSubnodeInSendingState(quorumPeerSubnodeId);
                 }
-                testingService.waitAllNodesSteady();
                 break;
             case MessageType.PROPOSAL:
             case MessageType.COMMIT:

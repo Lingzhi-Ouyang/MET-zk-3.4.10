@@ -233,23 +233,24 @@ public class ExternalModelStrategy implements SchedulingStrategy{
         nextEvent = null;
         assert enabled.size() > 0;
 
-        // 2. search specific event type
+        // 2. search specific internal event type
         switch (action) {
             case "LeaderSyncFollower": // send NEWLEADER. for now we pass DIFF / TRUNC. NOTE: SNAP is beyond consideration.
             case "LeaderProcessACKLD": // send UPTODATE
-            case "LeaderProcessACK": // SEND COMMIT
+            case "LeaderToFollowerCOMMIT": // SEND COMMIT
                 searchLeaderMessage(action, nodeId, peerId, enabled);
                 break;
-            case "LeaderProcessRequest":
+            case "LeaderLogPROPOSAL":
             case "FollowerProcessSyncMessage": // no ACK. process DIFF / TRUNC / SNAP
             case "FollowerProcessPROPOSALInSync": // no reply
             case "FollowerProcessCOMMITInSync": // no reply
+            case "FollowerProcessPROPOSAL": // no reply TODO: this is only the first phase
+            case "LeaderProcessCOMMIT":
             case "FollowerProcessCOMMIT": // COMMIT
                 searchLocalMessage(action, nodeId, enabled);
                 break;
             case "FollowerProcessNEWLEADER": // ACK to NEWLEADER
             case "FollowerProcessUPTODATE": // ACK to UPTODATE
-            case "FollowerProcessPROPOSAL":  // LOG_REQUEST
                 searchFollowerMessage(action, nodeId, peerId, enabled);
                 break;
         }
@@ -282,7 +283,7 @@ public class ExternalModelStrategy implements SchedulingStrategy{
                         if (!action.equals("LeaderProcessACKLD")) continue;
                         break;
                     case MessageType.COMMIT:
-                        if (!action.equals("LeaderProcessACK")) continue;
+                        if (!action.equals("LeaderToFollowerCOMMIT")) continue;
                         break;
                     default:
                         continue;
@@ -331,19 +332,19 @@ public class ExternalModelStrategy implements SchedulingStrategy{
                 final int eventNodeId = event.getNodeId();
                 if (eventNodeId != nodeId) continue;
                 final SubnodeType subnodeType = event.getSubnodeType();
+                final int type = event.getType();
                 switch (action) {
-                    case "LeaderProcessRequest":
+                    case "LeaderLogPROPOSAL":
+                    case "FollowerProcessPROPOSAL":  // LOG_REQUEST . TODO: add interceptor to this composite action
                         if (!subnodeType.equals(SubnodeType.SYNC_PROCESSOR)) continue;
+//                        if (type != MessageType.PROPOSAL) continue; // set_data type == 5 not proposal!
                         break;
                     case "FollowerProcessSyncMessage": // no ACK. process DIFF / TRUNC / SNAP /
-                        if (!subnodeType.equals(SubnodeType.QUORUM_PEER)) continue;
-                        break;
-                    case "FollowerProcessPROPOSALInSync": // no reply
-                        if (!subnodeType.equals(SubnodeType.QUORUM_PEER)) continue;
-                        break;
                     case "FollowerProcessCOMMITInSync": // no reply
+                    case "FollowerProcessPROPOSALInSync":
                         if (!subnodeType.equals(SubnodeType.QUORUM_PEER)) continue;
                         break;
+                    case "LeaderProcessCOMMIT":
                     case "FollowerProcessCOMMIT": // no reply
                         if (!subnodeType.equals(SubnodeType.COMMIT_PROCESSOR)) continue;
                         break;

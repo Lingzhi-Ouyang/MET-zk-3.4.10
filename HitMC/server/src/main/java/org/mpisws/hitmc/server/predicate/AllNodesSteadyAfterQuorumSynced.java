@@ -26,6 +26,7 @@ public class AllNodesSteadyAfterQuorumSynced implements WaitPredicate {
     }
 
     @Override
+    // TODO: this is too rigid
     public boolean isTrue() {
         for (int nodeId = 0; nodeId < testingService.getSchedulerConfiguration().getNumNodes(); ++nodeId) {
             final NodeState nodeState = testingService.getNodeStates().get(nodeId);
