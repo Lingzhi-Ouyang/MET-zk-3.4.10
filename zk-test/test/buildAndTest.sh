@@ -12,10 +12,10 @@ echo $WORKING_DIR
 #cd $WORKING_DIR/zookeeper-3.4.13 && ant
 
 # build HitMC
-cd $WORKING_DIR/HitMC && mvn clean install
+cd $WORKING_DIR/zk-test && mvn clean install
 #cd $WORKING_DIR/HitMC/zookeeper-wrapper && mvn package
 #cd $WORKING_DIR/HitMC/zookeeper-ensemble && mvn package
-cd $WORKING_DIR/HitMC/test
+cd $WORKING_DIR/zk-test/test
 #rm -fr 1
 
 tag=`date "+%y-%m-%d-%H-%M-%S"`
