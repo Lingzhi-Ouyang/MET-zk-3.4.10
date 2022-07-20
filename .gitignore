@@ -1,7 +1,7 @@
 .idea/
 *.iml
 
-HitMC/test/*/
-HitMC/test/*.zip
-HitMC/tmp/**
+zk-test/test/*/
+zk-test/test/*.zip
+zk-test/tmp/**
 zookeeper-3.4.13/**
