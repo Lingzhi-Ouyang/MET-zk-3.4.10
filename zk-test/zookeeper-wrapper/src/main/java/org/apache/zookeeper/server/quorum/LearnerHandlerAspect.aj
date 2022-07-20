@@ -46,7 +46,7 @@ public aspect LearnerHandlerAspect {
         assert learnerHandlerSenderMap.containsKey(learnerHandlerThreadId);
         Long learnerHandlerSenderThreadId = learnerHandlerSenderMap.get(learnerHandlerThreadId);
         quorumPeerAspect.deregisterSubnode(learnerHandlerSenderThreadId);
-        LOG.debug("map: learnerHandlerThreadId: {} - learnerHandlerSenderThreadId: {}",
+        LOG.debug("de-registered: learnerHandlerThreadId: {} - learnerHandlerSenderThreadId: {}",
                 learnerHandlerThreadId, learnerHandlerSenderThreadId);
         learnerHandlerSenderMap.remove(learnerHandlerThreadId);
     }
