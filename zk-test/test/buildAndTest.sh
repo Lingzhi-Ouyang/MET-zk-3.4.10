@@ -13,10 +13,7 @@ echo $WORKING_DIR
 
 # build HitMC
 cd $WORKING_DIR/zk-test && mvn clean install
-#cd $WORKING_DIR/HitMC/zookeeper-wrapper && mvn package
-#cd $WORKING_DIR/HitMC/zookeeper-ensemble && mvn package
 cd $WORKING_DIR/zk-test/test
-#rm -fr 1
 
 tag=`date "+%y-%m-%d-%H-%M-%S"`
 mkdir $tag
