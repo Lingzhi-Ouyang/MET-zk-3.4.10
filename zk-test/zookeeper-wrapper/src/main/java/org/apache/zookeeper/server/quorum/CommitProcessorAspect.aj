@@ -28,7 +28,6 @@ public aspect CommitProcessorAspect {
         testingService = quorumPeerAspect.createRmiConnection();
         subnodeId = quorumPeerAspect.registerSubnode(testingService, SubnodeType.COMMIT_PROCESSOR);
         try {
-//            intercepter.getTestingService().setReceivingState(intercepter.getSubnodeId());
             testingService.setReceivingState(subnodeId);
         } catch (final RemoteException e) {
             LOG.debug("Encountered a remote exception", e);
@@ -57,7 +56,6 @@ public aspect CommitProcessorAspect {
         final long threadId = Thread.currentThread().getId();
         final String threadName = Thread.currentThread().getName();
         LOG.debug("before advice of CommitProcessor.addToProcess()-------Thread: {}, {}------", threadId, threadName);
-//        QuorumPeerAspect.SubnodeIntercepter intercepter = quorumPeerAspect.getIntercepter(threadId);
         final Request request = (Request) object;
         LOG.debug("--------------Before addToProcess {}: My toProcess has {} element. commitSubnode: {}",
                 request, queue.size(), subnodeId);
@@ -87,7 +85,6 @@ public aspect CommitProcessorAspect {
             // before offerMessage: increase sendingSubnodeNum
             quorumPeerAspect.setSubnodeSending();
             final String payload = quorumPeerAspect.constructRequest(request);
-//            int lastCommitRequestId = intercepter.getTestingService().commit(subnodeId, payload, type);
             final long zxid = request.zxid;
             final int lastCommitRequestId =
                     testingService.offerLocalEvent(subnodeId, SubnodeType.COMMIT_PROCESSOR, zxid, payload, type);

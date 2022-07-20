@@ -17,37 +17,9 @@ public aspect SyncRequestProcessorAspect {
     private final QuorumPeerAspect quorumPeerAspect = QuorumPeerAspect.aspectOf();
 
     private TestingRemoteService testingService;
-//
+
     private int subnodeId;
-//
-//    private Integer lastSyncRequestId = null;
-//
-////    // Keep track of the request message
-////    private Request request;
-////
-////    public Request getRequest() {
-////        return request;
-////    }
-//
-//    private final AtomicInteger msgsInQueuedRequests = new AtomicInteger(0);
-//
-//    public AtomicInteger getMsgsInQueuedRequests() {
-//        return msgsInQueuedRequests;
-//    }
-//
-//    public SyncRequestProcessorAspect() {
-//        try {
-//            final Registry registry = LocateRegistry.getRegistry(2599);
-//            testingService = (TestingRemoteService) registry.lookup(TestingRemoteService.REMOTE_NAME);
-//            LOG.debug("Found the remote testing service.");
-//        } catch (final RemoteException e) {
-//            LOG.error("Couldn't locate the RMI registry.", e);
-//            throw new RuntimeException(e);
-//        } catch (final NotBoundException e) {
-//            LOG.error("Couldn't bind the testing service.", e);
-//            throw new RuntimeException(e);
-//        }
-//    }
+
 
     public TestingRemoteService getTestingService() {
         return testingService;
@@ -69,20 +41,6 @@ public aspect SyncRequestProcessorAspect {
         quorumPeerAspect.deregisterSubnode(testingService, subnodeId, SubnodeType.SYNC_PROCESSOR);
     }
 
-    // Intercept starting the SyncRequestProcessor thread using the SubnodeInterceptor structure
-//    pointcut runSyncProcessor(): execution(* SyncRequestProcessor.run());
-//
-//    before(): runSyncProcessor() {
-//        LOG.debug("-------before runSyncProcessor. Thread {}: {}------",Thread.currentThread().getId(), Thread.currentThread().getName());
-//        QuorumPeerAspect.SubnodeIntercepter intercepter =quorumPeerAspect.registerSubnode(
-//                Thread.currentThread().getId(), Thread.currentThread().getName(), SubnodeType.SYNC_PROCESSOR);
-//        subnodeId = intercepter.getSubnodeId();
-//    }
-//
-//    after(): runSyncProcessor() {
-//        LOG.debug("after runSyncProcessor");
-//        quorumPeerAspect.deregisterSubnode(Thread.currentThread().getId());
-//    }
 
     // Intercept message processed within SyncRequestProcessor
     // candidate 1: processRequest() called by its previous processor
@@ -174,18 +132,7 @@ public aspect SyncRequestProcessorAspect {
             } catch (RemoteException e) {
                 e.printStackTrace();
             }
-//            // TODO: Here to decrement. Where to increment? >> Pre
-//            msgsInQueuedRequests.decrementAndGet();
         }
     }
-
-//    // TODO: catch args, check request type
-//    pointcut addToQueuedRequests():
-//            execution(void SyncRequestProcessor.processRequest(Request));
-//
-//    after() returning: addToQueuedRequests() {
-//        msgsInQueuedRequests.incrementAndGet();
-//        LOG.debug("----------addToQueuedRequests(). msgsInQueuedRequests.size: {}", msgsInQueuedRequests.get());
-//    }
 
 }

@@ -93,6 +93,7 @@ public class TestingService implements TestingRemoteService {
     private final List<String> followerSocketAddressBook = new ArrayList<>();
     private final List<Integer> followerLearnerHandlerMap = new ArrayList<>();
     private final List<Integer> followerLearnerHandlerSenderMap = new ArrayList<>();
+    private final Map<Integer, Integer> learnerHandlerSenderMap = new HashMap<>();
 
     private final List<NodeStateForClientRequest> nodeStateForClientRequests = new ArrayList<>();
 
@@ -889,6 +890,7 @@ public class TestingService implements TestingRemoteService {
         followerSocketAddressBook.clear();
         followerLearnerHandlerMap.clear();
         followerLearnerHandlerSenderMap.clear();
+        learnerHandlerSenderMap.clear();
 
         participants.clear();
 
@@ -2411,8 +2413,6 @@ public class TestingService implements TestingRemoteService {
 //                case MessageType.DIFF:
 //                case MessageType.TRUNC:
 //                case MessageType.SNAP:
-//                    assert leaderSyncFollowerCountMap.containsKey(sendingNodeId);
-//                    leaderSyncFollowerCountMap.put(sendingNodeId, leaderSyncFollowerCountMap.get(sendingNodeId) - 1);
 //                    // LearnerHandler
 //                    followerLearnerHandlerMap.set(receivingNodeId, sendingSubnodeId);
 //                    break;
@@ -2423,17 +2423,10 @@ public class TestingService implements TestingRemoteService {
                     followerLearnerHandlerSenderMap.set(receivingNodeId, sendingSubnodeId);
                     break;
                 case MessageType.UPTODATE:
-                    // LearnerHandlerSender
-                    followerLearnerHandlerSenderMap.set(receivingNodeId, sendingSubnodeId);
-                    break;
                 case MessageType.PROPOSAL:
                 case MessageType.COMMIT:
-                    // check if the follower is in sync or broadcast
-                    if (!Phase.BROADCAST.equals(nodePhases.get(receivingNodeId))) {
-                        followerLearnerHandlerMap.set(receivingNodeId, sendingSubnodeId);
-                    } else {
-                        followerLearnerHandlerSenderMap.set(receivingNodeId, sendingSubnodeId);
-                    }
+                    // LearnerHandlerSender
+                    followerLearnerHandlerSenderMap.set(receivingNodeId, sendingSubnodeId);
                     break;
             }
         }

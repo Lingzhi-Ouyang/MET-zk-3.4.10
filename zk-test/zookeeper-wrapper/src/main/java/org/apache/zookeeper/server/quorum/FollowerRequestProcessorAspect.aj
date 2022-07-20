@@ -13,7 +13,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 /***
  * For client requests that go to the follower nodes
  */
-//TODO: is this class necessary?
+// This is not in use since for now we do not consider the client session connecting a follower node
 public aspect FollowerRequestProcessorAspect {
     private static final Logger LOG = LoggerFactory.getLogger(FollowerRequestProcessorAspect.class);
 
