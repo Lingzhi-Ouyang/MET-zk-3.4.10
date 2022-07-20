@@ -2,8 +2,8 @@ package org.apache.zookeeper.server;
 
 import org.apache.zookeeper.ZooDefs;
 import org.apache.zookeeper.server.quorum.QuorumPeerAspect;
-import org.mpisws.hitmc.api.SubnodeType;
-import org.mpisws.hitmc.api.TestingRemoteService;
+import org.disalg.met.api.SubnodeType;
+import org.disalg.met.api.TestingRemoteService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

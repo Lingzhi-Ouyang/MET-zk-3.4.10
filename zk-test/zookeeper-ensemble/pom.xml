@@ -73,7 +73,7 @@
                     </descriptorRefs>
                     <archive>
                         <manifest>
-                            <mainClass>org.mpisws.hitmc.zookeeper.ZookeeperMain</mainClass>
+                            <mainClass>org.disalg.met.zookeeper.ZookeeperMain</mainClass>
                         </manifest>
                     </archive>
 

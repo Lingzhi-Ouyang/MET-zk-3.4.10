@@ -1,10 +1,10 @@
 package org.apache.zookeeper.server.quorum;
 
 import org.apache.zookeeper.server.Request;
-import org.mpisws.hitmc.api.TestingDef;
-import org.mpisws.hitmc.api.TestingRemoteService;
-import org.mpisws.hitmc.api.SubnodeType;
-import org.mpisws.hitmc.api.state.LeaderElectionState;
+import org.disalg.met.api.TestingDef;
+import org.disalg.met.api.TestingRemoteService;
+import org.disalg.met.api.SubnodeType;
+import org.disalg.met.api.state.LeaderElectionState;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -482,8 +482,8 @@ public aspect QuorumPeerAspect {
                 ", peerEpoch=" + toSend.peerEpoch;
     }
 
-    private org.mpisws.hitmc.api.state.Vote constructVote(final Vote vote) {
-        return new org.mpisws.hitmc.api.state.Vote(vote.getId(), vote.getZxid(), vote.getElectionEpoch(), vote.getPeerEpoch());
+    private org.disalg.met.api.state.Vote constructVote(final Vote vote) {
+        return new org.disalg.met.api.state.Vote(vote.getId(), vote.getZxid(), vote.getElectionEpoch(), vote.getPeerEpoch());
     }
 
     // Node state management

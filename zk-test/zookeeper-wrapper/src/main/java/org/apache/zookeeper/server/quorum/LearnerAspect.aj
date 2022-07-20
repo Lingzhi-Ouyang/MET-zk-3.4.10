@@ -1,7 +1,7 @@
 package org.apache.zookeeper.server.quorum;
 
-import org.mpisws.hitmc.api.SubnodeType;
-import org.mpisws.hitmc.api.TestingDef;
+import org.disalg.met.api.SubnodeType;
+import org.disalg.met.api.TestingDef;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

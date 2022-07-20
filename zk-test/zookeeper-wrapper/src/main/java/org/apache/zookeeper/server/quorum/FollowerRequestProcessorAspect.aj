@@ -2,17 +2,13 @@ package org.apache.zookeeper.server.quorum;
 
 import org.apache.zookeeper.ZooDefs;
 import org.apache.zookeeper.server.Request;
-import org.mpisws.hitmc.api.SubnodeType;
-import org.mpisws.hitmc.api.TestingRemoteService;
+import org.disalg.met.api.SubnodeType;
+import org.disalg.met.api.TestingRemoteService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.rmi.NotBoundException;
 import java.rmi.RemoteException;
-import java.rmi.registry.LocateRegistry;
-import java.rmi.registry.Registry;
 import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.atomic.AtomicInteger;
 
 /***
  * For client requests that go to the follower nodes
