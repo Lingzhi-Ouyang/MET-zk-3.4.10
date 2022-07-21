@@ -957,7 +957,7 @@ public class TestingService implements TestingRemoteService {
 
     /***
      * The schedule process of election and discovery
-     * Pre-condition: all alive participants steady and in looking state
+     * Pre-condition: all alive participants steady and in looking state including the leader
      * Post-condition: all nodes voted & all nodes ready for sync
      * Property check: one leader has been elected
      * @param leaderId the leader that model specifies
@@ -980,27 +980,29 @@ public class TestingService implements TestingRemoteService {
                 // Make all message events during election one single step
                 ++totalExecuted;
                 boolean leaderExists = false;
+                int retry = 0;
                 Set<Event> nonElectionEvents = new HashSet<>();
                 // TODO: how to terminate?
-                while (!leaderExists) {
+                while (!leaderExists && retry < 5) {
+                    retry++;
                     while (schedulingStrategy.hasNextEvent() && totalExecuted < 100) {
                         long begintime = System.currentTimeMillis();
                         LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted);
                         final Event event = schedulingStrategy.nextEvent();
-                        // TODO: this may wrongly delete newly produced LeaderToFollowerMessageEvent!
-                        // TODO: should be make executed when the node crash
-                        if (event instanceof LeaderToFollowerMessageEvent) {
-                            final int sendingSubnodeId = ((LeaderToFollowerMessageEvent) event).getSendingSubnodeId();
-
-                            final int receivingNodeId = ((LeaderToFollowerMessageEvent) event).getReceivingNodeId();
-                            if (peers.contains(receivingNodeId)) {
-                                // confirm this works / use partition / let
-                                deregisterSubnode(sendingSubnodeId);
-                                ((LeaderToFollowerMessageEvent) event).setExecuted();
-                                LOG.debug("----Do not let the previous learner handler message occur here! So pass this event---------\n\n\n");
-                                continue;
-                            }
-                        }
+//                        // TODO: this may wrongly delete newly produced LeaderToFollowerMessageEvent!
+//                        // TODO: should be make executed when the node crash
+//                        if (event instanceof LeaderToFollowerMessageEvent) {
+//                            final int sendingSubnodeId = ((LeaderToFollowerMessageEvent) event).getSendingSubnodeId();
+//
+//                            final int receivingNodeId = ((LeaderToFollowerMessageEvent) event).getReceivingNodeId();
+//                            if (peers.contains(receivingNodeId)) {
+//                                // confirm this works / use partition / let
+//                                deregisterSubnode(sendingSubnodeId);
+//                                ((LeaderToFollowerMessageEvent) event).setExecuted();
+//                                LOG.debug("----Do not let the previous learner handler message occur here! So pass this event---------\n\n\n");
+//                                continue;
+//                            }
+//                        }
                         if (!(event instanceof ElectionMessageEvent)) {
                             nonElectionEvents.add(event);
                             continue;
