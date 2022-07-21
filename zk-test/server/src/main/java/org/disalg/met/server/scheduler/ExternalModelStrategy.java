@@ -3,6 +3,7 @@ package org.disalg.met.server.scheduler;
 import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONObject;
 import org.disalg.met.api.MessageType;
+import org.disalg.met.api.ModelAction;
 import org.disalg.met.api.SubnodeType;
 import org.disalg.met.api.configuration.SchedulerConfigurationException;
 import org.disalg.met.server.TestingService;
@@ -16,6 +17,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.apache.commons.lang3.StringUtils;
 
+import javax.jws.WebParam;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
@@ -217,7 +219,7 @@ public class ExternalModelStrategy implements SchedulingStrategy{
         return trace;
     }
 
-    public Event getNextInternalEvent(String action, int nodeId, int peerId) throws SchedulerConfigurationException {
+    public Event getNextInternalEvent(ModelAction action, int nodeId, int peerId) throws SchedulerConfigurationException {
         // 1. get all enabled events
         final List<Event> enabled = new ArrayList<>();
         LOG.debug("prepareNextEvent: events.size: {}", events.size());
@@ -235,22 +237,22 @@ public class ExternalModelStrategy implements SchedulingStrategy{
 
         // 2. search specific internal event type
         switch (action) {
-            case "LeaderSyncFollower": // send NEWLEADER. for now we pass DIFF / TRUNC. NOTE: SNAP is beyond consideration.
-            case "LeaderProcessACKLD": // send UPTODATE
-            case "LeaderToFollowerCOMMIT": // SEND COMMIT
+            case LeaderSyncFollower: // send NEWLEADER. for now we pass DIFF / TRUNC. NOTE: SNAP is beyond consideration.
+            case LeaderProcessACKLD: // send UPTODATE
+            case LeaderToFollowerCOMMIT: // SEND COMMIT
                 searchLeaderMessage(action, nodeId, peerId, enabled);
                 break;
-            case "LeaderLogPROPOSAL":
-            case "FollowerProcessSyncMessage": // no ACK. process DIFF / TRUNC / SNAP
-            case "FollowerProcessPROPOSALInSync": // no reply
-            case "FollowerProcessCOMMITInSync": // no reply
-            case "FollowerProcessPROPOSAL": // no reply TODO: this is only the first phase
-            case "LeaderProcessCOMMIT":
-            case "FollowerProcessCOMMIT": // COMMIT
+            case LogPROPOSAL:
+            case FollowerProcessSyncMessage: // no ACK. process DIFF / TRUNC / SNAP
+            case FollowerProcessPROPOSALInSync: // no reply
+            case FollowerProcessCOMMITInSync: // no reply
+            case FollowerProcessPROPOSAL: // no reply TODO: this is only the first phase
+            case LeaderProcessCOMMIT:
+            case FollowerProcessCOMMIT: // COMMIT
                 searchLocalMessage(action, nodeId, enabled);
                 break;
-            case "FollowerProcessNEWLEADER": // ACK to NEWLEADER
-            case "FollowerProcessUPTODATE": // ACK to UPTODATE
+            case FollowerProcessNEWLEADER: // ACK to NEWLEADER
+            case FollowerProcessUPTODATE: // ACK to UPTODATE
                 searchFollowerMessage(action, nodeId, peerId, enabled);
                 break;
         }
@@ -265,7 +267,7 @@ public class ExternalModelStrategy implements SchedulingStrategy{
         return nextEvent;
     }
 
-    public void searchLeaderMessage(final String action, final int nodeId, final int peerId, List<Event> enabled) {
+    public void searchLeaderMessage(final ModelAction action, final int nodeId, final int peerId, List<Event> enabled) {
         for (final Event e : enabled) {
             if (e instanceof LeaderToFollowerMessageEvent) {
                 final LeaderToFollowerMessageEvent event = (LeaderToFollowerMessageEvent) e;
@@ -277,13 +279,13 @@ public class ExternalModelStrategy implements SchedulingStrategy{
                 final int type = event.getType();
                 switch (type) {
                     case MessageType.NEWLEADER:
-                        if (!action.equals("LeaderSyncFollower")) continue;
+                        if (!action.equals(ModelAction.LeaderSyncFollower)) continue;
                         break;
                     case MessageType.UPTODATE:
-                        if (!action.equals("LeaderProcessACKLD")) continue;
+                        if (!action.equals(ModelAction.LeaderProcessACKLD)) continue;
                         break;
                     case MessageType.COMMIT:
-                        if (!action.equals("LeaderToFollowerCOMMIT")) continue;
+                        if (!action.equals(ModelAction.LeaderToFollowerCOMMIT)) continue;
                         break;
                     default:
                         continue;
@@ -295,7 +297,7 @@ public class ExternalModelStrategy implements SchedulingStrategy{
         }
     }
 
-    public void searchFollowerMessage(final String action, final int nodeId, final int peerId, List<Event> enabled) {
+    public void searchFollowerMessage(final ModelAction action, final int nodeId, final int peerId, List<Event> enabled) {
         for (final Event e : enabled) {
             if (e instanceof FollowerToLeaderMessageEvent) {
                 final FollowerToLeaderMessageEvent event = (FollowerToLeaderMessageEvent) e;
@@ -307,13 +309,13 @@ public class ExternalModelStrategy implements SchedulingStrategy{
                 final int type = event.getType(); // this describes the message type that this ACK replies to
                 switch (type) {
                     case MessageType.NEWLEADER:
-                        if (!action.equals("FollowerProcessNEWLEADER")) continue;
+                        if (!action.equals(ModelAction.FollowerProcessNEWLEADER)) continue;
                         break;
                     case MessageType.UPTODATE:
-                        if (!action.equals("FollowerProcessUPTODATE")) continue;
+                        if (!action.equals(ModelAction.FollowerProcessUPTODATE)) continue;
                         break;
                     case MessageType.PROPOSAL:
-                        if (!action.equals("FollowerProcessPROPOSAL")) continue;
+                        if (!action.equals(ModelAction.FollowerProcessPROPOSAL)) continue;
                         break;
                     default:
                         continue;
@@ -325,7 +327,7 @@ public class ExternalModelStrategy implements SchedulingStrategy{
         }
     }
 
-    public void searchLocalMessage(final String action, final int nodeId, List<Event> enabled) {
+    public void searchLocalMessage(final ModelAction action, final int nodeId, List<Event> enabled) {
         for (final Event e : enabled) {
             if (e instanceof LocalEvent) {
                 final LocalEvent event = (LocalEvent) e;
@@ -334,18 +336,18 @@ public class ExternalModelStrategy implements SchedulingStrategy{
                 final SubnodeType subnodeType = event.getSubnodeType();
                 final int type = event.getType();
                 switch (action) {
-                    case "LeaderLogPROPOSAL":
-                    case "FollowerProcessPROPOSAL":  // LOG_REQUEST . TODO: add interceptor to this composite action
+                    case LogPROPOSAL:
+                    case FollowerProcessPROPOSAL:  // LOG_REQUEST . TODO: add interceptor to this composite action
                         if (!subnodeType.equals(SubnodeType.SYNC_PROCESSOR)) continue;
 //                        if (type != MessageType.PROPOSAL) continue; // set_data type == 5 not proposal!
                         break;
-                    case "FollowerProcessSyncMessage": // no ACK. process DIFF / TRUNC / SNAP /
-                    case "FollowerProcessCOMMITInSync": // no reply
-                    case "FollowerProcessPROPOSALInSync":
+                    case FollowerProcessSyncMessage: // no ACK. process DIFF / TRUNC / SNAP /
+                    case FollowerProcessCOMMITInSync: // no reply
+                    case FollowerProcessPROPOSALInSync:
                         if (!subnodeType.equals(SubnodeType.QUORUM_PEER)) continue;
                         break;
-                    case "LeaderProcessCOMMIT":
-                    case "FollowerProcessCOMMIT": // no reply
+                    case LeaderProcessCOMMIT:
+                    case FollowerProcessCOMMIT: // no reply
                         if (!subnodeType.equals(SubnodeType.COMMIT_PROCESSOR)) continue;
                         break;
                     default:
