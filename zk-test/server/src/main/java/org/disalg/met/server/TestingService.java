@@ -74,6 +74,8 @@ public class TestingService implements TestingRemoteService {
     // writer
     private FileWriter statisticsWriter;
     private FileWriter executionWriter;
+    private FileWriter bugReportWriter;
+    private FileWriter matchReportWriter;
 
     private final Object controlMonitor = new Object();
 
@@ -93,11 +95,10 @@ public class TestingService implements TestingRemoteService {
     private final List<String> followerSocketAddressBook = new ArrayList<>();
     private final List<Integer> followerLearnerHandlerMap = new ArrayList<>();
     private final List<Integer> followerLearnerHandlerSenderMap = new ArrayList<>();
-    private final Map<Integer, Integer> learnerHandlerSenderMap = new HashMap<>();
 
     private final List<NodeStateForClientRequest> nodeStateForClientRequests = new ArrayList<>();
 
-    private Set<Integer> participants = new HashSet<>();
+    private final Set<Integer> participants = new HashSet<>();
 
     /***
      * properties to check
@@ -366,10 +367,15 @@ public class TestingService implements TestingRemoteService {
         LOG.debug("Starting the testing service by external model");
         ExternalModelStatistics externalModelStatistics = new ExternalModelStatistics();
         ExternalModelStrategy externalModelStrategy = new ExternalModelStrategy(this, new Random(1), schedulerConfiguration.getTraceDir(), externalModelStatistics);
+        bugReportWriter = new FileWriter(schedulerConfiguration.getWorkingDir() + File.separator
+                 + schedulerConfiguration.getBugReportFile());
+        matchReportWriter = new FileWriter(schedulerConfiguration.getWorkingDir() + File.separator
+                + schedulerConfiguration.getMatchReportFile());
 
         long startTime = System.currentTimeMillis();
         int traceNum = externalModelStrategy.getTracesNum();
         LOG.debug("traceNum: {}", traceNum);
+        int bugCount = 0;
 
         Map<String, Integer> serverIdMap = new HashMap<>(3);
         serverIdMap.put("s0", 2);
@@ -520,12 +526,23 @@ public class TestingService implements TestingRemoteService {
                 LOG.info("setTraceLen: {}, setExecutedStep: {} ", stepCount, currentStep);
                 traceVerifier.setTraceLen(stepCount);
                 traceVerifier.setExecutedStep(currentStep);
-                traceVerifier.verify();
+                boolean matchedAndPassed = traceVerifier.verify();
                 String info = currentStep >= stepCount ? "COMPLETE" : action;
                 statistics.reportCurrentStep("[Step " + currentStep + "]-" + info);
                 statistics.reportTotalExecutedEvents(totalExecuted);
                 statisticsWriter.write(statistics.toString() + "\n\n");
                 LOG.info(statistics.toString() + "\n\n\n\n\n");
+
+
+                if (!matchedAndPassed) {
+                    bugCount++;
+                    bugReportWriter.write("Trace: " + traceName + "\n");
+                    bugReportWriter.write(statistics.toString() + "\n\n");
+                }
+                if (!traceMatched) {
+                    matchReportWriter.write("Trace: " + traceName + "\n");
+                    matchReportWriter.write(statistics.toString() + "\n\n");
+                }
 
                 // shutdown clients & servers
                 for (Integer i: clientMap.keySet()) {
@@ -537,10 +554,27 @@ public class TestingService implements TestingRemoteService {
 
                 executionWriter.close();
                 statisticsWriter.close();
+                bugReportWriter.flush();
+                matchReportWriter.flush();
             }
         }
         LOG.debug("total time: {}" , (System.currentTimeMillis() - startTime));
-
+        final int unmatchedCount = TraceVerifier.getUnmatchedCount();
+        final int failedCount = TraceVerifier.getFailedCount();
+        final float unmatchedRate = (float) unmatchedCount / traceNum ;
+        final float failedRate = (float) failedCount / traceNum ;
+        final float bugRate = (float) bugCount / traceNum ;
+        bugReportWriter.write("TOTAL: " + traceNum + "\n");
+        bugReportWriter.write("BUG:\t" + bugCount + "\tNO_BUG:\t" + (traceNum - bugCount) +
+                "\tBUG RATE:\t" + bugRate + "\n");
+        bugReportWriter.write("UNMATCH:\t" + unmatchedCount + "\tMATCH:\t" + (traceNum - unmatchedCount) +
+                "\tUNMATCHED RATE:\t" + unmatchedRate + "\n");
+        bugReportWriter.write("FAIL:\t" + failedCount + "\tPASS:\t" + (traceNum - failedCount) +
+                "\tFAIL RATE:\t" + failedRate + "\n");
+        bugReportWriter.close();
+        matchReportWriter.write("UNMATCH:\t" + unmatchedCount + "\tMATCH:\t" + (traceNum - unmatchedCount) +
+                "\tUNMATCHED RATE:\t" + unmatchedRate + "\n");
+        matchReportWriter.close();
     }
 
     @Deprecated
@@ -890,7 +924,6 @@ public class TestingService implements TestingRemoteService {
         followerSocketAddressBook.clear();
         followerLearnerHandlerMap.clear();
         followerLearnerHandlerSenderMap.clear();
-        learnerHandlerSenderMap.clear();
 
         participants.clear();
 

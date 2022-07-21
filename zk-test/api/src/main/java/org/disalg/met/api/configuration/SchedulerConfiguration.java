@@ -44,6 +44,10 @@ public interface SchedulerConfiguration {
 
     String getStatisticsFile();
 
+    String getBugReportFile();
+
+    String getMatchReportFile();
+
     String getSchedulingStrategy();
 
     void configureNode(String executionId, int nodeId, String tag) throws SchedulerConfigurationException;

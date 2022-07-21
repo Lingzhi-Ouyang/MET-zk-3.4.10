@@ -36,6 +36,8 @@ public class ZookeeperConfiguration implements SchedulerConfiguration {
     private static final String DEFAULT_NUM_EXECUTIONS = "1";
     private static final String DEFAULT_EXECUTION_FILE = "execution";
     private static final String DEFAULT_STATISTICS_FILE = "statistics";
+    private static final String DEFAULT_BUG_REPORT_FILE = "bugReport";
+    private static final String DEFAULT_MATCH_REPORT_FILE = "matchReport";
 
     private static final String DEFAULT_NUM_CLIENTS = "1";
     private static final String DEFAULT_NUM_READERS = "1";
@@ -72,7 +74,8 @@ public class ZookeeperConfiguration implements SchedulerConfiguration {
     private int numExecutions;
     private String executionFile;
     private String statisticsFile;
-
+    private String bugReportFile;
+    private String matchReportFile;
 
     private String schedulingStrategy;
 
@@ -140,6 +143,8 @@ public class ZookeeperConfiguration implements SchedulerConfiguration {
         numExecutions = Integer.parseInt(properties.getProperty("numExecutions", DEFAULT_NUM_EXECUTIONS));
         executionFile = properties.getProperty("executionFile", DEFAULT_EXECUTION_FILE);
         statisticsFile = properties.getProperty("statisticsFile", DEFAULT_STATISTICS_FILE);
+        bugReportFile = properties.getProperty("bugReportFile", DEFAULT_BUG_REPORT_FILE);
+        matchReportFile = properties.getProperty("matchReportFile", DEFAULT_MATCH_REPORT_FILE);
 
         schedulingStrategy = properties.getProperty("schedulingStrategy", DEFAULT_SCHEDULING_STRATEGY);
 
@@ -278,6 +283,16 @@ public class ZookeeperConfiguration implements SchedulerConfiguration {
     @Override
     public String getStatisticsFile() {
         return statisticsFile;
+    }
+
+    @Override
+    public String getBugReportFile() {
+        return bugReportFile;
+    }
+
+    @Override
+    public String getMatchReportFile() {
+        return matchReportFile;
     }
 
     @Override
