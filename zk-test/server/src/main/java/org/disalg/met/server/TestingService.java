@@ -22,6 +22,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import javax.jws.WebParam;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
@@ -426,6 +427,7 @@ public class TestingService implements TestingRemoteService {
 
             int currentStep = 0;
             String action = "";
+            ModelAction modelAction;
             try {
                 synchronized (controlMonitor) {
                     waitAllNodesSteady();
@@ -436,37 +438,38 @@ public class TestingService implements TestingRemoteService {
                     JSONObject elements = jsonObject.getJSONObject(action);
                     LOG.debug("nextStep: {}", jsonObject);
                     LOG.debug("nextStep: {}", action);
+                    modelAction = ModelAction.valueOf(action);
 
-                    switch (action) {
+                    switch (modelAction) {
                         // external events
-                        case "NodeCrash":
+                        case NodeCrash:
                             int crashNodeId = serverIdMap.get(elements.getString("nodeId"));
                             totalExecuted = scheduleNodeCrash(crashNodeId, totalExecuted);
                             break;
-                        case "NodeStart":
+                        case NodeStart:
                             int startNodeId = serverIdMap.get(elements.getString("nodeId"));
                             totalExecuted = scheduleNodeStart(startNodeId, totalExecuted);
                             break;
-                        case "PartitionStart":
+                        case PartitionStart:
                             int node1 = serverIdMap.get(elements.getString("nodeId"));
                             int node2 = serverIdMap.get(elements.getString("peerId"));
                             LOG.debug("----PARTITION START: {}, {}", node1, node2);
                             totalExecuted = schedulePartitionStart(node1, node2, totalExecuted);
                             break;
-                        case "PartitionRecover":
+                        case PartitionRecover:
                             int node3 = serverIdMap.get(elements.getString("nodeId"));
                             int node4 = serverIdMap.get(elements.getString("peerId"));
                             LOG.debug("----PARTITION RECOVER: {}, {}", node3, node4);
                             totalExecuted = schedulePartitionStop(node3, node4, totalExecuted);
                             break;
-                        case "LeaderProcessRequest":  // set data & leader log & send proposal
+                        case LeaderProcessRequest:  // set data & leader log & send proposal
                             int setDataClientId = elements.getInteger("clientId");
                             int sid2 = serverIdMap.get(elements.getString("nodeId"));
                             Integer data = elements.getInteger("data");
                             String writtenVal = data != null ? data.toString() : null;
                             totalExecuted = scheduleLeaderProcessRequest(externalModelStrategy, setDataClientId, sid2, writtenVal, totalExecuted);
                             break;
-                        case "ClientGetData":
+                        case ClientGetData:
                             int getDataClientId = elements.getInteger("clientId");
                             int sid3 = serverIdMap.get(elements.getString("nodeId"));
                             Integer returnedData = elements.getInteger("data");
@@ -474,7 +477,7 @@ public class TestingService implements TestingRemoteService {
                             break;
                         // internal events
                         // Phase election & discovery
-                        case "ElectionAndDiscovery":
+                        case ElectionAndDiscovery:
                             Integer leaderId = serverIdMap.get(elements.getString("nodeId"));
                             JSONArray participants = elements.getJSONArray("peerId");
                             List<Integer> peers = new ArrayList<>();
@@ -484,29 +487,30 @@ public class TestingService implements TestingRemoteService {
                             LOG.debug("election leader: {}, other participants: {}", leaderId, peers);
                             totalExecuted = scheduleElectionAndDiscovery(currentStep, leaderId, peers, totalExecuted);
                             break;
-                        case "LeaderProcessACK": // send COMMIT
+                        case LeaderProcessACK: // send COMMIT
                             Integer nodeId1 = serverIdMap.get(elements.getString("nodeId"));
                             Integer peerId1 = serverIdMap.get(elements.getString("peerId"));
                             totalExecuted = scheduleLeaderProcessACK(externalModelStrategy, nodeId1, peerId1, totalExecuted);
                             break;
-                        case "FollowerProcessPROPOSAL": // followr log & send ACK
+                        case FollowerProcessPROPOSAL: // followr log & send ACK
 //                            Integer fId = serverIdMap.get(elements.getString("nodeId"));
 //                            Integer lId = serverIdMap.get(elements.getString("peerId"));
 //                            totalExecuted = scheduleFollowerProcessPROPOSAL(externalModelStrategy,
 //                                    action, fId, lId, totalExecuted);
 //                            break;
-                        case "FollowerProcessSyncMessage":
-                        case "LeaderSyncFollower": // send DIFF /TRUNC
-                        case "LeaderProcessACKLD": // send UPTODATE
-                        case "FollowerProcessPROPOSALInSync":
-                        case "FollowerProcessCOMMITInSync":
-                        case "FollowerProcessNEWLEADER": // send ACK
-                        case "FollowerProcessUPTODATE": // send ACK
-                        case "FollowerProcessCOMMIT":
+                        case FollowerProcessSyncMessage:
+                        case LeaderSyncFollower: // send DIFF /TRUNC
+                        case LeaderProcessACKLD: // send UPTODATE
+                        case FollowerProcessPROPOSALInSync:
+                        case FollowerProcessCOMMITInSync:
+                        case FollowerProcessNEWLEADER: // send ACK
+                        case FollowerProcessUPTODATE: // send ACK
+                        case FollowerProcessCOMMIT:
                             Integer nodeId = serverIdMap.get(elements.getString("nodeId"));
                             Integer peerId = serverIdMap.get(elements.getString("peerId"));
-                            totalExecuted = scheduleInternalEvent(externalModelStrategy,
-                                    action, nodeId, peerId, totalExecuted);
+                            int retry = 5;
+                            totalExecuted = scheduleInternalEventWithWaitingRetry(externalModelStrategy,
+                                    modelAction, nodeId, peerId, totalExecuted, retry);
                             break;
                     }
                     committedLogVerifier.verify();
@@ -1377,7 +1381,7 @@ public class TestingService implements TestingRemoteService {
         }
 
         // Step 2. Leader log proposal
-        totalExecuted = scheduleInternalEvent(strategy, "LeaderLogPROPOSAL", serverId, -1, totalExecuted);
+        totalExecuted = scheduleInternalEventWithWaitingRetry(strategy, ModelAction.LogPROPOSAL, serverId, -1, totalExecuted, 1);
 
         // Step 3. release LeaderToFollowerPROPOSAL(PROPOSAL) if partition un-exists
         totalExecuted = scheduleLeaderToFollowerPROPOSAL(strategy, totalExecuted);
@@ -1426,12 +1430,12 @@ public class TestingService implements TestingRemoteService {
         // Step 1. check leader's local commit is done
         try {
             LOG.debug("try to schedule LeaderProcessCOMMIT leaderId: {}", leaderId);
-            scheduleInternalEvent(strategy, "LeaderProcessCOMMIT", leaderId, -1, totalExecuted);
+            scheduleInternalEvent(strategy, ModelAction.LeaderProcessCOMMIT, leaderId, -1, totalExecuted);
         } catch (SchedulerConfigurationException e2) {
             LOG.debug("SchedulerConfigurationException found when scheduling leader's local commit! This will be fine.");
         }
         LOG.debug("try to schedule LeaderToFollowerCOMMIT leaderId: {}, followerId: {}", leaderId, followerId);
-        totalExecuted =scheduleInternalEvent(strategy, "LeaderToFollowerCOMMIT", leaderId, followerId, totalExecuted);
+        totalExecuted = scheduleInternalEvent(strategy, ModelAction.LeaderToFollowerCOMMIT, leaderId, followerId, totalExecuted);
 
         return totalExecuted;
     }
@@ -1564,15 +1568,93 @@ public class TestingService implements TestingRemoteService {
         return totalExecuted;
     }
 
+    public int scheduleInternalEventWithRetry(ExternalModelStrategy strategy,
+                                     final ModelAction action,
+                                     final int nodeId,
+                                     final int peerId,
+                                     int totalExecuted, int retry) throws SchedulerConfigurationException {
+        while (true) {
+            try {
+                synchronized (controlMonitor) {
+                    long startTime = System.currentTimeMillis();
+                    Event event = strategy.getNextInternalEvent(action, nodeId, peerId);
+                    assert event != null;
+                    LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
+                    LOG.debug("prepare to execute event: {}", event);
+                    if (event.execute()) {
+                        ++totalExecuted;
+                        recordProperties(totalExecuted, startTime, event);
+                    }
+                }
+                break;
+            } catch (IOException e) {
+                e.printStackTrace();
+                break;
+            } catch (SchedulerConfigurationException e2) {
+                LOG.debug("SchedulerConfigurationException found when scheduling {}! Retry: {}", action, retry);
+                retry--;
+                if (retry <= 0) {
+                    throw e2;
+                }
+            }
+        }
+        return totalExecuted;
+    }
+
+    public int scheduleInternalEventWithWaitingRetry(ExternalModelStrategy strategy,
+                                              final ModelAction action,
+                                              final int nodeId,
+                                              final int peerId,
+                                              int totalExecuted, int retry) throws SchedulerConfigurationException {
+        while (retry > 0) {
+            try {
+                synchronized (controlMonitor) {
+                    long startTime = System.currentTimeMillis();
+                    Event event = waitTargetInternalEventReady(strategy, action, nodeId, peerId);
+                    if (event == null) {
+                        retry--;
+                        LOG.debug("target internal event not found! will wait with retry {} more time(s).", retry);
+                        continue;
+                    }
+//                    Event event = strategy.getNextInternalEvent(action, nodeId, peerId);
+//                    assert event != null;
+                    LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
+                    LOG.debug("prepare to execute event: {}", event);
+                    if (event.execute()) {
+                        ++totalExecuted;
+                        recordProperties(totalExecuted, startTime, event);
+                    }
+                }
+                break;
+            } catch (IOException e) {
+                e.printStackTrace();
+                break;
+            }
+//            catch (SchedulerConfigurationException e2) {
+//                LOG.debug("SchedulerConfigurationException found when scheduling {}! Retry: {}", action, retry);
+//                retry--;
+//                if (retry <= 0) {
+//                    throw e2;
+//                }
+//            }
+        }
+        if (retry <= 0) {
+            LOG.debug("SchedulerConfigurationException found when scheduling {}! Retry: {}", action, retry);
+            throw new SchedulerConfigurationException();
+        }
+        return totalExecuted;
+    }
+
     public int scheduleInternalEvent(ExternalModelStrategy strategy,
-                                     final String eventStr,
+                                     final ModelAction action,
                                      final int nodeId,
                                      final int peerId,
                                      int totalExecuted) throws SchedulerConfigurationException {
         try {
             synchronized (controlMonitor) {
+//                    waitTargetInternalEventReady(strategy, action, nodeId, peerId);
                 long startTime = System.currentTimeMillis();
-                Event event = strategy.getNextInternalEvent(eventStr, nodeId, peerId);
+                Event event = strategy.getNextInternalEvent(action, nodeId, peerId);
                 assert event != null;
                 LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
                 LOG.debug("prepare to execute event: {}", event);
@@ -1584,7 +1666,7 @@ public class TestingService implements TestingRemoteService {
         } catch (IOException e) {
             e.printStackTrace();
         } catch (SchedulerConfigurationException e2) {
-            LOG.debug("SchedulerConfigurationException found when scheduling {}!", eventStr);
+            LOG.debug("SchedulerConfigurationException found when scheduling {}!", action);
             throw e2;
         }
         return totalExecuted;
@@ -3027,6 +3109,19 @@ public class TestingService implements TestingRemoteService {
         }
         LOG.debug("Leader does not exist after voting!");
         return false;
+    }
+
+    /***
+     * Pre-condition for scheduling an internal event
+     */
+    private Event waitTargetInternalEventReady(ExternalModelStrategy strategy,
+                                                 ModelAction action,
+                                                 Integer nodeId,
+                                                 Integer peerId) {
+        final TargetInternalEventReady targetInternalEventReady = new TargetInternalEventReady(this, strategy, action, nodeId, peerId);
+        wait(targetInternalEventReady, 100L);
+        Event e = targetInternalEventReady.getEvent();
+        return e;
     }
 
 
