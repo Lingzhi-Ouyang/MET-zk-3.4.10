@@ -1004,14 +1004,13 @@ public class TestingService implements TestingRemoteService {
     public int scheduleElectionAndDiscovery(final Integer currentStep,
                                             final Integer leaderId,
                                             final List<Integer> peers,
-                                            int totalExecuted) {
+                                            int totalExecuted) throws SchedulerConfigurationException {
         try{
 //            statistics.startTimer();
+            Set<Integer> lookingParticipants = new HashSet<>(peers);
+            lookingParticipants.add(leaderId);
             synchronized (controlMonitor) {
                 // pre-condition
-//                waitAllNodesSteady();
-                Set<Integer> lookingParticipants = new HashSet<>(peers);
-                lookingParticipants.add(leaderId);
                 waitAliveNodesInLookingState(lookingParticipants);
 
                 // Make all message events during election one single step
@@ -1052,24 +1051,28 @@ public class TestingService implements TestingRemoteService {
 //                        }
                     }
                     // pre-condition for election property check
-                    for (Integer peer : peers) {
-                        participants.add(peer);
-                    }
-                    participants.add(leaderId);
-                    leaderExists = waitAllParticipantsVoted(participants);
+                    leaderExists = waitAllParticipantsVoted(lookingParticipants);
                 }
+                if (!leaderExists) {
+                    LOG.debug("Leader not exist! " +
+                            "SchedulerConfigurationException found when scheduling ElectionAndDiscovery." +
+                            " leader: " + leaderId + " peers: " + peers);
+                    throw new SchedulerConfigurationException();
+                }
+                participants.addAll(lookingParticipants);
                 for (Event e: nonElectionEvents) {
                     LOG.debug("Adding back event that is missed during election: {}", e);
                     addEvent(e);
                 }
 
-                // TODO: how to wait for the event LeaderSyncFollower?
+                // wait for the event LeaderSyncFollower?
                 leaderSyncFollowerCountMap.put(leaderId, peers.size());
                 waitLeaderSyncReady(leaderId, peers);
             }
             statistics.endTimer();
             // check election results
             leaderElectionVerifier.setModelResult(leaderId);
+            leaderElectionVerifier.setParticipants(lookingParticipants);
             leaderElectionVerifier.verify();
             // report statistics
             if (currentStep != null && peers != null) {
@@ -1080,6 +1083,11 @@ public class TestingService implements TestingRemoteService {
             statistics.reportTotalExecutedEvents(totalExecuted);
             statisticsWriter.write(statistics.toString() + "\n\n");
             LOG.info(statistics.toString() + "\n\n\n\n\n");
+            if (!traceMatched) {
+                LOG.debug("UNMATCH model during ElectionAndDiscovery. " +
+                        " leader: " + leaderId + " peers: " + peers);
+                throw new SchedulerConfigurationException();
+            }
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -2844,50 +2852,6 @@ public class TestingService implements TestingRemoteService {
         // 3. POST_EXECUTION: wait for the state to be stable
         // This has been done in step 1 (set OFFLINE)
 
-    }
-
-    /***
-     * Called by the partition start executor
-     * @return
-     */
-    public void startPartition(final int node1, final int node2) {
-        // PRE_EXECUTION: set unstable state (set STARTING)
-//        nodeStates.set(node1, NodeState.STARTING);
-//        nodeStates.set(node2, NodeState.STARTING);
-
-        // 2. EXECUTION
-        LOG.debug("start partition: {} & {}", node1, node2);
-        LOG.debug("before: {}, {}, {}", partitionMap.get(0), partitionMap.get(1), partitionMap.get(2));
-        partitionMap.get(node1).set(node2, true);
-        partitionMap.get(node2).set(node1, true);
-        LOG.debug("after: {}, {}, {}", partitionMap.get(0), partitionMap.get(1), partitionMap.get(2));
-
-
-        // wait for the state to be stable (set ONLINE)
-//        nodeStates.set(node1, NodeState.ONLINE);
-//        nodeStates.set(node2, NodeState.ONLINE);
-
-        controlMonitor.notifyAll();
-    }
-
-    /***
-     * Called by the partition stop executor
-     * @return
-     */
-    public void stopPartition(final int node1, final int node2) {
-        // 1. PRE_EXECUTION: set unstable state (set STARTING)
-//        nodeStates.set(node1, NodeState.STARTING);
-//        nodeStates.set(node2, NodeState.STARTING);
-
-        // 2. EXECUTION
-        partitionMap.get(node1).set(node2, false);
-        partitionMap.get(node2).set(node1, false);
-
-        // wait for the state to be stable (set ONLINE)
-//        nodeStates.set(node1, NodeState.ONLINE);
-//        nodeStates.set(node2, NodeState.ONLINE);
-
-        controlMonitor.notifyAll();
     }
 
     public int generateEventId() {
