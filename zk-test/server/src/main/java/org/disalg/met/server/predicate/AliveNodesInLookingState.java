@@ -17,24 +17,24 @@ public class AliveNodesInLookingState implements WaitPredicate{
 
     private final TestingService testingService;
 
-    private final Set<Integer> peers;
+    private final Set<Integer> participants;
 
     public AliveNodesInLookingState(final TestingService testingService) {
         this.testingService = testingService;
-        peers = null;
+        this.participants = null;
     }
 
-    public AliveNodesInLookingState(final TestingService testingService, final Set<Integer> peers) {
+    public AliveNodesInLookingState(final TestingService testingService, final Set<Integer> participants) {
         this.testingService = testingService;
-        this.peers = peers;
+        this.participants = participants;
     }
 
 
 
     @Override
     public boolean isTrue() {
-        if (peers != null) {
-            for (Integer nodeId : peers) {
+        if (participants != null) {
+            for (Integer nodeId : participants) {
                 if (checkNodeNotLooking(nodeId)) return false;
             }
         } else {
@@ -80,7 +80,7 @@ public class AliveNodesInLookingState implements WaitPredicate{
 
     @Override
     public String describe() {
-        if (peers == null) return "all nodes in LOOKING state";
-        else return peers + " in LOOKING state";
+        if (participants == null) return "all nodes in LOOKING state";
+        else return participants + " in LOOKING state";
     }
 }
