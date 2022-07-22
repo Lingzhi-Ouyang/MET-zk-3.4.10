@@ -77,7 +77,8 @@ public class AllNodesSteadyAfterMutation implements WaitPredicate {
                 }
             } else if (SubnodeType.LEARNER_HANDLER_SENDER.equals(subnode.getSubnodeType())) {
                 learnerHandlerSenderExisted = true;
-                if (!SubnodeState.SENDING.equals(subnode.getState())) {
+                // loose the requirement since partition may affect this one
+                if (SubnodeState.PROCESSING.equals(subnode.getState())) {
                     LOG.debug("------Not steady for leader's {} thread-----" +
                                     "Node {} subnode {} status: {}\n",
                             subnode.getSubnodeType(), nodeId, subnode.getId(), subnode.getState());
