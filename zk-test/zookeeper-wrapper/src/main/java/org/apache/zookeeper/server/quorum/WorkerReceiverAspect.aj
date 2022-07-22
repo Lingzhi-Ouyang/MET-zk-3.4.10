@@ -37,7 +37,7 @@ public aspect WorkerReceiverAspect {
     pointcut runWorkerReceiver(): execution(* FastLeaderElection.Messenger.WorkerReceiver.run());
 
     before(): runWorkerReceiver() {
-        LOG.debug("-------Thread: {}------", Thread.currentThread().getName());
+        LOG.debug("-------runWorkerReceiver Thread: {}------", Thread.currentThread().getName());
         workerReceiverSubnodeId = quorumPeerAspect.registerWorkerReceiverSubnode();
     }
 
@@ -53,7 +53,6 @@ public aspect WorkerReceiverAspect {
             && if (object instanceof FastLeaderElection.ToSend)
             && args(object);
 
-    // TODO: change this to boolean around()
     boolean around(final Object object): offerWithinWorkerReceiver(object) {
         final FastLeaderElection.ToSend toSend = (FastLeaderElection.ToSend) object;
 

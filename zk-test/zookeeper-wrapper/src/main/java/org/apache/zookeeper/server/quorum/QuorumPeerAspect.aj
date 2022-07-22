@@ -58,6 +58,7 @@ public aspect QuorumPeerAspect {
     // Manage uncertain number of subnodes
     private boolean quorumPeerSubnodeRegistered = false;
     private boolean workerReceiverSubnodeRegistered = false;
+    private boolean workerSenderSubnodeRegistered = false;
 
     // 1. Use variables for specific subnodes
 //    private boolean quorumPeerSending = false;
@@ -487,8 +488,10 @@ public aspect QuorumPeerAspect {
     }
 
     // Node state management
-    // WorkerReceiver
 
+    /***
+     * WorkerReceiver
+     */
     public int registerWorkerReceiverSubnode() {
         final int workerReceiverSubnodeId;
         try {
@@ -540,8 +543,44 @@ public aspect QuorumPeerAspect {
 //        }
 //    }
 
-    // SyncProcessor
 
+    /***
+     * WorkerSender
+     */
+    public int registerWorkerSenderSubnode() {
+        final int workerSenderSubnodeId;
+        try {
+            LOG.debug("Registering WorkerSender subnode");
+            workerSenderSubnodeId = testingService.registerSubnode(myId, SubnodeType.WORKER_SENDER);
+            LOG.debug("Registered WorkerSender subnode: id = {}", workerSenderSubnodeId);
+//            synchronized (nodeOnlineMonitor) {
+//                workerSenderSubnodeRegistered = true;
+//                if (workerReceiverSubnodeRegistered) {
+//                    testingService.nodeOnline(myId);
+//                }
+//            }
+            return workerSenderSubnodeId;
+        } catch (final RemoteException e) {
+            LOG.debug("Encountered a remote exception", e);
+            throw new RuntimeException(e);
+        }
+    }
+
+    public void deregisterWorkerSenderSubnode(final int workerSenderSubnodeId) {
+        try {
+            LOG.debug("De-registering WorkerSender subnode");
+            testingService.deregisterSubnode(workerSenderSubnodeId);
+            LOG.debug("De-registered WorkerSender subnode");
+        } catch (final RemoteException e) {
+            LOG.debug("Encountered a remote exception", e);
+            throw new RuntimeException(e);
+        }
+    }
+
+
+    /***
+     * for threads except QuorumPeer / WorkerReceiver / WorkerSender
+     */
     public int registerSubnode(final TestingRemoteService testingService, final SubnodeType subnodeType) {
         try {
             LOG.debug("Found the remote testing service. Registering {} subnode", subnodeType);
