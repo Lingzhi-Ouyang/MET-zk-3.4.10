@@ -8,6 +8,8 @@ import org.disalg.met.api.state.Vote;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Set;
+
 public class LeaderElectionVerifier implements Verifier {
 
     private static final Logger LOG = LoggerFactory.getLogger(LeaderElectionVerifier.class);
@@ -15,11 +17,24 @@ public class LeaderElectionVerifier implements Verifier {
     private final TestingService testingService;
     private final Statistics statistics;
     private Integer modelResult;
+    private Set<Integer> participants;
 
     public LeaderElectionVerifier(final TestingService testingService, Statistics statistics) {
         this.testingService = testingService;
         this.statistics = statistics;
         this.modelResult = null;
+        this.participants = null;
+    }
+
+    public LeaderElectionVerifier(final TestingService testingService, Statistics statistics, final Set<Integer> participants) {
+        this.testingService = testingService;
+        this.statistics = statistics;
+        this.modelResult = null;
+        this.participants = participants;
+    }
+
+    public void setParticipants(Set<Integer> participants) {
+        this.participants = participants;
     }
 
     public void setModelResult(Integer modelResult) {
@@ -37,6 +52,9 @@ public class LeaderElectionVerifier implements Verifier {
         boolean consensus = true;
         String matchModel = "UNMATCHED";
         for (int nodeId = 0; nodeId < testingService.getSchedulerConfiguration().getNumNodes(); ++nodeId) {
+            if (!participants.contains(nodeId)){
+                continue;
+            }
             LOG.debug("--------------->Node Id: {}, NodeState: {}, " +
                             "leader: {},  isLeading: {}, " +
                             "isObservingOrFollowing:{}, {}, " +
