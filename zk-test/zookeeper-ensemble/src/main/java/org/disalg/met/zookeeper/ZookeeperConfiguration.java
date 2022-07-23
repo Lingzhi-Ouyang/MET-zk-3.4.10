@@ -25,10 +25,10 @@ public class ZookeeperConfiguration implements SchedulerConfiguration {
     private static final String DEFAULT_NUM_REBOOTS_AFTER_ELECTION = "0";
     private static final String DEFAULT_MAX_EVENTS = "100";
     private static final String DEFAULT_NUM_PRIORITY_CHANGE_POINTS = "1";
-    private static final String DEFAULT_TICK_TIME = "2000"; // set it smaller!
+    private static final String DEFAULT_TICK_TIME = "1000"; // set it smaller!
 
-    private static final String DEFAULT_INIT_LIMIT = "10"; // set it smaller!
-    private static final String DEFAULT_SYNC_LIMIT = "2"; // set it smaller!
+    private static final String DEFAULT_INIT_LIMIT = "5"; // set it smaller!
+    private static final String DEFAULT_SYNC_LIMIT = "1"; // set it smaller!
     private static final String DEFAULT_CLIENT_PORT = "4000";
     private static final String DEFAULT_BASE_QUORUM_PORT = "2000";
     private static final String DEFAULT_BASE_LEADER_ELECTION_PORT = "5000";
