@@ -5,5 +5,6 @@ public class TestingDef {
         int CLIENT_INITIALIZATION_NOT_DONE = 0;
         int NODE_CRASH = -1;
         int NODE_PAIR_IN_PARTITION = -2;
+        int NOT_INTERCEPTED = -3;
     }
 }
