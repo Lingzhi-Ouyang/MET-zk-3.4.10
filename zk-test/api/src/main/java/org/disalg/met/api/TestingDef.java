@@ -6,5 +6,6 @@ public class TestingDef {
         int NODE_CRASH = -1;
         int NODE_PAIR_IN_PARTITION = -2;
         int NOT_INTERCEPTED = -3;
+        int SUBNODE_UNREGISTERED = -4;
     }
 }
