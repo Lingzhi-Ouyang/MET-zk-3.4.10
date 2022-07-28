@@ -1,9 +1,6 @@
 package org.disalg.met.server.executor;
 
-import org.disalg.met.api.SubnodeState;
-import org.disalg.met.api.MessageType;
-import org.disalg.met.api.Phase;
-import org.disalg.met.api.SubnodeType;
+import org.disalg.met.api.*;
 import org.disalg.met.server.TestingService;
 import org.disalg.met.server.event.FollowerToLeaderMessageEvent;
 import org.disalg.met.server.state.Subnode;
@@ -32,7 +29,7 @@ public class FollowerToLeaderMessageExecutor extends BaseEventExecutor {
         }
         LOG.debug("Releasing message: {}", event.toString());
         releaseFollowerToLeaderMessage(event);
-
+        testingService.waitAllNodesSteady();
         event.setExecuted();
         LOG.debug("Follower message event executed: {}\n\n\n", event.toString());
         return true;
@@ -49,6 +46,8 @@ public class FollowerToLeaderMessageExecutor extends BaseEventExecutor {
         // set the sending subnode to be PROCESSING
         sendingSubnode.setState(SubnodeState.PROCESSING);
 
+        testingService.getControlMonitor().notifyAll();
+
         // if in partition, then just drop it
         final int followerId = sendingSubnode.getNodeId();
         final int leaderId = event.getReceivingNodeId();
@@ -56,51 +55,122 @@ public class FollowerToLeaderMessageExecutor extends BaseEventExecutor {
             return;
         }
 
-        // not int partition
+        // not in partition, so the message can be received
+        // set the receiving subnode to be PROCESSING
         final int type = event.getType();
-        List<Set<Subnode>> subnodeSets = testingService.getSubnodeSets();
-        if (MessageType.PROPOSAL == type) {
-            for (final Subnode subnode : subnodeSets.get(event.getReceivingNodeId())) {
-                if (subnode.getSubnodeType() == SubnodeType.SYNC_PROCESSOR
-                        && SubnodeState.RECEIVING.equals(subnode.getState())) {
-                    // set the receiving subnode to be PROCESSING
-                    subnode.setState(SubnodeState.PROCESSING);
+        final NodeState nodeState = testingService.getNodeStates().get(leaderId);
+        Set<Subnode> subnodes = testingService.getSubnodeSets().get(leaderId);
+        final Phase followerPhase = testingService.getNodePhases().get(followerId);
+
+        if (NodeState.ONLINE.equals(nodeState)) {
+            switch (type) {
+                case MessageType.NEWLEADER:
+                    if (testingService.getFollowerLearnerHandlerSenderMap().get(followerId) == null) {
+                        testingService.waitFollowerMappingLearnerHandlerSender(followerId);
+                    }
+                    final int learnerHanlderSubnodId = testingService.getFollowerLearnerHandlerSenderMap().get(followerId);
+                    // distinguish the follower phase sync / broadcast
+                    if (followerPhase.equals(Phase.SYNC)) {
+                        for (final Subnode subnode : subnodes) {
+                            if (subnode.getId() == learnerHanlderSubnodId
+                                    && SubnodeState.RECEIVING.equals(subnode.getState())) {
+                                // set the receiving LEARNER_HANDLER subnode to be PROCESSING
+                                subnode.setState(SubnodeState.PROCESSING);
+                                break;
+                            }
+                        }
+                        // get according learnerHandlerSender
+//                        testingService.waitSubnodeInSendingState(learnerHanlderSubnodId);
+                    }
                     break;
-                }
-            }
-        } else if (MessageType.COMMIT == type){
-            for (final Subnode subnode : subnodeSets.get(event.getReceivingNodeId())) {
-                if (subnode.getSubnodeType() == SubnodeType.COMMIT_PROCESSOR
-                        && SubnodeState.RECEIVING.equals(subnode.getState())) {
-                    // set the receiving subnode to be PROCESSING
-                    subnode.setState(SubnodeState.PROCESSING);
+                case MessageType.UPTODATE:
+                    testingService.waitFollowerSteadyAfterProcessingUPTODATE(followerId);
                     break;
-                }
+                case MessageType.PROPOSAL: // for now we do not intercept leader's PROPOSAL in sync
+                    // make the learner handler PROCESSING
+                    LOG.info("follower replies to previous PROPOSAL message type : {}", event);
+                    final int learnerHanlderSubnodId2 = testingService.getFollowerLearnerHandlerSenderMap().get(followerId);
+                    testingService.waitSubnodeInSendingState(learnerHanlderSubnodId2);
+//                    final long zxid = event.getZxid();
+//                    if (quorumSynced(zxid)){
+//                        testingService.waitAllNodesSteadyAfterQuorumSynced(zxid);
+//                        if (testingService.getFollowerLearnerHandlerSenderMap().get(followerId) == null) {
+//                            testingService.waitFollowerMappingLearnerHandlerSender(followerId);
+//                        }
+//                        final int learnerHanlderSubnodId2 = testingService.getFollowerLearnerHandlerSenderMap().get(followerId);
+//                        // distinguish the follower phase sync / broadcast
+//                        if (followerPhase.equals(Phase.BROADCAST)) {
+//                            for (final Subnode subnode : subnodes) {
+//                                if (subnode.getId() == learnerHanlderSubnodId2
+//                                        && SubnodeState.RECEIVING.equals(subnode.getState())) {
+//                                    // set the receiving LEARNER_HANDLER subnode to be PROCESSING
+//                                    subnode.setState(SubnodeState.PROCESSING);
+//                                    break;
+//                                }
+//                            }
+//                        }
+//                    }
+                    break;
+                case MessageType.COMMIT: // for now we do not intercept leader's COMMIT in sync
+                    LOG.info("follower replies to previous COMMIT message type : {}", event);
+                    break;
+                default:
+                    LOG.info("follower replies to previous message type : {}", event);
             }
         }
-        testingService.getControlMonitor().notifyAll();
+
+//        if (MessageType.PROPOSAL == type) {
+//            for (final Subnode subnode : subnodes) {
+//                if (subnode.getSubnodeType() == SubnodeType.SYNC_PROCESSOR
+//                        && SubnodeState.RECEIVING.equals(subnode.getState())) {
+//                    // set the receiving subnode to be PROCESSING
+//                    subnode.setState(SubnodeState.PROCESSING);
+//                    break;
+//                }
+//            }
+//        } else if (MessageType.COMMIT == type){
+//            for (final Subnode subnode : subnodes) {
+//                if (subnode.getSubnodeType() == SubnodeType.COMMIT_PROCESSOR
+//                        && SubnodeState.RECEIVING.equals(subnode.getState())) {
+//                    // set the receiving subnode to be PROCESSING
+//                    subnode.setState(SubnodeState.PROCESSING);
+//                    break;
+//                }
+//            }
+//        }
+
+//        testingService.getControlMonitor().notifyAll();
 
         // Post-condition
 
-        // this describes the message type that this ACK replies to
-        if (type == MessageType.NEWLEADER) {
-            // wait for the leader send UPTODATE
-            final Phase followerPhase = testingService.getNodePhases().get(followerId);
-            if (testingService.getFollowerLearnerHandlerSenderMap().get(followerId) == null) {
-                testingService.waitFollowerMappingLearnerHandlerSender(followerId);
-            }
-            final int learnerHanlderSubnodId = testingService.getFollowerLearnerHandlerSenderMap().get(followerId);
-            // distinguish UPTODATE / COMMIT by checking the follower phase sync / broadcast
-            if (followerPhase.equals(Phase.SYNC)) {
-                // get according learnerHandlerSender
-                testingService.waitSubnodeInSendingState(learnerHanlderSubnodId);
-            }
-        } else if (type == MessageType.UPTODATE) {
-            testingService.waitFollowerSteadyAfterProcessingUPTODATE(followerId);
+//        // this describes the message type that this ACK replies to
+//        if (type == MessageType.NEWLEADER) {
+//            // wait for the leader send UPTODATE
+//            final Phase followerPhase = testingService.getNodePhases().get(followerId);
+//            if (testingService.getFollowerLearnerHandlerSenderMap().get(followerId) == null) {
+//                testingService.waitFollowerMappingLearnerHandlerSender(followerId);
+//            }
+//            final int learnerHanlderSubnodId = testingService.getFollowerLearnerHandlerSenderMap().get(followerId);
+//            // distinguish UPTODATE / COMMIT by checking the follower phase sync / broadcast
+//            if (followerPhase.equals(Phase.SYNC)) {
+//                // get according learnerHandlerSender
+//                testingService.waitSubnodeInSendingState(learnerHanlderSubnodId);
+//            }
+//        } else if (type == MessageType.UPTODATE) {
+//            testingService.waitFollowerSteadyAfterProcessingUPTODATE(followerId);
+//        }
+//        else {
+//            LOG.info("follower replies to previous message type : {}", type);
+//        }
+
+    }
+
+    public boolean quorumSynced(final long zxid) {
+        if (testingService.getZxidSyncedMap().containsKey(zxid)){
+            final int count = testingService.getZxidSyncedMap().get(zxid);
+            final int nodeNum = testingService.getSchedulerConfiguration().getNumNodes();
+            return count > nodeNum / 2;
         }
-        else {
-            LOG.info("follower replies to previous message type : {}", type);
-        }
-        testingService.waitAllNodesSteady();
+        return false;
     }
 }

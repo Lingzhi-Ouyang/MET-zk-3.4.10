@@ -53,15 +53,25 @@ public class LeaderToFollowerMessageEvent extends AbstractEvent{
         String action = "LeaderToFollowerMessageEvent";
         switch (type) {
             case MessageType.DIFF:
+                action = "LeaderSendDIFF";
+                break;
             case MessageType.TRUNC:
+                action = "LeaderSendTRUNC";
+                break;
             case MessageType.SNAP:
-                action = "LeaderSyncFollower";
+                action = "LeaderSendSNAP";
+                break;
+            case MessageType.NEWLEADER:
+                action = "LeaderSendNEWLEADER";
                 break;
             case MessageType.UPTODATE:
-                action = "LeaderProcessACKLD";
+                action = "LeaderSendUPTODATE";
+                break;
+            case MessageType.PROPOSAL:
+                action = "LeaderSendPROPOSAL";
                 break;
             case MessageType.COMMIT:
-                action = "LeaderProcessACK";
+                action = "LeaderSendCOMMIT";
                 break;
         }
         return action + "{" +

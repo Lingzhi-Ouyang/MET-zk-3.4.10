@@ -9,7 +9,10 @@ import org.disalg.met.server.state.Subnode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Set;
+
 /***
+ * This predicate is buggy. Do not use this.
  * Wait Predicate for client request event when
  * both learnerHandlerSender & commitProcessor are intercepted
  * - leader: COMMIT_PROCESSOR in SENDING state && LEARNER_HANDLER in SENDING states, other subnodes in SENDING / RECEIVING states
@@ -21,35 +24,68 @@ public class AllNodesSteadyAfterQuorumSynced implements WaitPredicate {
 
     private final TestingService testingService;
 
+    private final Set<Integer> participants;
+
     public AllNodesSteadyAfterQuorumSynced(final TestingService testingService) {
         this.testingService = testingService;
+        this.participants = null;
+    }
+
+    public AllNodesSteadyAfterQuorumSynced(final TestingService testingService, final Set<Integer> participants) {
+        this.testingService = testingService;
+        this.participants = participants;
     }
 
     @Override
-    // TODO: this is too rigid
     public boolean isTrue() {
-        for (int nodeId = 0; nodeId < testingService.getSchedulerConfiguration().getNumNodes(); ++nodeId) {
-            final NodeState nodeState = testingService.getNodeStates().get(nodeId);
-            switch (nodeState) {
-                case STARTING:
-                case STOPPING:
-                    LOG.debug("------Not steady-----Node {} status: {}\n", nodeId, nodeState);
-                    return false;
-                case OFFLINE:
-                    LOG.debug("-----------Node {} status: {}", nodeId, nodeState);
-                    continue;
-                case ONLINE:
-                    LOG.debug("-----------Node {} status: {}", nodeId, nodeState);
-            }
-            LeaderElectionState leaderElectionState = testingService.getLeaderElectionStates().get(nodeId);
-            // TODO: LOOKING ???
-            if (LeaderElectionState.LEADING.equals(leaderElectionState)) {
-                if (!leaderSteadyAfterQuorumSynced(nodeId)) {
-                    return false;
+        if (participants != null) {
+            for (int nodeId: participants) {
+                final NodeState nodeState = testingService.getNodeStates().get(nodeId);
+                switch (nodeState) {
+                    case STARTING:
+                    case STOPPING:
+                        LOG.debug("------Not steady-----Node {} status: {}\n", nodeId, nodeState);
+                        return false;
+                    case OFFLINE:
+                        LOG.debug("-----------Node {} status: {}", nodeId, nodeState);
+                        continue;
+                    case ONLINE:
+                        LOG.debug("-----------Node {} status: {}", nodeId, nodeState);
                 }
-            } else if (LeaderElectionState.FOLLOWING.equals(leaderElectionState)) {
-                if (!followerSteadyAfterQuorumSynced(nodeId)) {
-                    return false;
+                LeaderElectionState leaderElectionState = testingService.getLeaderElectionStates().get(nodeId);
+                if (LeaderElectionState.LEADING.equals(leaderElectionState)) {
+                    if (!leaderSteadyAfterQuorumSynced(nodeId)) {
+                        return false;
+                    }
+                } else if (LeaderElectionState.FOLLOWING.equals(leaderElectionState)) {
+                    if (!followerSteadyAfterQuorumSynced(nodeId)) {
+                        return false;
+                    }
+                }
+            }
+        } else {
+            for (int nodeId = 0; nodeId < testingService.getSchedulerConfiguration().getNumNodes(); ++nodeId) {
+                final NodeState nodeState = testingService.getNodeStates().get(nodeId);
+                switch (nodeState) {
+                    case STARTING:
+                    case STOPPING:
+                        LOG.debug("------Not steady-----Node {} status: {}\n", nodeId, nodeState);
+                        return false;
+                    case OFFLINE:
+                        LOG.debug("-----------Node {} status: {}", nodeId, nodeState);
+                        continue;
+                    case ONLINE:
+                        LOG.debug("-----------Node {} status: {}", nodeId, nodeState);
+                }
+                LeaderElectionState leaderElectionState = testingService.getLeaderElectionStates().get(nodeId);
+                if (LeaderElectionState.LEADING.equals(leaderElectionState)) {
+                    if (!leaderSteadyAfterQuorumSynced(nodeId)) {
+                        return false;
+                    }
+                } else if (LeaderElectionState.FOLLOWING.equals(leaderElectionState)) {
+                    if (!followerSteadyAfterQuorumSynced(nodeId)) {
+                        return false;
+                    }
                 }
             }
         }
@@ -61,6 +97,7 @@ public class AllNodesSteadyAfterQuorumSynced implements WaitPredicate {
         return "all nodes steady after quorum have synced";
     }
 
+    // is it needed to consider partition?
     private boolean leaderSteadyAfterQuorumSynced(final int nodeId) {
         boolean syncProcessorExisted = false;
         boolean commitProcessorExisted = false;
@@ -106,7 +143,7 @@ public class AllNodesSteadyAfterQuorumSynced implements WaitPredicate {
     private boolean followerSteadyAfterQuorumSynced(final int nodeId) {
         boolean syncProcessorExisted = false;
         boolean commitProcessorExisted = false;
-        boolean followerProcessorExisted = false;
+//        boolean followerProcessorExisted = false;
         for (final Subnode subnode : testingService.getSubnodeSets().get(nodeId)) {
             switch (subnode.getSubnodeType()) {
                 case SYNC_PROCESSOR:
@@ -115,9 +152,9 @@ public class AllNodesSteadyAfterQuorumSynced implements WaitPredicate {
                 case COMMIT_PROCESSOR:
                     commitProcessorExisted = true;
                     break;
-                case FOLLOWER_PROCESSOR:
-                    followerProcessorExisted = true;
-                    break;
+//                case FOLLOWER_PROCESSOR:
+//                    followerProcessorExisted = true;
+//                    break;
                 default:
             }
             if (SubnodeState.PROCESSING.equals(subnode.getState())) {
@@ -129,6 +166,7 @@ public class AllNodesSteadyAfterQuorumSynced implements WaitPredicate {
             LOG.debug("-----------Follower node {} subnode {} status: {}, subnode type: {}",
                     nodeId, subnode.getId(), subnode.getState(), subnode.getSubnodeType());
         }
-        return syncProcessorExisted && commitProcessorExisted && followerProcessorExisted;
+        return syncProcessorExisted && commitProcessorExisted ;
+//        return syncProcessorExisted && commitProcessorExisted && followerProcessorExisted;
     }
 }

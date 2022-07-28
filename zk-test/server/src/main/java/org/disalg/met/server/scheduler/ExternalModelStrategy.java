@@ -232,14 +232,16 @@ public class ExternalModelStrategy implements SchedulingStrategy{
 
         statistics.reportNumberOfEnabledEvents(enabled.size());
 
+        if (enabled.size() == 0) {
+            throw new SchedulerConfigurationException();
+        }
         nextEvent = null;
-        assert enabled.size() > 0;
-
         // 2. search specific internal event type
         switch (action) {
             case LeaderSyncFollower: // send NEWLEADER. for now we pass DIFF / TRUNC. NOTE: SNAP is beyond consideration.
             case LeaderProcessACKLD: // send UPTODATE
             case LeaderToFollowerCOMMIT: // SEND COMMIT
+            case LeaderToFollowerProposal:
                 searchLeaderMessage(action, nodeId, peerId, enabled);
                 break;
             case LogPROPOSAL:
@@ -247,12 +249,13 @@ public class ExternalModelStrategy implements SchedulingStrategy{
             case FollowerProcessPROPOSALInSync: // no reply
             case FollowerProcessCOMMITInSync: // no reply
             case FollowerProcessPROPOSAL: // no reply TODO: this is only the first phase
-            case LeaderProcessCOMMIT:
+            case ProcessCOMMIT:
             case FollowerProcessCOMMIT: // COMMIT
                 searchLocalMessage(action, nodeId, enabled);
                 break;
             case FollowerProcessNEWLEADER: // ACK to NEWLEADER
             case FollowerProcessUPTODATE: // ACK to UPTODATE
+            case FollowerToLeaderACK: // ACK to PROPOSAL
                 searchFollowerMessage(action, nodeId, peerId, enabled);
                 break;
         }
@@ -284,6 +287,9 @@ public class ExternalModelStrategy implements SchedulingStrategy{
                     case MessageType.UPTODATE:
                         if (!action.equals(ModelAction.LeaderProcessACKLD)) continue;
                         break;
+                    case MessageType.PROPOSAL:
+                        if (!action.equals(ModelAction.LeaderToFollowerProposal)) continue;
+                        break;
                     case MessageType.COMMIT:
                         if (!action.equals(ModelAction.LeaderToFollowerCOMMIT)) continue;
                         break;
@@ -314,8 +320,8 @@ public class ExternalModelStrategy implements SchedulingStrategy{
                     case MessageType.UPTODATE:
                         if (!action.equals(ModelAction.FollowerProcessUPTODATE)) continue;
                         break;
-                    case MessageType.PROPOSAL:
-                        if (!action.equals(ModelAction.FollowerProcessPROPOSAL)) continue;
+                    case MessageType.PROPOSAL: // as for ACK to PROPOSAL during SYNC, we regard it as a local event
+                        if (!action.equals(ModelAction.FollowerToLeaderACK) ) continue;
                         break;
                     default:
                         continue;
@@ -341,12 +347,12 @@ public class ExternalModelStrategy implements SchedulingStrategy{
                         if (!subnodeType.equals(SubnodeType.SYNC_PROCESSOR)) continue;
 //                        if (type != MessageType.PROPOSAL) continue; // set_data type == 5 not proposal!
                         break;
-                    case FollowerProcessSyncMessage: // no ACK. process DIFF / TRUNC / SNAP /
-                    case FollowerProcessCOMMITInSync: // no reply
-                    case FollowerProcessPROPOSALInSync:
+                    case FollowerProcessSyncMessage: // intercept readPacketInSyncWithLeader. no ACK. process DIFF / TRUNC / SNAP /
+                    case FollowerProcessCOMMITInSync: // intercept readPacketInSyncWithLeader. no ACK
+                    case FollowerProcessPROPOSALInSync: // intercept readPacketInSyncWithLeader. TODO: this will reply ACK later
                         if (!subnodeType.equals(SubnodeType.QUORUM_PEER)) continue;
                         break;
-                    case LeaderProcessCOMMIT:
+                    case ProcessCOMMIT:
                     case FollowerProcessCOMMIT: // no reply
                         if (!subnodeType.equals(SubnodeType.COMMIT_PROCESSOR)) continue;
                         break;

@@ -1,5 +1,6 @@
 package org.disalg.met.server.event;
 
+import org.disalg.met.api.MessageType;
 import org.disalg.met.server.executor.LocalEventExecutor;
 import org.disalg.met.api.SubnodeType;
 import org.slf4j.Logger;
@@ -59,8 +60,32 @@ public class LocalEvent extends AbstractEvent{
 
     @Override
     public String toString() {
-        return "LocalEvent{" +
-                "id=" + getId() +
+        String action = "LocalEvent";
+        switch (type) {
+            case MessageType.DIFF:
+                action = "FollowerProcessDIFF";
+                break;
+            case MessageType.TRUNC:
+                action = "FollowerProcessTRUNC";
+                break;
+            case MessageType.SNAP:
+                action = "FollowerProcessSNAP";
+                break;
+            case MessageType.NEWLEADER:
+                action = "FollowerProcessNEWLEADER";
+                break;
+            case MessageType.UPTODATE:
+                action = "FollowerProcessUPTODATE";
+                break;
+            case MessageType.PROPOSAL:
+                action = "FollowerLogPROPOSAL";
+                break;
+            case MessageType.COMMIT:
+                action = "FollowerProcessCOMMIT";
+                break;
+        }
+        return action +
+                "{id=" + getId() +
                 ", nodeId=" + nodeId +
                 ", subnodeId=" + subnodeId +
                 ", subnodeType=" + subnodeType +

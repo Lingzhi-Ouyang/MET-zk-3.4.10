@@ -11,6 +11,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.util.List;
+import java.util.Set;
 
 public class LeaderToFollowerMessageExecutor extends BaseEventExecutor {
 
@@ -30,7 +32,7 @@ public class LeaderToFollowerMessageExecutor extends BaseEventExecutor {
         }
         LOG.debug("Releasing leader message: {}", event.toString());
         releaseLeaderToFollowerMessage(event);
-
+        testingService.waitAllNodesSteady();
         event.setExecuted();
         LOG.debug("Learner handler message executed: {}\n\n\n", event.toString());
         return true;
@@ -47,62 +49,107 @@ public class LeaderToFollowerMessageExecutor extends BaseEventExecutor {
         // set the sending subnode to be PROCESSING
         sendingSubnode.setState(SubnodeState.PROCESSING);
 
+        testingService.getControlMonitor().notifyAll();
+
         // if in partition, then just drop it
-        final int sendingNodeId = sendingSubnode.getNodeId();
-        final int receivingNodeId = event.getReceivingNodeId();
-        if (testingService.getPartitionMap().get(sendingNodeId).get(receivingNodeId)) {
+        final int leaderId = sendingSubnode.getNodeId();
+        final int followerId = event.getReceivingNodeId();
+        if (testingService.getPartitionMap().get(leaderId).get(followerId)) {
             return;
         }
 
-        // not int partition
-        // not in sync
+        // not in partition, so the message can be received
+        // set the receiving subnode to be PROCESSING
         final int type = event.getType();
-        if (MessageType.PROPOSAL == type) {
-            for (final Subnode subnode : testingService.getSubnodeSets().get(event.getReceivingNodeId())) {
-                if (subnode.getSubnodeType() == SubnodeType.SYNC_PROCESSOR
-                        && SubnodeState.RECEIVING.equals(subnode.getState())) {
-                    // set the receiving subnode to be PROCESSING
-                    subnode.setState(SubnodeState.PROCESSING);
-                    break;
-                }
-            }
-        } else if (MessageType.COMMIT == type){
-            for (final Subnode subnode : testingService.getSubnodeSets().get(event.getReceivingNodeId())) {
-                if (subnode.getSubnodeType() == SubnodeType.COMMIT_PROCESSOR
-                        && SubnodeState.RECEIVING.equals(subnode.getState())) {
-                    // set the receiving subnode to be PROCESSING
-                    subnode.setState(SubnodeState.PROCESSING);
-                    break;
-                }
-            }
-        }
-        testingService.getControlMonitor().notifyAll();
-
-        // Post-condition
-        final int followerId = event.getReceivingNodeId();
         final NodeState nodeState = testingService.getNodeStates().get(followerId);
+        Set<Subnode> subnodes = testingService.getSubnodeSets().get(followerId);
 
-        switch (type) {
+        if (NodeState.ONLINE.equals(nodeState)) {
+            switch (type) {
 //            case MessageType.DIFF:
 //            case MessageType.TRUNC:
 //            case MessageType.SNAP:
-            case MessageType.NEWLEADER:
-            case MessageType.UPTODATE:
-                // wait for the target follower processing local sync event
-                int quorumPeerSubnodeId = -1;
-                if (NodeState.ONLINE.equals(nodeState)) {
-                    for (final Subnode subnode : testingService.getSubnodeSets().get(followerId)) {
-                        if (subnode.getSubnodeType().equals(SubnodeType.QUORUM_PEER)) {
-                            quorumPeerSubnodeId = subnode.getId();
+                case MessageType.NEWLEADER:
+                case MessageType.UPTODATE:
+                    for (final Subnode subnode : subnodes) {
+                        if (subnode.getSubnodeType().equals(SubnodeType.QUORUM_PEER)
+                                && SubnodeState.RECEIVING.equals(subnode.getState())) {
+                            // set the receiving QUORUM_PEER subnode to be PROCESSING
+                            subnode.setState(SubnodeState.PROCESSING);
+                            break;
                         }
                     }
-                    testingService.waitSubnodeInSendingState(quorumPeerSubnodeId);
-                }
-                break;
-            case MessageType.PROPOSAL:
-            case MessageType.COMMIT:
-                break;
+                    break;
+                case MessageType.PROPOSAL: // for now we do not intercept leader's PROPOSAL in sync
+                    for (final Subnode subnode : subnodes) {
+                        if (subnode.getSubnodeType().equals(SubnodeType.SYNC_PROCESSOR)
+                                && SubnodeState.RECEIVING.equals(subnode.getState())) {
+                            // set the receiving SYNC_PROCESSOR subnode to be PROCESSING
+                            subnode.setState(SubnodeState.PROCESSING);
+                            break;
+                        }
+                    }
+                    break;
+                case MessageType.COMMIT: // for now we do not intercept leader's COMMIT in sync
+                    for (final Subnode subnode : subnodes) {
+                        if (subnode.getSubnodeType() == SubnodeType.COMMIT_PROCESSOR
+                                && SubnodeState.RECEIVING.equals(subnode.getState())) {
+                            // set the receiving COMMIT_PROCESSOR subnode to be PROCESSING
+                            subnode.setState(SubnodeState.PROCESSING);
+                            break;
+                        }
+                    }
+                    break;
+                default:
+                    LOG.info("leader sends a message : {}", event);
+            }
         }
-        testingService.waitAllNodesSteady();
+
+//        if (MessageType.PROPOSAL == type) {
+//            for (final Subnode subnode : testingService.getSubnodeSets().get(event.getReceivingNodeId())) {
+//                if (subnode.getSubnodeType() == SubnodeType.SYNC_PROCESSOR
+//                        && SubnodeState.RECEIVING.equals(subnode.getState())) {
+//                    // set the receiving SYNC_PROCESSOR subnode to be PROCESSING
+//                    subnode.setState(SubnodeState.PROCESSING);
+//                    break;
+//                }
+//            }
+//        } else if (MessageType.COMMIT == type){
+//            for (final Subnode subnode : testingService.getSubnodeSets().get(event.getReceivingNodeId())) {
+//                if (subnode.getSubnodeType() == SubnodeType.COMMIT_PROCESSOR
+//                        && SubnodeState.RECEIVING.equals(subnode.getState())) {
+//                    // set the receiving COMMIT_PROCESSOR subnode to be PROCESSING
+//                    subnode.setState(SubnodeState.PROCESSING);
+//                    break;
+//                }
+//            }
+//        }
+
+//        testingService.getControlMonitor().notifyAll();
+
+        // Post-condition
+
+//        switch (type) {
+////            case MessageType.DIFF:
+////            case MessageType.TRUNC:
+////            case MessageType.SNAP:
+//            case MessageType.NEWLEADER:
+//            case MessageType.UPTODATE:
+//                // wait for the target follower processing local sync event
+//                int quorumPeerSubnodeId = -1;
+//                if (NodeState.ONLINE.equals(nodeState)) {
+//                    for (final Subnode subnode : testingService.getSubnodeSets().get(followerId)) {
+//                        if (subnode.getSubnodeType().equals(SubnodeType.QUORUM_PEER)) {
+//                            quorumPeerSubnodeId = subnode.getId();
+//                        }
+//                    }
+//                    testingService.waitSubnodeInSendingState(quorumPeerSubnodeId);
+//                }
+//                break;
+//            case MessageType.PROPOSAL:
+//            case MessageType.COMMIT:
+//                break;
+//        }
+
     }
 }

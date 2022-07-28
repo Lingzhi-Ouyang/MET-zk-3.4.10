@@ -1,5 +1,6 @@
 package org.disalg.met.server.executor;
 
+import org.disalg.met.api.MessageType;
 import org.disalg.met.api.SubnodeState;
 import org.disalg.met.api.SubnodeType;
 import org.disalg.met.server.TestingService;
@@ -10,6 +11,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.Map;
+import java.util.Set;
 
 /***
  * Executor of local event
@@ -31,6 +33,7 @@ public class LocalEventExecutor extends BaseEventExecutor{
         }
         LOG.debug("Processing request: {}", event.toString());
         releaseRequestProcessor(event);
+        testingService.waitAllNodesSteady();
         event.setExecuted();
         LOG.debug("Local event executed: {}\n\n\n", event.toString());
         return true;
@@ -52,45 +55,51 @@ public class LocalEventExecutor extends BaseEventExecutor{
             testingService.getZxidSyncedMap().put(zxid, zxidSyncedMap.getOrDefault(zxid, 0) + 1);
         }
         final Subnode subnode = testingService.getSubnodes().get(event.getSubnodeId());
+
         // set the corresponding subnode to be PROCESSING
         subnode.setState(SubnodeState.PROCESSING);
+
         testingService.getControlMonitor().notifyAll();
 
-        // Post-condition
+        // set the next subnode to be PROCESSING
         switch (event.getSubnodeType()) {
             case QUORUM_PEER: // for FollowerProcessSyncMessage
                 // for FollowerProcessSyncMessage: wait itself to SENDING state since ACK_NEWLEADER will come later anyway
-                testingService.getSyncTypeList().set(event.getNodeId(), event.getType());
+                // for FollowerProcessCOMMITInSync:
+                // FollowerProcessPROPOSALInSync:
+                int eventType = event.getType();
+                if (eventType == MessageType.DIFF || eventType == MessageType.TRUNC || eventType == MessageType.SNAP) {
+                    testingService.getSyncTypeList().set(event.getNodeId(), event.getType());
+                }
                 testingService.waitSubnodeInSendingState(event.getSubnodeId());
-                testingService.waitAllNodesSteady();
                 break;
             case SYNC_PROCESSOR:
-                // TODO: this should a composite action including local event and ack message
-                // till now we do not yet intercept follower's ack to leader, which means we assume that after the proposal logs,
-                // the follower will ack to leader successfully
-                if (quorumSynced(event.getZxid())){
-                    // If learnerHandler's COMMIT is not intercepted
-//                    testingService.waitQuorumToCommit(event);
-                    testingService.waitAllNodesSteadyAfterQuorumSynced();
-                } else {
-                    testingService.waitAllNodesSteady();
-                }
+//                // interceptor version 1
+//                // This if for the implementation not intercepting follower's ack to leader,
+//                // which means we assume that after the proposal logs,
+//                // the follower will ack to leader successfully
+//                if (quorumSynced(event.getZxid())){
+//                    // If learnerHandler's COMMIT is not intercepted
+////                    testingService.waitQuorumToCommit(event);
+//                    testingService.waitAllNodesSteadyAfterQuorumSynced();
+//                } else {
+//                    testingService.waitAllNodesSteady();
+//                }
+
+                // interceptor version 2
+                // intercept log event and ack event
+                // leader will ack self, which is not intercepted
+                // follower will send ACK message to leader, which is intercepted only in follower
+//                LOG.debug("wait follower {}'s SYNC thread be SENDING ACK", event.getNodeId());
+//                testingService.waitSubnodeInSendingState(subnode.getId()); // this is just for follower
                 break;
             case COMMIT_PROCESSOR:
                 testingService.waitCommitProcessorDone(event.getId(), event.getNodeId());
-                testingService.waitAllNodesSteady();
                 break;
         }
     }
 
 
 
-    public boolean quorumSynced(final long zxid) {
-        if (testingService.getZxidSyncedMap().containsKey(zxid)){
-            final int count = testingService.getZxidSyncedMap().get(zxid);
-            final int nodeNum = testingService.getSchedulerConfiguration().getNumNodes();
-            return count > nodeNum / 2;
-        }
-        return false;
-    }
+
 }

@@ -22,7 +22,7 @@ public class FollowerSteadyAfterProcessingUPTODATE implements WaitPredicate{
     public boolean isTrue() {
         boolean syncProcessorExisted = false;
         boolean commitProcessorExisted = false;
-        boolean followerProcessorExisted = false;
+//        boolean followerProcessorExisted = false;
         for (final Subnode subnode : testingService.getSubnodeSets().get(followerId)) {
             switch (subnode.getSubnodeType()) {
                 case SYNC_PROCESSOR:
@@ -31,9 +31,9 @@ public class FollowerSteadyAfterProcessingUPTODATE implements WaitPredicate{
                 case COMMIT_PROCESSOR:
                     commitProcessorExisted = true;
                     break;
-                case FOLLOWER_PROCESSOR:
-                    followerProcessorExisted = true;
-                    break;
+//                case FOLLOWER_PROCESSOR:
+//                    followerProcessorExisted = true;
+//                    break;
                 default:
             }
             if (SubnodeState.PROCESSING.equals(subnode.getState())) {
@@ -45,7 +45,8 @@ public class FollowerSteadyAfterProcessingUPTODATE implements WaitPredicate{
             LOG.debug("-----------Follower node {} subnode {} status: {}, subnode type: {}",
                     followerId, subnode.getId(), subnode.getState(), subnode.getSubnodeType());
         }
-        return syncProcessorExisted && commitProcessorExisted && followerProcessorExisted;
+//        return syncProcessorExisted && commitProcessorExisted && followerProcessorExisted;
+        return syncProcessorExisted && commitProcessorExisted ;
     }
 
     @Override
