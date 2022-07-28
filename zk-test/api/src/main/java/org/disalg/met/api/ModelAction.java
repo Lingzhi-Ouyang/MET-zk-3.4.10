@@ -6,24 +6,25 @@ public enum ModelAction {
     NodeStart,
     PartitionStart,
     PartitionRecover,
-    LeaderProcessRequest, LogPROPOSAL,
+
     ClientGetData,
 
-    // internal events
+    // election & discovery
     ElectionAndDiscovery,
 
-    // leader
+    // sync
     LeaderSyncFollower,
-    LeaderProcessACKLD,
-    LeaderProcessACK, LeaderProcessCOMMIT, LeaderToFollowerCOMMIT,
-
-    // follower
     FollowerProcessSyncMessage,
     FollowerProcessPROPOSALInSync,
     FollowerProcessCOMMITInSync,
     FollowerProcessNEWLEADER,
+    LeaderProcessACKLD,
     FollowerProcessUPTODATE,
-    FollowerProcessPROPOSAL,
-    FollowerProcessCOMMIT
+
+    // broadcast with sub-actions
+    LeaderProcessRequest, LogPROPOSAL,
+    LeaderProcessACK, FollowerToLeaderACK, ProcessCOMMIT,
+    FollowerProcessPROPOSAL, LeaderToFollowerProposal, // follower here also needs to LogPROPOSAL
+    FollowerProcessCOMMIT, LeaderToFollowerCOMMIT // follower here also needs to ProcessCOMMIT
 
 }

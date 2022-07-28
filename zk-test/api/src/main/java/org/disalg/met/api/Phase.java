@@ -1,5 +1,5 @@
 package org.disalg.met.api;
 
 public enum Phase {
-    DISCOVERY, SYNC, BROADCAST, NULL
+    ELECTION_AND_DISCOVERY, SYNC, BROADCAST, NULL
 }
