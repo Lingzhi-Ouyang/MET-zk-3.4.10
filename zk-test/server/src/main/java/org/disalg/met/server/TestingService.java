@@ -1015,7 +1015,7 @@ public class TestingService implements TestingRemoteService {
         try{
 //            statistics.startTimer();
             Set<Integer> lookingParticipants = new HashSet<>(peers);
-            if (leaderElectionStates.get(leaderId).equals(LeaderElectionState.LOOKING)) {
+            if (!leaderElectionStates.get(leaderId).equals(LeaderElectionState.LEADING)) {
                 lookingParticipants.add(leaderId);
             }
             Set<Integer> allParticipants = new HashSet<>(peers);
@@ -2976,16 +2976,24 @@ public class TestingService implements TestingRemoteService {
         ensemble.stopNode(nodeId);
 
         // 3. POST_EXECUTION: wait for the state to be stable
-        // if leader loses quorum, then wait for the leader back into LOOKING
-        if (participants.size() <= schedulerConfiguration.getNumNodes() / 2) {
-            int leaderId = leaderElectionStates.indexOf(LeaderElectionState.LEADING);
-            if (leaderId >= 0 ) {
-                waitAliveNodesInLookingState(new HashSet<Integer>() {{
-                    add(leaderId);
-                }});
+        if (role.equals(LeaderElectionState.FOLLOWING)) {
+            // if a follower is crashed
+            if (participants.size() <= schedulerConfiguration.getNumNodes() / 2) {
+                // if leader loses quorum, then wait for the leader back into LOOKING
+                int leaderId = leaderElectionStates.indexOf(LeaderElectionState.LEADING);
+                if (leaderId >= 0 ) {
+                    controlMonitor.notifyAll();
+                    waitAliveNodesInLookingState(new HashSet<Integer>() {{
+                        add(leaderId);
+                    }});
+                }
             }
         }
-        // if leader un-exists, then wait for the other nodes back into LOOKING .for now we just wait./bui
+        else if (role.equals(LeaderElectionState.LEADING)) {
+            // if leader un-exists, then wait for the other nodes back into LOOKING. For now we just wait.
+            controlMonitor.notifyAll();
+            waitAliveNodesInLookingState(participants);
+        }
     }
 
     public int generateEventId() {
