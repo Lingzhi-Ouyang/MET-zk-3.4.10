@@ -32,7 +32,7 @@ public class LocalEventExecutor extends BaseEventExecutor{
             return false;
         }
         LOG.debug("Processing request: {}", event.toString());
-        releaseRequestProcessor(event);
+        releaseLocalEvent(event);
         testingService.waitAllNodesSteady();
         event.setExecuted();
         LOG.debug("Local event executed: {}\n\n\n", event.toString());
@@ -45,7 +45,7 @@ public class LocalEventExecutor extends BaseEventExecutor{
      * set SYNC_PROCESSOR / COMMIT_PROCESSOR to PROCESSING
      * @param event
      */
-    public void releaseRequestProcessor(final LocalEvent event) {
+    public void releaseLocalEvent(final LocalEvent event) {
 //        logRequestInFlight = event.getId();
         testingService.setMessageInFlight(event.getId());
         SubnodeType subnodeType = event.getSubnodeType();

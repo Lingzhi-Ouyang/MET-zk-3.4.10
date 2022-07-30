@@ -92,6 +92,8 @@ public class TestingService implements TestingRemoteService {
     private final List<Subnode> subnodes = new ArrayList<>();
     private final List<Set<Subnode>> subnodeSets = new ArrayList<>();
 
+    private final Map<Integer, Integer> subnodeMap = new HashMap<>();
+
     private final List<String> followerSocketAddressBook = new ArrayList<>();
     private final List<Integer> followerLearnerHandlerMap = new ArrayList<>();
     private final List<Integer> followerLearnerHandlerSenderMap = new ArrayList<>();
@@ -931,6 +933,8 @@ public class TestingService implements TestingRemoteService {
 
         subnodeSets.clear();
         subnodes.clear();
+        subnodeMap.clear();
+
         nodeStateForClientRequests.clear();
         followerSocketAddressBook.clear();
         followerLearnerHandlerMap.clear();
@@ -2432,7 +2436,6 @@ public class TestingService implements TestingRemoteService {
 //        }
         final Subnode sendingSubnode = subnodes.get(sendingSubnodeId);
         final int sendingNodeId = sendingSubnode.getNodeId();
-//        getSubNodeByID.put(sendingSubnodeId, sendingNodeId);
 
         // Problem: It will make the message that come immediately after the node restarts to be missed
         if (partitionMap.get(sendingNodeId).get(receivingNodeId)){
@@ -2482,7 +2485,7 @@ public class TestingService implements TestingRemoteService {
             // case 2: this event is released since the sending subnode is unregistered
             else if (SubnodeState.UNREGISTERED.equals(subnodes.get(sendingSubnodeId).getState())) {
                 LOG.debug("----------subnode {} of node {} is unregistered! setting ElectionMessage executed and removed. {}",
-                        sendingSubnode, sendingNodeId, electionMessageEvent);
+                        sendingSubnodeId, sendingNodeId, electionMessageEvent);
                 id = TestingDef.RetCode.SUBNODE_UNREGISTERED;
                 electionMessageEvent.setExecuted();
                 schedulingStrategy.remove(electionMessageEvent);
@@ -2503,8 +2506,6 @@ public class TestingService implements TestingRemoteService {
 
     @Override
     public int offerFollowerToLeaderMessage(int sendingSubnodeId, long zxid, String payload, int type) throws RemoteException {
-
-
         final Subnode sendingSubnode = subnodes.get(sendingSubnodeId);
         final int sendingNodeId = sendingSubnode.getNodeId();
 
@@ -2746,7 +2747,6 @@ public class TestingService implements TestingRemoteService {
 
         final Subnode subnode = subnodes.get(subnodeId);
         final int nodeId = subnode.getNodeId();
-//        getSubNodeByID.put(subnodeId, nodeId);
 
         int id = generateEventId();
         final LocalEvent localEvent =
@@ -2792,6 +2792,7 @@ public class TestingService implements TestingRemoteService {
             final Subnode subnode = new Subnode(subnodeId, nodeId, subnodeType);
             subnodes.add(subnode);
             subnodeSets.get(nodeId).add(subnode);
+            subnodeMap.put(subnodeId, nodeId);
         }
         return subnodeId;
     }
@@ -2913,25 +2914,6 @@ public class TestingService implements TestingRemoteService {
             }
         }
 
-//        // This will make the client session socket close immediately
-//        if (leaderElectionStates.get(nodeId).equals(LeaderElectionState.FOLLOWING)) {
-//            Integer learnerHandlerId = followerLearnerHandlerMap.get(nodeId);
-//            Subnode learnerHandler = subnodes.get(learnerHandlerId);
-//            if (SubnodeState.SENDING.equals(learnerHandler.getState())) {
-//                LOG.debug("----Node {} still has SENDING subnode {} {}: {}",
-//                        nodeId, learnerHandler.getSubnodeType(), learnerHandler.getId(), learnerHandler.getState());
-//                hasSending = true;
-//            }
-//
-//            Integer learnerHandlerSenderId = followerLearnerHandlerSenderMap.get(nodeId);
-//            Subnode learnerHandlerSender = subnodes.get(learnerHandlerSenderId);
-//            if (SubnodeState.SENDING.equals(learnerHandlerSender.getState())) {
-//                LOG.debug("----Node {} still has SENDING subnode {} {}: {}",
-//                        nodeId, learnerHandlerSender.getSubnodeType(), learnerHandlerSender.getId(), learnerHandlerSender.getState());
-//                hasSending = true;
-//            }
-//        }
-
         // IF there exists any threads about to send a message, then set the corresponding event executed
         if (hasSending) {
             // STOPPING state will make the pending message to be released immediately
@@ -2992,9 +2974,65 @@ public class TestingService implements TestingRemoteService {
         else if (role.equals(LeaderElectionState.LEADING)) {
             // if leader un-exists, then wait for the other nodes back into LOOKING. For now we just wait.
             controlMonitor.notifyAll();
+            // release all SYNC /COMMIT message
+            LOG.debug("release Broadcast Events of {}", participants);
+            releaseBroadcastEvent(participants);
             waitAliveNodesInLookingState(participants);
         }
     }
+
+    public boolean releaseBroadcastEvent(Set<Integer> peers) {
+        Set<Event> otherEvents = new HashSet<>();
+        try {
+            while (schedulingStrategy.hasNextEvent()) {
+                final Event event = schedulingStrategy.nextEvent();
+                if (event instanceof LeaderToFollowerMessageEvent) {
+                    LeaderToFollowerMessageEvent e1 = (LeaderToFollowerMessageEvent) event;
+                    final int sendingSubnodeId = e1.getSendingSubnodeId();
+                    final Subnode sendingSubnode = subnodes.get(sendingSubnodeId);
+                    final int sendingNodeId = sendingSubnode.getNodeId();
+                    final int receivingNodeId = e1.getReceivingNodeId();
+                    if (peers.contains(sendingNodeId)) {
+                        e1.execute();
+                    } else {
+                        otherEvents.add(event);
+                    }
+                } else if (event instanceof FollowerToLeaderMessageEvent) {
+                    FollowerToLeaderMessageEvent e1 = (FollowerToLeaderMessageEvent) event;
+                    final int sendingSubnodeId = e1.getSendingSubnodeId();
+                    final Subnode sendingSubnode = subnodes.get(sendingSubnodeId);
+                    final int sendingNodeId = sendingSubnode.getNodeId();
+                    if (peers.contains(sendingNodeId)) {
+                        e1.execute();
+                    } else {
+                        otherEvents.add(event);
+                    }
+                } else if (event instanceof LocalEvent) {
+                    LocalEvent e1 = (LocalEvent) event;
+                    final int subnodeId = e1.getSubnodeId();
+                    final Subnode subnode = subnodes.get(subnodeId);
+                    final int nodeId = subnode.getNodeId();
+                    if (peers.contains(nodeId)) {
+                        e1.execute();
+                    } else {
+                        otherEvents.add(event);
+                    }
+                } else {
+                    otherEvents.add(event);
+                }
+            }
+
+            for (Event e: otherEvents) {
+                LOG.debug("Adding back event that is missed during making peers back to LOOKING: {}", e);
+                addEvent(e);
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return true;
+    }
+
+
 
     public int generateEventId() {
         return eventIdGenerator.incrementAndGet();
@@ -3424,7 +3462,7 @@ public class TestingService implements TestingRemoteService {
         LOG.debug("Done waiting for {}\n\n\n\n\n", predicate.describe());
     }
 
-//    public int nodIdOfSubNode(int subNodeID){
-//        return getSubNodeByID.get(subNodeID);
-//    }
+    public int nodIdOfSubNode(int subNodeID){
+        return subnodeMap.get(subNodeID);
+    }
 }
