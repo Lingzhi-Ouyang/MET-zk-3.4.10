@@ -523,7 +523,7 @@ public class TestingService implements TestingRemoteService {
                             break;
                     }
                     committedLogVerifier.verify();
-                    statistics.reportCurrentStep("[Step " + (currentStep + 1) + "]-" + action);
+                    statistics.reportCurrentStep("[Step " + (currentStep + 1) + "/" + stepCount + "]-" + action);
                     statistics.reportTotalExecutedEvents(totalExecuted);
                     statisticsWriter.write(statistics.toString() + "\n\n");
                     LOG.info(statistics.toString() + "\n\n\n\n\n");
@@ -541,7 +541,7 @@ public class TestingService implements TestingRemoteService {
                 traceVerifier.setExecutedStep(currentStep);
                 boolean matchedAndPassed = traceVerifier.verify();
                 String info = currentStep >= stepCount ? "COMPLETE" : action;
-                statistics.reportCurrentStep("[Step " + currentStep + "]-" + info);
+                statistics.reportCurrentStep("[Step " + currentStep + "/" + stepCount + "]-" + info);
                 statistics.reportTotalExecutedEvents(totalExecuted);
                 statisticsWriter.write(statistics.toString() + "\n\n");
                 LOG.info(statistics.toString() + "\n\n\n\n\n");
