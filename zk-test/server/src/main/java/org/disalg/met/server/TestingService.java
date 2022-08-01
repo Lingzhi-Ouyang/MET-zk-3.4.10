@@ -114,6 +114,9 @@ public class TestingService implements TestingRemoteService {
     // record each node's lastProcessedZxid
     private final List<Long> lastProcessedZxids = new ArrayList<>();
 
+    // zxid map from model to code
+    private final Map<Long, Long> modelToCodeZxidMap = new HashMap<>();
+
     // record all nodes' lastProcessedZxid history
     // Note: do not record zxid whose counter is 0 when the epoch >= 1
     // but set 0 as its first record for check convenience
@@ -185,6 +188,10 @@ public class TestingService implements TestingRemoteService {
 
     public List<List<Long>> getAllZxidRecords() {
         return allZxidRecords;
+    }
+
+    public Map<Long, Long> getModelToCodeZxidMap() {
+        return modelToCodeZxidMap;
     }
 
     public List<Integer> getReturnedDataList() {
@@ -441,87 +448,117 @@ public class TestingService implements TestingRemoteService {
                     JSONObject jsonObject = trace.getStep(currentStep);
                     action = jsonObject.keySet().iterator().next();
                     JSONObject elements = jsonObject.getJSONObject(action);
+
+                    // get basic element
+                    String serverName = elements.getString("nodeId");
+                    int nodeId = serverIdMap.get(serverName);
+
                     LOG.debug("nextStep: {}", jsonObject);
-                    LOG.debug("nextStep: {}", action);
+                    LOG.debug("action: {}, nodeId: {}", action, nodeId);
                     modelAction = ModelAction.valueOf(action);
 
                     switch (modelAction) {
                         // external events
                         case NodeCrash:
-                            int crashNodeId = serverIdMap.get(elements.getString("nodeId"));
-                            totalExecuted = scheduleNodeCrash(crashNodeId, totalExecuted);
+                            totalExecuted = scheduleNodeCrash(nodeId, totalExecuted);
                             break;
                         case NodeStart:
-                            int startNodeId = serverIdMap.get(elements.getString("nodeId"));
-                            totalExecuted = scheduleNodeStart(startNodeId, totalExecuted);
+                            totalExecuted = scheduleNodeStart(nodeId, totalExecuted);
                             break;
                         case PartitionStart:
-                            int node1 = serverIdMap.get(elements.getString("nodeId"));
-                            int node2 = serverIdMap.get(elements.getString("peerId"));
-                            LOG.debug("----PARTITION START: {}, {}", node1, node2);
-                            totalExecuted = schedulePartitionStart(node1, node2, totalExecuted);
+                            int peerId1 = serverIdMap.get(elements.getString("peerId"));
+                            totalExecuted = schedulePartitionStart(nodeId, peerId1, totalExecuted);
                             break;
                         case PartitionRecover:
-                            int node3 = serverIdMap.get(elements.getString("nodeId"));
-                            int node4 = serverIdMap.get(elements.getString("peerId"));
-                            LOG.debug("----PARTITION RECOVER: {}, {}", node3, node4);
-                            totalExecuted = schedulePartitionStop(node3, node4, totalExecuted);
+                            int peerId2 = serverIdMap.get(elements.getString("peerId"));
+                            totalExecuted = schedulePartitionStop(nodeId, peerId2, totalExecuted);
                             break;
-                        case LeaderProcessRequest:  // set data & leader log & make proposal message lost when partition
-                            int setDataClientId = elements.getInteger("clientId");
-                            int sid2 = serverIdMap.get(elements.getString("nodeId"));
-                            Integer data = elements.getInteger("data");
-                            String writtenVal = data != null ? data.toString() : null;
-                            totalExecuted = scheduleLeaderProcessRequest(externalModelStrategy, setDataClientId, sid2, writtenVal, totalExecuted);
-                            break;
+
                         case ClientGetData:
                             int getDataClientId = elements.getInteger("clientId");
-                            int sid3 = serverIdMap.get(elements.getString("nodeId"));
                             Integer returnedData = elements.getInteger("data");
-                            totalExecuted = scheduleClientGetData(currentStep, getDataClientId, sid3, returnedData, totalExecuted);
+                            totalExecuted = scheduleClientGetData(currentStep, getDataClientId, nodeId, returnedData, totalExecuted);
                             break;
+
                         // internal events
-                        // Phase election & discovery
                         case ElectionAndDiscovery:
-                            Integer leaderId = serverIdMap.get(elements.getString("nodeId"));
                             JSONArray participants = elements.getJSONArray("peerId");
                             List<Integer> peers = new ArrayList<>();
                             for (Object peer: participants) {
                                 peers.add(serverIdMap.get(peer.toString()));
                             }
-                            LOG.debug("election leader: {}, other participants: {}", leaderId, peers);
-                            totalExecuted = scheduleElectionAndDiscovery(currentStep, leaderId, peers, totalExecuted);
+                            LOG.debug("election leader: {}, other participants: {}", nodeId, peers);
+                            totalExecuted = scheduleElectionAndDiscovery(currentStep, nodeId, peers, totalExecuted);
                             break;
 
-                        case FollowerProcessPROPOSAL: // followr log & send ACK
-                            Integer fId = serverIdMap.get(elements.getString("nodeId"));
-                            Integer lId = serverIdMap.get(elements.getString("peerId"));
-                            totalExecuted = scheduleFollowerProcessPROPOSAL(externalModelStrategy, fId, lId, totalExecuted);
+                        // focus on history
+                        case LeaderProcessRequest:  // set data & leader log & send PROPOSAL
+                            int setDataClientId = elements.getInteger("clientId") != null ?
+                                    elements.getInteger("clientId") : 1;
+                            long lastZxidInLeaderHistory = getLastZxidInNodeHistory(elements, serverName);
+                            LOG.debug("LeaderProcessRequest modelZxid: {}", Long.toHexString(lastZxidInLeaderHistory));
+                            totalExecuted = scheduleLeaderProcessRequest(externalModelStrategy,
+                                    setDataClientId, nodeId, lastZxidInLeaderHistory, totalExecuted);
                             break;
+                        case FollowerProcessPROPOSAL: // follower log & send ACK
+                            int lId = serverIdMap.get(elements.getString("peerId"));
+                            long lastZxidInFollowerHistory = getLastZxidInNodeHistory(elements, serverName);
+                            LOG.debug("FollowerProcessPROPOSAL modelZxid: {}", Long.toHexString(lastZxidInFollowerHistory));
+                            totalExecuted = scheduleFollowerProcessPROPOSAL(externalModelStrategy,
+                                    nodeId, lId, lastZxidInFollowerHistory, totalExecuted);
+                            break;
+
+                        // focus on last committed
                         case LeaderProcessACK: // send COMMIT
-                            Integer nodeId1 = serverIdMap.get(elements.getString("nodeId"));
-                            Integer peerId1 = serverIdMap.get(elements.getString("peerId"));
-                            totalExecuted = scheduleLeaderProcessACK(externalModelStrategy, nodeId1, peerId1, totalExecuted);
+                            int peerId3 = serverIdMap.get(elements.getString("peerId"));
+                            long leaderLastCommitted = getLastZxidInNodeLastCommitted(elements, serverName);
+                            LOG.debug("LeaderProcessACK modelZxid: {}", Long.toHexString(leaderLastCommitted));
+                            totalExecuted = scheduleLeaderProcessACK(externalModelStrategy,
+                                    nodeId, peerId3, leaderLastCommitted, totalExecuted);
                             break;
-                        case FollowerProcessCOMMIT:
-                            Integer nodeId2 = serverIdMap.get(elements.getString("nodeId"));
-                            Integer peerId2 = serverIdMap.get(elements.getString("peerId"));
-                            totalExecuted = scheduleFollowerProcessCOMMIT(externalModelStrategy, nodeId2, peerId2, totalExecuted);
+                        case FollowerProcessCOMMIT: // process COMMIT
+                            int peerId4 = serverIdMap.get(elements.getString("peerId"));
+                            long followerLastCommitted = getLastZxidInNodeLastCommitted(elements, serverName);
+                            LOG.debug("FollowerProcessCOMMIT modelZxid: {}", Long.toHexString(followerLastCommitted));
+                            totalExecuted = scheduleFollowerProcessCOMMIT(externalModelStrategy,
+                                    nodeId, peerId4, followerLastCommitted, totalExecuted);
                             break;
+
+                        // TODO: focus on packets not committed during sync
+                        case FollowerProcessPROPOSALInSync:
+                            int peerId5 = serverIdMap.get(elements.getString("peerId"));
+//                            long firstNotCommitted = getLastNotCommittedInNodePacketsSync(elements, serverName);
+                            long firstNotCommitted = -1;
+                            LOG.debug("FollowerProcessPROPOSALInSync, modelZxid: {}", Long.toHexString(firstNotCommitted));
+                            totalExecuted = scheduleInternalEventWithWaitingRetry(externalModelStrategy,
+                                    modelAction, nodeId, peerId5, firstNotCommitted, totalExecuted, 5);
+                            break;
+
+                        // TODO: focus on packets committed during sync
+                        case FollowerProcessCOMMITInSync:
+                            int peerId6 = serverIdMap.get(elements.getString("peerId"));
+//                            long firstCommitted = getLastCommittedInNodePacketsSync(elements, serverName);
+                            long firstCommitted = -1;
+                            LOG.debug("FollowerProcessCOMMITInSync, modelZxid: {}", Long.toHexString(firstCommitted));
+                            totalExecuted = scheduleInternalEventWithWaitingRetry(externalModelStrategy,
+                                    modelAction, nodeId, peerId6, firstCommitted, totalExecuted, 5);
+                            break;
+
+                        // others
                         case LeaderSyncFollower: // send DIFF /TRUNC
                         case FollowerProcessSyncMessage:
-                        case FollowerProcessPROPOSALInSync:
-                        case FollowerProcessCOMMITInSync:
                         case FollowerProcessNEWLEADER: // send ACK
                         case LeaderProcessACKLD: // send UPTODATE
                         case FollowerProcessUPTODATE: // send ACK
-                            Integer nodeId = serverIdMap.get(elements.getString("nodeId"));
-                            Integer peerId = serverIdMap.get(elements.getString("peerId"));
+                            int peerId7 = serverIdMap.get(elements.getString("peerId"));
+                            long modelZxid7 = -1L;
+                            LOG.debug("{}, modelZxid: {}", action, Long.toHexString(modelZxid7));
                             int retry = 5;
                             totalExecuted = scheduleInternalEventWithWaitingRetry(externalModelStrategy,
-                                    modelAction, nodeId, peerId, totalExecuted, retry);
+                                    modelAction, nodeId, peerId7, modelZxid7, totalExecuted, retry);
                             break;
                     }
+
                     committedLogVerifier.verify();
                     statistics.reportCurrentStep("[Step " + (currentStep + 1) + "/" + stepCount + "]-" + action);
                     statistics.reportTotalExecutedEvents(totalExecuted);
@@ -532,7 +569,12 @@ public class TestingService implements TestingRemoteService {
                 LOG.info("SchedulerConfigurationException found when scheduling Trace {} in Step {} / {}. ",
                         traceName, currentStep, stepCount);
                 tracePassed = false;
-            } finally {
+            } catch (NullPointerException e) {
+                LOG.info("NullPointerException found when scheduling Trace {} in Step {} / {}. ",
+                        traceName, currentStep, stepCount);
+                tracePassed = false;
+            }
+            finally {
                 statistics.endTimer();
 
                 // report statistics of total trace
@@ -757,6 +799,66 @@ public class TestingService implements TestingRemoteService {
         
     }
 
+
+    private long getModelZxidFromArrayForm(final JSONArray modelZxidArrayForm) {
+        long epoch = modelZxidArrayForm.getLong(0) ;
+        long counter = modelZxidArrayForm.getLong(1) ;
+        return (epoch << 32L) | (counter & 0xffffffffL);
+    }
+    /***
+     * For action : LeaderProcessRequest & FollowerProcessPROPOSAL
+     * variables -> history
+     * @param elements
+     * @param serverName
+     * @return
+     */
+    public long getLastZxidInNodeHistory(JSONObject elements, String serverName) {
+        JSONArray serverHistory = elements.getJSONObject("variables").getJSONObject("history").getJSONArray(serverName);
+        JSONArray modelZxidArrayForm = serverHistory.getJSONObject(serverHistory.size() - 1).getJSONArray("zxid");
+        return getModelZxidFromArrayForm(modelZxidArrayForm);
+    }
+
+    /***
+     * For action : LeaderProcessACK & FollowerProcessCOMMIT
+     * variables -> lastCommitted
+     * @param elements
+     * @param serverName
+     * @return
+     */
+    public long getLastZxidInNodeLastCommitted(JSONObject elements, String serverName) {
+        JSONObject lastCommittted = elements.getJSONObject("variables").getJSONObject("lastCommitted").getJSONObject(serverName);
+        JSONArray modelZxidArrayForm = lastCommittted.getJSONArray("zxid");
+        return getModelZxidFromArrayForm(modelZxidArrayForm);
+    }
+
+    /***
+     * For action : FollowerProcessPROPOSALInSync:
+     * variables -> packetsSync -> notCommitted
+     * @param elements
+     * @param serverName
+     * @return
+     */
+    public long getLastNotCommittedInNodePacketsSync(JSONObject elements, String serverName) {
+        JSONObject firstNotCommitted = elements.getJSONObject("variables").getJSONObject("packetsSync")
+                .getJSONObject(serverName).getJSONArray("notCommitted").getJSONObject(0);
+        JSONArray modelZxidArrayForm = firstNotCommitted.getJSONArray("zxid");
+        return getModelZxidFromArrayForm(modelZxidArrayForm);
+    }
+
+    /***
+     * For action : FollowerProcessCOMMITInSync:
+     * variables -> packetsSync -> committed
+     * @param elements
+     * @param serverName
+     * @return
+     */
+    public long getLastCommittedInNodePacketsSync(JSONObject elements, String serverName) {
+        JSONObject firstCommitted = elements.getJSONObject("variables").getJSONObject("packetsSync")
+                .getJSONObject(serverName).getJSONArray("committed").getJSONObject(0);
+        JSONArray modelZxidArrayForm = firstCommitted.getJSONArray("zxid");
+        return getModelZxidFromArrayForm(modelZxidArrayForm);
+    }
+
     public String getServerAddr(int serverId) {
         return "localhost:" + (schedulerConfiguration.getClientPort() + serverId);
     }
@@ -916,6 +1018,7 @@ public class TestingService implements TestingRemoteService {
 
         lastProcessedZxids.clear();
         allZxidRecords.clear();
+        modelToCodeZxidMap.clear();
 
         zxidSyncedMap.clear();
         zxidToCommitMap.clear();
@@ -1364,13 +1467,13 @@ public class TestingService implements TestingRemoteService {
      * This triggers two events :
      *  --> setData
      *  --> Leader log proposal
-     *  --> release LeaderToFollowerMessageEvent(PROPOSAL) if partition un-exists
+     *  --> send LeaderToFollowerMessageEvent(PROPOSAL)
      *  Note: if without specific data, will use eventId as its written string value
      */
     private int scheduleLeaderProcessRequest(ExternalModelStrategy strategy,
                                              final int clientId,
                                              final int serverId,
-                                             final String data,
+                                             final long modelZxid,
                                              int totalExecuted) throws SchedulerConfigurationException {
         try {
             // Step 0. establish session if un-exists
@@ -1386,13 +1489,9 @@ public class TestingService implements TestingRemoteService {
                 waitAllNodesSteadyBeforeRequest();
                 long startTime = System.currentTimeMillis();
                 Event event;
-                if (data == null) {
-                    event = new ClientRequestEvent(generateEventId(), clientId,
-                            ClientRequestType.SET_DATA, clientRequestExecutor);
-                } else {
-                    event = new ClientRequestEvent(generateEventId(), clientId,
-                            ClientRequestType.SET_DATA, data, clientRequestExecutor);
-                }
+                String data = Long.toHexString(modelZxid);
+                event = new ClientRequestEvent(generateEventId(), clientId,
+                        ClientRequestType.SET_DATA, data, clientRequestExecutor);
                 LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
                 LOG.debug("prepare to execute event: {}", event);
                 if (event.execute()) {
@@ -1405,7 +1504,8 @@ public class TestingService implements TestingRemoteService {
         }
 
         // Step 2. Leader log proposal
-        totalExecuted = scheduleInternalEventWithWaitingRetry(strategy, ModelAction.LogPROPOSAL, serverId, -1, totalExecuted, 1);
+        totalExecuted = scheduleInternalEventWithWaitingRetry(strategy, ModelAction.LeaderLog,
+                serverId, -1, modelZxid, totalExecuted, 1);
 
 //        // Step 3. release LeaderToFollowerPROPOSAL(PROPOSAL) if partition un-exists
 //        totalExecuted = scheduleLeaderToFollowerPROPOSAL(strategy, totalExecuted);
@@ -1449,12 +1549,26 @@ public class TestingService implements TestingRemoteService {
     private int scheduleFollowerProcessPROPOSAL(ExternalModelStrategy strategy,
                                                 final int followerId,
                                                 final int leaderId,
+                                                final long modelZxid,
                                                 int totalExecuted) throws SchedulerConfigurationException {
-        // Step 1. leader release PROPOSAL successfully
-        scheduleInternalEventWithWaitingRetry(strategy, ModelAction.LeaderToFollowerProposal, leaderId, followerId, totalExecuted, 1);
+        // to get next processedZxid
 
-        // Step 2. follower log, and wait for follower's SYNC thread sending ACK steady
-        totalExecuted = scheduleInternalEventWithWaitingRetry(strategy, ModelAction.LogPROPOSAL, followerId, -1, totalExecuted, 1);
+        // Step 1. In broadcast, leader release PROPOSAL successfully
+        // Or,  follower just log request that received in SYNC
+
+
+        try {
+            LOG.debug("try to schedule LeaderToFollowerProposal leaderId: {}", leaderId);
+            scheduleInternalEventWithWaitingRetry(strategy, ModelAction.LeaderToFollowerProposal,
+                    leaderId, followerId, modelZxid, totalExecuted, 3);
+        } catch (SchedulerConfigurationException e2) {
+            LOG.debug("SchedulerConfigurationException found when scheduling LeaderToFollowerProposal! " +
+                    "Try to schedule follower's LogPROPOSAL. (This should usually occur in SYNC)");
+        } finally {
+            // Step 2. follower log, and wait for follower's SYNC thread sending ACK steady
+            totalExecuted = scheduleInternalEventWithWaitingRetry(strategy, ModelAction.FollowerLog,
+                    followerId, -1, modelZxid, totalExecuted, 1);
+        }
 
         return totalExecuted;
     }
@@ -1462,18 +1576,21 @@ public class TestingService implements TestingRemoteService {
     private int scheduleLeaderProcessACK(ExternalModelStrategy strategy,
                                              final int leaderId,
                                              final int followerId,
+                                             final long modelZxid,
                                              int totalExecuted) throws SchedulerConfigurationException {
 
         // Step 1. release follower's ACK, and by default this will trigger leader to start committing process
-        scheduleInternalEventWithWaitingRetry(strategy, ModelAction.FollowerToLeaderACK, followerId, leaderId, totalExecuted, 5);
+        scheduleInternalEventWithWaitingRetry(strategy, ModelAction.FollowerToLeaderACK,
+                followerId, leaderId, modelZxid, totalExecuted, 5);
 
 
         // Step 2. release leader's local commit if not done
         try {
-            LOG.debug("try to schedule LeaderProcessCOMMIT leaderId: {}", leaderId);
-            scheduleInternalEvent(strategy, ModelAction.ProcessCOMMIT, leaderId, -1, totalExecuted);
+            LOG.debug("try to schedule LeaderCommit leaderId: {}", leaderId);
+            scheduleInternalEvent(strategy, ModelAction.LeaderCommit, leaderId, -1, modelZxid, totalExecuted);
         } catch (SchedulerConfigurationException e2) {
-            LOG.debug("SchedulerConfigurationException found when scheduling leader's local commit! This will be fine.");
+            LOG.debug("This will be fine. SchedulerConfigurationException found when scheduling leader's local commit! " +
+                    "Ensure leader already commits this zxid {}", Long.toHexString(modelZxid));
         }
 //        LOG.debug("try to schedule LeaderToFollowerCOMMIT leaderId: {}, followerId: {}", leaderId, followerId);
 //        totalExecuted = scheduleInternalEvent(strategy, ModelAction.LeaderToFollowerCOMMIT, leaderId, followerId, totalExecuted);
@@ -1484,12 +1601,16 @@ public class TestingService implements TestingRemoteService {
     private int scheduleFollowerProcessCOMMIT(ExternalModelStrategy strategy,
                                                 final int followerId,
                                                 final int leaderId,
+                                                final long modelZxid,
                                                 int totalExecuted) throws SchedulerConfigurationException {
         // Step 1. leader release PROPOSAL successfully
-        scheduleInternalEventWithWaitingRetry(strategy, ModelAction.LeaderToFollowerCOMMIT, leaderId, followerId, totalExecuted, 1);
+        scheduleInternalEventWithWaitingRetry(strategy, ModelAction.LeaderToFollowerCOMMIT,
+                leaderId, followerId, modelZxid, totalExecuted, 1);
 
         // Step 2. follower log, and wait for follower's SYNC thread sending ACK steady
-        totalExecuted = scheduleInternalEventWithWaitingRetry(strategy, ModelAction.ProcessCOMMIT, followerId, -1, totalExecuted, 1);
+        totalExecuted = scheduleInternalEventWithWaitingRetry(strategy, ModelAction.FollowerCommit,
+                followerId, -1, modelZxid, totalExecuted, 1);
+
         return totalExecuted;
     }
 
@@ -1623,15 +1744,17 @@ public class TestingService implements TestingRemoteService {
     }
 
     public int scheduleInternalEventWithRetry(ExternalModelStrategy strategy,
-                                     final ModelAction action,
-                                     final int nodeId,
-                                     final int peerId,
-                                     int totalExecuted, int retry) throws SchedulerConfigurationException {
+                                              final ModelAction action,
+                                              final int nodeId,
+                                              final int peerId,
+                                              final long modelZxid,
+                                              int totalExecuted,
+                                              int retry) throws SchedulerConfigurationException {
         while (true) {
             try {
                 synchronized (controlMonitor) {
                     long startTime = System.currentTimeMillis();
-                    Event event = strategy.getNextInternalEvent(action, nodeId, peerId);
+                    Event event = strategy.getNextInternalEvent(action, nodeId, peerId, modelZxid);
                     assert event != null;
                     LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
                     LOG.debug("prepare to execute event: {}", event);
@@ -1659,12 +1782,13 @@ public class TestingService implements TestingRemoteService {
                                               final ModelAction action,
                                               final int nodeId,
                                               final int peerId,
+                                              final long modelZxid,
                                               int totalExecuted, int retry) throws SchedulerConfigurationException {
         while (retry > 0) {
             try {
                 synchronized (controlMonitor) {
                     long startTime = System.currentTimeMillis();
-                    Event event = waitTargetInternalEventReady(strategy, action, nodeId, peerId);
+                    Event event = waitTargetInternalEventReady(strategy, action, nodeId, peerId, modelZxid);
                     if (event == null) {
                         retry--;
                         LOG.debug("target internal event not found! will wait with retry {} more time(s).", retry);
@@ -1703,12 +1827,13 @@ public class TestingService implements TestingRemoteService {
                                      final ModelAction action,
                                      final int nodeId,
                                      final int peerId,
+                                     final long modelZxid,
                                      int totalExecuted) throws SchedulerConfigurationException {
         try {
             synchronized (controlMonitor) {
 //                    waitTargetInternalEventReady(strategy, action, nodeId, peerId);
                 long startTime = System.currentTimeMillis();
-                Event event = strategy.getNextInternalEvent(action, nodeId, peerId);
+                Event event = strategy.getNextInternalEvent(action, nodeId, peerId, modelZxid);
                 assert event != null;
                 LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
                 LOG.debug("prepare to execute event: {}", event);
@@ -3265,8 +3390,9 @@ public class TestingService implements TestingRemoteService {
     private Event waitTargetInternalEventReady(ExternalModelStrategy strategy,
                                                  ModelAction action,
                                                  Integer nodeId,
-                                                 Integer peerId) {
-        final TargetInternalEventReady targetInternalEventReady = new TargetInternalEventReady(this, strategy, action, nodeId, peerId);
+                                                 Integer peerId,
+                                                 long modelZxid) {
+        final TargetInternalEventReady targetInternalEventReady = new TargetInternalEventReady(this, strategy, action, nodeId, peerId, modelZxid);
         wait(targetInternalEventReady, 100L);
         Event e = targetInternalEventReady.getEvent();
         return e;

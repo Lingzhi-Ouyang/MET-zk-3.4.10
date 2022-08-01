@@ -17,7 +17,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.apache.commons.lang3.StringUtils;
 
-import javax.jws.WebParam;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
@@ -219,7 +218,7 @@ public class ExternalModelStrategy implements SchedulingStrategy{
         return trace;
     }
 
-    public Event getNextInternalEvent(ModelAction action, int nodeId, int peerId) throws SchedulerConfigurationException {
+    public Event getNextInternalEvent(ModelAction action, int nodeId, int peerId, long modelZxid) throws SchedulerConfigurationException {
         // 1. get all enabled events
         final List<Event> enabled = new ArrayList<>();
         LOG.debug("prepareNextEvent: events.size: {}", events.size());
@@ -242,21 +241,23 @@ public class ExternalModelStrategy implements SchedulingStrategy{
             case LeaderProcessACKLD: // send UPTODATE
             case LeaderToFollowerCOMMIT: // SEND COMMIT
             case LeaderToFollowerProposal:
-                searchLeaderMessage(action, nodeId, peerId, enabled);
+                searchLeaderMessage(action, nodeId, peerId, modelZxid, enabled);
                 break;
-            case LogPROPOSAL:
+            case LeaderLog:
+            case FollowerLog:
             case FollowerProcessSyncMessage: // no ACK. process DIFF / TRUNC / SNAP
             case FollowerProcessPROPOSALInSync: // no reply
             case FollowerProcessCOMMITInSync: // no reply
             case FollowerProcessPROPOSAL: // no reply TODO: this is only the first phase
-            case ProcessCOMMIT:
+            case LeaderCommit:
+            case FollowerCommit:
             case FollowerProcessCOMMIT: // COMMIT
-                searchLocalMessage(action, nodeId, enabled);
+                searchLocalMessage(action, nodeId, modelZxid, enabled);
                 break;
             case FollowerProcessNEWLEADER: // ACK to NEWLEADER
             case FollowerProcessUPTODATE: // ACK to UPTODATE
             case FollowerToLeaderACK: // ACK to PROPOSAL
-                searchFollowerMessage(action, nodeId, peerId, enabled);
+                searchFollowerMessage(action, nodeId, peerId, modelZxid, enabled);
                 break;
         }
 
@@ -270,7 +271,11 @@ public class ExternalModelStrategy implements SchedulingStrategy{
         return nextEvent;
     }
 
-    public void searchLeaderMessage(final ModelAction action, final int nodeId, final int peerId, List<Event> enabled) {
+    public void searchLeaderMessage(final ModelAction action,
+                                    final int nodeId,
+                                    final int peerId,
+                                    final long modelZxid,
+                                    List<Event> enabled) {
         for (final Event e : enabled) {
             if (e instanceof LeaderToFollowerMessageEvent) {
                 final LeaderToFollowerMessageEvent event = (LeaderToFollowerMessageEvent) e;
@@ -289,9 +294,21 @@ public class ExternalModelStrategy implements SchedulingStrategy{
                         break;
                     case MessageType.PROPOSAL:
                         if (!action.equals(ModelAction.LeaderToFollowerProposal)) continue;
+                        // check the equality between zxid mapping from model to code
+                        if (event.getZxid() != testingService.getModelToCodeZxidMap().get(modelZxid)) continue;
+                        LOG.debug("LeaderToFollowerProposal, check getModelToCodeZxidMap: {}, {}, {}",
+                                Long.toHexString(modelZxid),
+                                Long.toHexString(testingService.getModelToCodeZxidMap().get(modelZxid)),
+                                Long.toHexString(event.getZxid()));
                         break;
                     case MessageType.COMMIT:
                         if (!action.equals(ModelAction.LeaderToFollowerCOMMIT)) continue;
+                        // check the equality between zxid mapping from model to code
+                        if (event.getZxid() != testingService.getModelToCodeZxidMap().get(modelZxid)) continue;
+                        LOG.debug("LeaderToFollowerCOMMIT, check getModelToCodeZxidMap: {}, {}, {}",
+                                Long.toHexString(modelZxid),
+                                Long.toHexString(testingService.getModelToCodeZxidMap().get(modelZxid)),
+                                Long.toHexString(event.getZxid()));
                         break;
                     default:
                         continue;
@@ -303,7 +320,11 @@ public class ExternalModelStrategy implements SchedulingStrategy{
         }
     }
 
-    public void searchFollowerMessage(final ModelAction action, final int nodeId, final int peerId, List<Event> enabled) {
+    public void searchFollowerMessage(final ModelAction action,
+                                      final int nodeId,
+                                      final int peerId,
+                                      final long modelZxid,
+                                      List<Event> enabled) {
         for (final Event e : enabled) {
             if (e instanceof FollowerToLeaderMessageEvent) {
                 final FollowerToLeaderMessageEvent event = (FollowerToLeaderMessageEvent) e;
@@ -322,6 +343,12 @@ public class ExternalModelStrategy implements SchedulingStrategy{
                         break;
                     case MessageType.PROPOSAL: // as for ACK to PROPOSAL during SYNC, we regard it as a local event
                         if (!action.equals(ModelAction.FollowerToLeaderACK) ) continue;
+                        // check the equality between zxid mapping from model to code
+                        if (event.getZxid() != testingService.getModelToCodeZxidMap().get(modelZxid)) continue;
+                        LOG.debug("FollowerToLeaderACK, check getModelToCodeZxidMap: {}, {}, {}",
+                                Long.toHexString(modelZxid),
+                                Long.toHexString(testingService.getModelToCodeZxidMap().get(modelZxid)),
+                                Long.toHexString(event.getZxid()));
                         break;
                     default:
                         continue;
@@ -333,7 +360,10 @@ public class ExternalModelStrategy implements SchedulingStrategy{
         }
     }
 
-    public void searchLocalMessage(final ModelAction action, final int nodeId, List<Event> enabled) {
+    public void searchLocalMessage(final ModelAction action,
+                                   final int nodeId,
+                                   final long modelZxid,
+                                   List<Event> enabled) {
         for (final Event e : enabled) {
             if (e instanceof LocalEvent) {
                 final LocalEvent event = (LocalEvent) e;
@@ -342,8 +372,26 @@ public class ExternalModelStrategy implements SchedulingStrategy{
                 final SubnodeType subnodeType = event.getSubnodeType();
                 final int type = event.getType();
                 switch (action) {
-                    case LogPROPOSAL:
-                    case FollowerProcessPROPOSAL:  // LOG_REQUEST . TODO: add interceptor to this composite action
+                    case LeaderLog:
+                        final long eventZxid = event.getZxid();
+                        if (!subnodeType.equals(SubnodeType.SYNC_PROCESSOR)) continue;
+                        // since leaderLog always come first, here record the zxid mapping from model to code
+                        testingService.getModelToCodeZxidMap().put(modelZxid, eventZxid);
+                        LOG.debug("LeaderLog, check getModelToCodeZxidMap: {}, {}, {}",
+                                Long.toHexString(modelZxid),
+                                Long.toHexString(testingService.getModelToCodeZxidMap().get(modelZxid)),
+                                Long.toHexString(event.getZxid()));
+                        break;
+                    case FollowerLog:
+                        if (!subnodeType.equals(SubnodeType.SYNC_PROCESSOR)) continue;
+                        // check the equality between zxid mapping from model to code
+                        if (event.getZxid() != testingService.getModelToCodeZxidMap().get(modelZxid)) continue;
+                        LOG.debug("FollowerLog, check getModelToCodeZxidMap: {}, {}, {}",
+                                Long.toHexString(modelZxid),
+                                Long.toHexString(testingService.getModelToCodeZxidMap().get(modelZxid)),
+                                Long.toHexString(event.getZxid()));
+                        break;
+                    case FollowerProcessPROPOSAL:  // DEPRECATED
                         if (!subnodeType.equals(SubnodeType.SYNC_PROCESSOR)) continue;
 //                        if (type != MessageType.PROPOSAL) continue; // set_data type == 5 not proposal!
                         break;
@@ -352,9 +400,16 @@ public class ExternalModelStrategy implements SchedulingStrategy{
                     case FollowerProcessPROPOSALInSync: // intercept readPacketInSyncWithLeader. TODO: this will reply ACK later
                         if (!subnodeType.equals(SubnodeType.QUORUM_PEER)) continue;
                         break;
-                    case ProcessCOMMIT:
-                    case FollowerProcessCOMMIT: // no reply
+                    case LeaderCommit:
+                    case FollowerCommit:
+                    case FollowerProcessCOMMIT: // DEPRECATED
                         if (!subnodeType.equals(SubnodeType.COMMIT_PROCESSOR)) continue;
+                        // check the equality between zxid mapping from model to code
+                        LOG.debug("ProcessCOMMIT, check getModelToCodeZxidMap: {}, {}, {}",
+                                Long.toHexString(modelZxid),
+                                Long.toHexString(testingService.getModelToCodeZxidMap().get(modelZxid)),
+                                Long.toHexString(event.getZxid()));
+                        if (event.getZxid() != testingService.getModelToCodeZxidMap().get(modelZxid)) continue;
                         break;
                     default:
                         continue;

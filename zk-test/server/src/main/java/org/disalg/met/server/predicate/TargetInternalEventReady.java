@@ -26,16 +26,20 @@ public class TargetInternalEventReady implements WaitPredicate{
 
     private Event event = null;
 
+    private long modelZxid;
+
     public TargetInternalEventReady(final TestingService testingService,
                                     ExternalModelStrategy strategy,
                                     ModelAction action,
                                     Integer nodeId,
-                                    Integer peerId) {
+                                    Integer peerId,
+                                    long modelZxid) {
         this.testingService = testingService;
         this.externalModelStrategy = strategy;
         this.modelAction = action;
         this.nodeId = nodeId;
         this.peerId = peerId;
+        this.modelZxid = modelZxid;
     }
 
     public Event getEvent() {
@@ -45,7 +49,7 @@ public class TargetInternalEventReady implements WaitPredicate{
     @Override
     public boolean isTrue() {
         try {
-            event = externalModelStrategy.getNextInternalEvent(modelAction, nodeId, peerId);
+            event = externalModelStrategy.getNextInternalEvent(modelAction, nodeId, peerId, modelZxid);
         } catch (SchedulerConfigurationException e) {
             LOG.debug("SchedulerConfigurationException found when scheduling {}!", modelAction);
             return false;
