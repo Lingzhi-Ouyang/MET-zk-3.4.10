@@ -20,9 +20,12 @@ public aspect LearnerAspect {
 
     /***
      * For follower's sync with leader process without replying (partition will not work)
-     *  --> FollowerProcessSyncMessage : will not send anything.
-     *  --> FollowerProcessPROPOSALInSync :  will not send anything.
-     *  --> FollowerProcessCOMMITInSync : will not send anything.
+     * For getting lastReadType during SYNC:
+     *  DIFF / TRUNC / SNAP --> FollowerProcessSyncMessage : will not send ACK.
+     *  PROPOSAL --> FollowerProcessPROPOSALInSync :  will not send ACK during sync. Actually will send ACK until in broadcast phase. see zk-3911
+     *  COMMIT --> FollowerProcessCOMMITInSync : will not send ACK.
+     *  NEWLEADER --> record this message type, will send ACK, so will be processed in writePacketInSyncWithLeader
+     *  UPTODATE --> record this message type, will send ACK, so will be processed in writePacketInSyncWithLeader
      * Related code: Learner.java
      */
     pointcut readPacketInSyncWithLeader(QuorumPacket packet):
@@ -49,6 +52,7 @@ public aspect LearnerAspect {
         LOG.debug("---------readPacket: ({}). Subnode: {}", payload, quorumPeerSubnodeId);
         final int type =  packet.getType();
         lastReadType = type;
+        // will not intercept NEWLEADER / UPTODATE
         if (type == Leader.DIFF || type == Leader.TRUNC || type == Leader.SNAP
                 || type == Leader.PROPOSAL || type == Leader.COMMIT) {
             try {
@@ -73,8 +77,8 @@ public aspect LearnerAspect {
     /***
      * For follower's sync with leader process with sending REPLY (partition will work on the process)
      * Since follower will always reply ACK type, so it is more useful to match its last package type
-     *  --> FollowerProcessUPTODATE : send ACK, offerFollowerToLeaderMessage
-     *  --> FollowerProcessNEWLEADER : send ACK,  offerFollowerToLeaderMessage
+     *  lastReadType==NEWLEADER --> FollowerProcessUPTODATE : send ACK to UPTODATE, offerFollowerToLeaderMessage
+     *  lastReadType==UPTODATE --> FollowerProcessNEWLEADER : send ACK to NEWLEADER,  offerFollowerToLeaderMessage
      * Related code: Learner.java
      */
     pointcut writePacketInSyncWithLeader(QuorumPacket packet, boolean flush):
@@ -96,7 +100,8 @@ public aspect LearnerAspect {
             return;
         }
 
-        if (quorumPeerAspect.isNewLeaderDone()) {
+//        if (quorumPeerAspect.isNewLeaderDone()) {
+        if (lastReadType == Leader.UPTODATE) {
             // FollowerProcessUPTODATE
             try {
                 LOG.debug("-------receiving UPTODATE!!!!-------begin to serve clients");
@@ -127,7 +132,7 @@ public aspect LearnerAspect {
                 LOG.debug("Encountered a remote exception", e);
                 throw new RuntimeException(e);
             }
-        } else {
+        } else if (lastReadType == Leader.NEWLEADER) {
             // processing Leader.NEWLEADER
             try {
                 quorumPeerAspect.setSyncFinished(false);
@@ -156,6 +161,9 @@ public aspect LearnerAspect {
                 LOG.debug("Encountered a remote exception", e);
                 throw new RuntimeException(e);
             }
+        } else {
+            proceed(packet, flush);
+            return;
         }
     }
 }

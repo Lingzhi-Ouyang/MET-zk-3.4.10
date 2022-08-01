@@ -34,10 +34,12 @@ public aspect SyncRequestProcessorAspect {
         LOG.debug("-------Thread: {}------", Thread.currentThread().getName());
         LOG.debug("before runSyncProcessor");
         subnodeId = quorumPeerAspect.registerSubnode(testingService, SubnodeType.SYNC_PROCESSOR);
+        quorumPeerAspect.setSyncSubnodeId(subnodeId);
     }
 
     after(): runSyncProcessor() {
         LOG.debug("after runSyncProcessor");
+        quorumPeerAspect.setSyncSubnodeId(-1);
         quorumPeerAspect.deregisterSubnode(testingService, subnodeId, SubnodeType.SYNC_PROCESSOR);
     }
 

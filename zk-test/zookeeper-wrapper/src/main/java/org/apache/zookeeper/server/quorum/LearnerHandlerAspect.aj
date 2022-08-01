@@ -32,9 +32,22 @@ public aspect LearnerHandlerAspect {
         final long threadId = Thread.currentThread().getId();
         final String threadName = Thread.currentThread().getName();
         LOG.debug("before runLearnerHandler-------Thread: {}, {}------", threadId, threadName);
-        quorumPeerAspect.registerSubnode(
+        QuorumPeerAspect.SubnodeIntercepter intercepter = quorumPeerAspect.registerSubnode(
                 Thread.currentThread().getId(), Thread.currentThread().getName(), SubnodeType.LEARNER_HANDLER);
         // Set RECEIVING state since there is nowhere else to set
+        int subnodeId = -1;
+        try{
+            subnodeId = intercepter.getSubnodeId();
+        } catch (RuntimeException e) {
+            LOG.debug("--------catch exception: {}", e.toString());
+            throw new RuntimeException(e);
+        }
+        try {
+            intercepter.getTestingService().setReceivingState(subnodeId);
+        } catch (final RemoteException e) {
+            LOG.debug("Encountered a remote exception", e);
+            throw new RuntimeException(e);
+        }
     }
 
     after(): runLearnerHandler() {
@@ -163,54 +176,61 @@ public aspect LearnerHandlerAspect {
         QuorumPacket packet = (QuorumPacket) r;
         final String payload = quorumPeerAspect.packetToString(packet);
         final int type =  packet.getType();
-        switch (type) {
-            case Leader.NEWLEADER:
-                LOG.debug("-------sending UPTODATE!!!!-------begin to serve clients");
-                break;
-            case Leader.UPTODATE:
-                intercepter.setSyncFinished(true);
-                LOG.debug("-------sending UPTODATE!!!!-------begin to serve clients");
-                break;
-            case Leader.COMMIT:
-                LOG.debug("-------sending COMMIT!!!!");
-                if (!intercepter.isSyncFinished()) {
-                    LOG.debug("---------Taking the packet ({}) from queued packets. Won't intercept. Subnode: {}",
+        LOG.debug("---------Taking the packet ({}) from queued packets. Subnode: {}",
                             payload, subnodeId);
-                    proceed(r, s);
-                    return;
-                }
-                break;
-            case Leader.PROPOSAL:
-                LOG.debug("-------sending PROPOSAL!!!!");
-                if (!intercepter.isSyncFinished()) {
-                    LOG.debug("---------Taking the packet ({}) from queued packets. Won't intercept. Subnode: {}",
-                            payload, subnodeId);
-                    proceed(r, s);
-                    return;
-                }
-                break;
-            case Leader.DIFF:
-            case Leader.TRUNC:
-            case Leader.SNAP:
-            case Leader.REQUEST:
-            case Leader.ACK:
-            case Leader.PING:
-            case Leader.REVALIDATE:
-            case Leader.SYNC:
-            case Leader.INFORM:
-            case Leader.FOLLOWERINFO:
-            case Leader.OBSERVERINFO:
-            case Leader.LEADERINFO:
-            case Leader.ACKEPOCH:
-                LOG.debug("---------Taking the packet ({}) from queued packets. Won't intercept. Subnode: {}",
-                        payload, subnodeId);
-                proceed(r, s);
-                return;
-        }
+//        switch (type) {
+//            case Leader.NEWLEADER:
+//                LOG.debug("-------sending UPTODATE!!!!-------begin to serve clients");
+//                break;
+//            case Leader.UPTODATE:
+//                intercepter.setSyncFinished(true);
+//                LOG.debug("-------sending UPTODATE!!!!-------begin to serve clients");
+//                break;
+//            case Leader.COMMIT:
+//                LOG.debug("-------sending COMMIT!!!!");
+//                if (!intercepter.isSyncFinished()) {
+//                    LOG.debug("---------Taking the packet ({}) from queued packets. Won't intercept. Subnode: {}",
+//                            payload, subnodeId);
+//                    proceed(r, s);
+//                    return;
+//                }
+//                break;
+//            case Leader.PROPOSAL:
+//                LOG.debug("-------sending PROPOSAL!!!!");
+//                if (!intercepter.isSyncFinished()) {
+//                    LOG.debug("---------Taking the packet ({}) from queued packets. Won't intercept. Subnode: {}",
+//                            payload, subnodeId);
+//                    proceed(r, s);
+//                    return;
+//                }
+//                break;
+//            case Leader.DIFF:
+//            case Leader.TRUNC:
+//            case Leader.SNAP:
+//            case Leader.REQUEST:
+//            case Leader.ACK:
+//            case Leader.PING:
+//            case Leader.REVALIDATE:
+//            case Leader.SYNC:
+//            case Leader.INFORM:
+//            case Leader.FOLLOWERINFO:
+//            case Leader.OBSERVERINFO:
+//            case Leader.LEADERINFO:
+//            case Leader.ACKEPOCH:
+//                LOG.debug("---------Taking the packet ({}) from queued packets. Won't intercept. Subnode: {}",
+//                        payload, subnodeId);
+//                proceed(r, s);
+//                return;
+//        }
+
+
 
         try {
             // before offerMessage: increase sendingSubnodeNum
-            quorumPeerAspect.setSubnodeSending();
+            if (type != Leader.PING) {
+                quorumPeerAspect.setSubnodeSending(intercepter);
+            }
+//            quorumPeerAspect.setSubnodeSending(intercepter);
 
             final String receivingAddr = threadName.split("-")[1];
             final long zxid = packet.getZxid();
@@ -220,12 +240,15 @@ public aspect LearnerHandlerAspect {
 
             // to check if the node is crashed
             // after offerMessage: decrease sendingSubnodeNum and shutdown this node if sendingSubnodeNum == 0
-            quorumPeerAspect.postSend(subnodeId, lastPacketId);
-
-            // TODO: confirm this check before partition check is ok by checking the code of LearnerHandler
-            if (type == Leader.UPTODATE) {
-                quorumPeerAspect.getTestingService().readyForBroadcast(subnodeId);
+            if (type != Leader.PING) {
+                quorumPeerAspect.postSend(intercepter, subnodeId, lastPacketId);
             }
+//            quorumPeerAspect.postSend(intercepter, subnodeId, lastPacketId);
+
+////            // TODO: confirm this check before partition check is ok by checking the code of LearnerHandler
+//            if (type == Leader.UPTODATE) {
+//                quorumPeerAspect.getTestingService().readyForBroadcast(subnodeId);
+//            }
 
             // Trick: set RECEIVING state here
             intercepter.getTestingService().setReceivingState(subnodeId);
@@ -245,51 +268,60 @@ public aspect LearnerHandlerAspect {
 
     }
 
-    /***
-     * For LearnerHandler sending followers' message during SYNC phase immediately without adding to the queue
-     * package type:
-     * (for ZAB1.0) LEADERINFO (17)
-     * (for ZAB < 1.0) NEWLEADER (10)
-     * (for ZAB1.0) DIFF (13) / TRUNC (14) / SNAP (15)
-     *  --> For now we pass DIFF (13) / TRUNC (14) / SNAP (15) so this pointcut is deprecated
-     */
-    @Deprecated
-    pointcut learnerHandlerWriteRecord(Record r, String s):
-            withincode(* org.apache.zookeeper.server.quorum.LearnerHandler.run()) &&
-                    call(* org.apache.jute.BinaryOutputArchive.writeRecord(Record, String)) && args(r, s);
+//    /***
+//     * For LearnerHandler sending followers' message during SYNC phase immediately without adding to the queue
+//     * package type:
+//     * (for ZAB1.0) LEADERINFO (17)
+//     * (for ZAB < 1.0) NEWLEADER (10)
+//     * (for ZAB1.0) DIFF (13) / TRUNC (14) / SNAP (15)
+//     *  --> For now we pass DIFF (13) / TRUNC (14) / SNAP (15) so this pointcut is deprecated
+//     */
+//    @Deprecated
+//    pointcut learnerHandlerWriteRecord(Record r, String s):
+//            withincode(* org.apache.zookeeper.server.quorum.LearnerHandler.run()) &&
+//                    call(* org.apache.jute.BinaryOutputArchive.writeRecord(Record, String)) && args(r, s);
+//
+//    void around(Record r, String s): learnerHandlerWriteRecord(r, s) {
+//        LOG.debug("------around-before learnerHandlerWriteRecord");
+//        final long threadId = Thread.currentThread().getId();
+//        final String threadName = Thread.currentThread().getName();
+//        LOG.debug("before advice of learner handler-------Thread: {}, {}------", threadId, threadName);
+//
+//        QuorumPeerAspect.SubnodeIntercepter intercepter = quorumPeerAspect.getIntercepter(threadId);
+//        int subnodeId = -1;
+//        try{
+//            subnodeId = intercepter.getSubnodeId();
+//        } catch (RuntimeException e) {
+//            LOG.debug("--------catch exception: {}", e.toString());
+//            throw new RuntimeException(e);
+//        }
+//
+//        // Intercept QuorumPacket
+//        QuorumPacket packet = (QuorumPacket) r;
+//        final String payload = quorumPeerAspect.packetToString(packet);
+//
+//
+//        final int type =  packet.getType();
+//        LOG.debug("--------------I am a LearnerHandler. QuorumPacket {}. Set subnode {} to RECEIVING state. Type: {}",
+//                payload, subnodeId, type);
+//        // Set RECEIVING state since there is nowhere else to set
+//        try {
+//            intercepter.getTestingService().setReceivingState(subnodeId);
+//        } catch (final RemoteException e) {
+//            LOG.debug("Encountered a remote exception", e);
+//            throw new RuntimeException(e);
+//        }
+//
+//        proceed(r, s);
+//        return;
+//    }
 
-    void around(Record r, String s): learnerHandlerWriteRecord(r, s) {
-        LOG.debug("------around-before learnerHandlerWriteRecord");
-        final long threadId = Thread.currentThread().getId();
-        final String threadName = Thread.currentThread().getName();
-        LOG.debug("before advice of learner handler-------Thread: {}, {}------", threadId, threadName);
-
-        QuorumPeerAspect.SubnodeIntercepter intercepter = quorumPeerAspect.getIntercepter(threadId);
-        int subnodeId = -1;
-        try{
-            subnodeId = intercepter.getSubnodeId();
-        } catch (RuntimeException e) {
-            LOG.debug("--------catch exception: {}", e.toString());
-            throw new RuntimeException(e);
-        }
-
-        // Intercept QuorumPacket
-        QuorumPacket packet = (QuorumPacket) r;
-        final String payload = quorumPeerAspect.packetToString(packet);
-
-
-        final int type =  packet.getType();
-        LOG.debug("--------------I am a LearnerHandler. QuorumPacket {}. Set subnode {} to RECEIVING state. Type: {}",
-                payload, subnodeId, type);
-        // Set RECEIVING state since there is nowhere else to set
-        try {
-            intercepter.getTestingService().setReceivingState(subnodeId);
-        } catch (final RemoteException e) {
-            LOG.debug("Encountered a remote exception", e);
-            throw new RuntimeException(e);
-        }
-
-        proceed(r, s);
-        return;
-    }
+//    /***
+//     * intercept learnerHandler's readPacket from follower
+//     *
+//     */
+//    pointcut learnerHandlerWriteRecord(Record r, String s):
+//            withincode(* org.apache.zookeeper.server.quorum.LearnerHandler.run()) &&
+//                    call(* org.apache.jute.BinaryOutputArchive.writeRecord(Record, String)) && args(r, s);
+//
 }

@@ -96,6 +96,7 @@ public aspect FollowerAspect {
 //            proceed(packet, flush);
 //            return;
 //        }
+        // if lastReadType == -1, this means to send ACK that should be processed during SYNC.
         try {
             quorumPeerAspect.setSubnodeSending();
             LOG.debug(" before followerWritePacketId, lastReadType: {}", lastReadType);

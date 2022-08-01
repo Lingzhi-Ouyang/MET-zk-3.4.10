@@ -53,6 +53,8 @@ public aspect QuorumPeerAspect {
 
     private int quorumPeerSubnodeId;
 
+    private int syncSubnodeId = -1;
+
     private final Object nodeOnlineMonitor = new Object();
 
     // Manage uncertain number of subnodes
@@ -89,6 +91,8 @@ public aspect QuorumPeerAspect {
 
         private Integer lastMsgId = null;
 
+        private boolean sending = false;
+
         // This is for learner handler sender. After a learner handler has sent UPTODATE, then set it true
         private boolean syncFinished = false;
 
@@ -122,6 +126,10 @@ public aspect QuorumPeerAspect {
             this.lastMsgId = lastMsgId;
         }
 
+        public void setSending(boolean sending) {
+            this.sending = sending;
+        }
+
         public void setSyncFinished(boolean syncFinished) {
             this.syncFinished = syncFinished;
         }
@@ -138,6 +146,14 @@ public aspect QuorumPeerAspect {
 
     public Map<Long, SubnodeIntercepter> getIntercepterMap() {
         return intercepterMap;
+    }
+
+    public int getSyncSubnodeId() {
+        return syncSubnodeId;
+    }
+
+    public void setSyncSubnodeId(int syncSubnodeId) {
+        this.syncSubnodeId = syncSubnodeId;
     }
 
     public TestingRemoteService createRmiConnection() {
@@ -260,7 +276,6 @@ public aspect QuorumPeerAspect {
             && if (object instanceof FastLeaderElection.ToSend)
             && args(object);
 
-    // TODO: change this to boolean around()
     boolean around(final Object object): offerWithinFastLeaderElection(object) {
         final FastLeaderElection.ToSend toSend = (FastLeaderElection.ToSend) object;
 
@@ -346,7 +361,40 @@ public aspect QuorumPeerAspect {
     public void postSend(final int subnodeId, final int msgId) throws RemoteException {
         synchronized (nodeOnlineMonitor) {
             final int existingSendingSubnodeNum = sendingSubnodeNum.decrementAndGet();
-            LOG.debug("decrease sendingSubnodeNum: {}", sendingSubnodeNum.get());
+            LOG.debug("-----subnodeId: {}, decrease sendingSubnodeNum: {}", subnodeId, sendingSubnodeNum.get());
+            if (msgId == TestingDef.RetCode.NODE_CRASH) {
+                // The last existing subnode is responsible to set the node state as offline
+                LOG.debug("-----subnodeId: {}, msgId: {}, existingSendingSubnodeNum: {}", subnodeId, msgId, existingSendingSubnodeNum);
+                if (existingSendingSubnodeNum == 0) {
+                    LOG.debug("-----going to set nodeOffline by subnodeId: {}, msgId: {}", subnodeId, msgId);
+                    testingService.nodeOffline(myId);
+                }
+                awaitShutdown(subnodeId);
+            }
+        }
+    }
+
+    // only for LEARNER_HANDLER_SENDER
+    public void setSubnodeSending(final SubnodeIntercepter intercepter) {
+        synchronized (nodeOnlineMonitor) {
+            sendingSubnodeNum.incrementAndGet();
+            intercepter.sending = true;
+            LOG.debug("add sendingSubnodeNum: {}", sendingSubnodeNum.get());
+        }
+    }
+
+    // only for LEARNER_HANDLER_SENDER
+    public void postSend(final SubnodeIntercepter intercepter, final int subnodeId, final int msgId) throws RemoteException {
+        synchronized (nodeOnlineMonitor) {
+            int existingSendingSubnodeNum = sendingSubnodeNum.get();
+            if (intercepter.sending) {
+                intercepter.sending = false;
+            }
+            if (sendingSubnodeNum.get() > 0) {
+                existingSendingSubnodeNum = sendingSubnodeNum.decrementAndGet();
+            }
+            LOG.debug("-----subnode {} Id: {}, decrease sendingSubnodeNum: {}",
+                    intercepter.subnodeType, subnodeId, sendingSubnodeNum.get());
             if (msgId == TestingDef.RetCode.NODE_CRASH) {
                 // The last existing subnode is responsible to set the node state as offline
                 LOG.debug("-----subnodeId: {}, msgId: {}, existingSendingSubnodeNum: {}", subnodeId, msgId, existingSendingSubnodeNum);
@@ -399,49 +447,13 @@ public aspect QuorumPeerAspect {
         LOG.debug("Received a notification with id = {}", notification.getMessageId());
     }
 
-//    // Intercept state update in the election (within FastLeaderElection)
-//
-//    pointcut setPeerState(QuorumPeer.ServerState state):
-//            within(FastLeaderElection)
-//            && call(* QuorumPeer.setPeerState(QuorumPeer.ServerState))
-//            && args(state);
-//
-//    after(final QuorumPeer.ServerState state) returning: setPeerState(state) {
-//        final LeaderElectionState leState;
-//        switch (state) {
-//            case LEADING:
-//                leState = LeaderElectionState.LEADING;
-//                break;
-//            case FOLLOWING:
-//                leState = LeaderElectionState.FOLLOWING;
-//                break;
-//            case OBSERVING:
-//                leState = LeaderElectionState.OBSERVING;
-//                break;
-//            case LOOKING:
-//            default:
-//                leState = LeaderElectionState.LOOKING;
-//                break;
-//        }
-//        try {
-//            LOG.debug("Node {} state: {}", myId, state);
-//            testingService.updateLeaderElectionState(myId, leState);
-//            if(leState == LeaderElectionState.LOOKING){
-//                testingService.updateVote(myId, null);
-//            }
-//        } catch (final RemoteException e) {
-//            LOG.error("Encountered a remote exception", e);
-//            throw new RuntimeException(e);
-//        }
-//    }
+    // Intercept state update (within QuorumPeer)
 
-    // Intercept state update (within FastLeaderElection && QuorumPeer)
-
-    pointcut setPeerState2(QuorumPeer.ServerState state):
+    pointcut setPeerState(QuorumPeer.ServerState state):
                     call(* org.apache.zookeeper.server.quorum.QuorumPeer.setPeerState(org.apache.zookeeper.server.quorum.QuorumPeer.ServerState))
                     && args(state);
 
-    after(final QuorumPeer.ServerState state) returning: setPeerState2(state) {
+    after(final QuorumPeer.ServerState state) returning: setPeerState(state) {
         syncFinished = false;
         final LeaderElectionState leState;
         switch (state) {
@@ -460,7 +472,7 @@ public aspect QuorumPeerAspect {
                 break;
         }
         try {
-            LOG.debug("Node {} state: {}", myId, state);
+            LOG.debug("----------setPeerState2: Node {} state: {}", myId, state);
             testingService.updateLeaderElectionState(myId, leState);
             if(leState == LeaderElectionState.LOOKING){
                 syncFinished = false;
@@ -639,6 +651,17 @@ public aspect QuorumPeerAspect {
             LOG.debug("De-registering {} subnode {}", subnodeType, subnodeId);
             testingService.deregisterSubnode(subnodeId);
             LOG.debug("Finish de-registering {} subnode {}", subnodeType, subnodeId);
+            // for LearnerHandlerSender
+            synchronized (nodeOnlineMonitor) {
+                if (intercepter.sending) {
+                    intercepter.sending = false;
+                    if (sendingSubnodeNum.get() > 0){
+                        final int existingSendingSubnodeNum = sendingSubnodeNum.decrementAndGet();
+                        LOG.debug("-----subnode {} Id: {}, decrease sendingSubnodeNum: {}",
+                                subnodeType, subnodeId, sendingSubnodeNum.get());
+                    }
+                }
+            }
         } catch (final RemoteException e) {
             LOG.debug("Encountered a remote exception", e);
             throw new RuntimeException(e);
@@ -696,6 +719,7 @@ public aspect QuorumPeerAspect {
     }
 
     public String packetToString(QuorumPacket p) {
+        if (p == null) return "null";
         String type = null;
 //        String mess = null;
 //        Record txn = null;
