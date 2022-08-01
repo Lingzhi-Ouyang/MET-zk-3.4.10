@@ -22,9 +22,9 @@ public enum ModelAction {
     FollowerProcessUPTODATE,
 
     // broadcast with sub-actions
-    LeaderProcessRequest, LogPROPOSAL,
-    LeaderProcessACK, FollowerToLeaderACK, ProcessCOMMIT,
-    FollowerProcessPROPOSAL, LeaderToFollowerProposal, // follower here also needs to LogPROPOSAL
-    FollowerProcessCOMMIT, LeaderToFollowerCOMMIT // follower here also needs to ProcessCOMMIT
+    LeaderProcessRequest, LeaderLog,
+    LeaderProcessACK, FollowerToLeaderACK, LeaderCommit,
+    FollowerProcessPROPOSAL, LeaderToFollowerProposal, FollowerLog,// follower here also needs to LogPROPOSAL
+    FollowerProcessCOMMIT, LeaderToFollowerCOMMIT, FollowerCommit// follower here also needs to ProcessCOMMIT
 
 }
