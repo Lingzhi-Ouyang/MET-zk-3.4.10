@@ -61,6 +61,9 @@ public class FollowerToLeaderMessageEvent extends AbstractEvent {
             case MessageType.PROPOSAL:
                 action += "PROPOSAL";
                 break;
+            case MessageType.PROPOSAL_IN_SYNC:
+                action += "PROPOSAL_IN_SYNC";
+                break;
         }
         return action + "{" +
                 "id=" + getId() +

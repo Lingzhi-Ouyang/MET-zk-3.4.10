@@ -545,7 +545,7 @@ public class TestingService implements TestingRemoteService {
                             break;
 
                         // others
-                        case LeaderSyncFollower: // send DIFF /TRUNC
+                        case LeaderSyncFollower: // sent DIFF / TRUNC / SNAP / .. / TODO: to send NEWLEADER, not make it sent
                         case FollowerProcessSyncMessage:
                         case FollowerProcessNEWLEADER: // send ACK
                         case LeaderProcessACKLD: // send UPTODATE
@@ -813,9 +813,14 @@ public class TestingService implements TestingRemoteService {
      * @return
      */
     public long getLastZxidInNodeHistory(JSONObject elements, String serverName) {
-        JSONArray serverHistory = elements.getJSONObject("variables").getJSONObject("history").getJSONArray(serverName);
-        JSONArray modelZxidArrayForm = serverHistory.getJSONObject(serverHistory.size() - 1).getJSONArray("zxid");
-        return getModelZxidFromArrayForm(modelZxidArrayForm);
+        try {
+            JSONArray serverHistory = elements.getJSONObject("variables").getJSONObject("history").getJSONArray(serverName);
+            JSONArray modelZxidArrayForm = serverHistory.getJSONObject(serverHistory.size() - 1).getJSONArray("zxid");
+            return getModelZxidFromArrayForm(modelZxidArrayForm);
+        } catch (NullPointerException e) {
+            LOG.debug("NullPointerException found when getLastNotCommittedInNodePacketsSync in {}", elements);
+            return -1L;
+        }
     }
 
     /***
@@ -826,9 +831,14 @@ public class TestingService implements TestingRemoteService {
      * @return
      */
     public long getLastZxidInNodeLastCommitted(JSONObject elements, String serverName) {
-        JSONObject lastCommittted = elements.getJSONObject("variables").getJSONObject("lastCommitted").getJSONObject(serverName);
-        JSONArray modelZxidArrayForm = lastCommittted.getJSONArray("zxid");
-        return getModelZxidFromArrayForm(modelZxidArrayForm);
+        try {
+            JSONObject lastCommittted = elements.getJSONObject("variables").getJSONObject("lastCommitted").getJSONObject(serverName);
+            JSONArray modelZxidArrayForm = lastCommittted.getJSONArray("zxid");
+            return getModelZxidFromArrayForm(modelZxidArrayForm);
+        } catch (NullPointerException e) {
+            LOG.debug("NullPointerException found when getLastNotCommittedInNodePacketsSync in {}", elements);
+            return -1L;
+        }
     }
 
     /***
@@ -839,10 +849,19 @@ public class TestingService implements TestingRemoteService {
      * @return
      */
     public long getLastNotCommittedInNodePacketsSync(JSONObject elements, String serverName) {
-        JSONObject firstNotCommitted = elements.getJSONObject("variables").getJSONObject("packetsSync")
-                .getJSONObject(serverName).getJSONArray("notCommitted").getJSONObject(0);
-        JSONArray modelZxidArrayForm = firstNotCommitted.getJSONArray("zxid");
-        return getModelZxidFromArrayForm(modelZxidArrayForm);
+        try {
+            JSONArray notCommitted = elements.getJSONObject("variables").getJSONObject("packetsSync")
+                    .getJSONObject(serverName).getJSONArray("notCommitted");
+            if (notCommitted.size() == 0) {
+                return -1L;
+            }
+            JSONArray modelZxidArrayForm = notCommitted.getJSONObject(0).getJSONArray("zxid");
+            return getModelZxidFromArrayForm(modelZxidArrayForm);
+        } catch (NullPointerException e) {
+            LOG.debug("NullPointerException found when getLastNotCommittedInNodePacketsSync in {}", elements);
+            return -1L;
+        }
+
     }
 
     /***
@@ -853,10 +872,19 @@ public class TestingService implements TestingRemoteService {
      * @return
      */
     public long getLastCommittedInNodePacketsSync(JSONObject elements, String serverName) {
-        JSONObject firstCommitted = elements.getJSONObject("variables").getJSONObject("packetsSync")
-                .getJSONObject(serverName).getJSONArray("committed").getJSONObject(0);
-        JSONArray modelZxidArrayForm = firstCommitted.getJSONArray("zxid");
-        return getModelZxidFromArrayForm(modelZxidArrayForm);
+        try {
+            JSONArray committed = elements.getJSONObject("variables").getJSONObject("packetsSync")
+                    .getJSONObject(serverName).getJSONArray("committed");
+            if (committed.size() == 0) {
+                return -1L;
+            }
+            JSONArray modelZxidArrayForm = committed.getJSONObject(0).getJSONArray("zxid");
+            return getModelZxidFromArrayForm(modelZxidArrayForm);
+        }  catch (NullPointerException e) {
+            LOG.debug("NullPointerException found when getLastNotCommittedInNodePacketsSync in {}", elements);
+            return -1L;
+        }
+
     }
 
     public String getServerAddr(int serverId) {
@@ -1551,19 +1579,15 @@ public class TestingService implements TestingRemoteService {
                                                 final int leaderId,
                                                 final long modelZxid,
                                                 int totalExecuted) throws SchedulerConfigurationException {
-        // to get next processedZxid
-
-        // Step 1. In broadcast, leader release PROPOSAL successfully
+        // In broadcast, leader release PROPOSAL successfully
         // Or,  follower just log request that received in SYNC
-
-
         try {
             LOG.debug("try to schedule LeaderToFollowerProposal leaderId: {}", leaderId);
             scheduleInternalEventWithWaitingRetry(strategy, ModelAction.LeaderToFollowerProposal,
-                    leaderId, followerId, modelZxid, totalExecuted, 3);
+                    leaderId, followerId, modelZxid, totalExecuted, 1);
         } catch (SchedulerConfigurationException e2) {
             LOG.debug("SchedulerConfigurationException found when scheduling LeaderToFollowerProposal! " +
-                    "Try to schedule follower's LogPROPOSAL. (This should usually occur in SYNC)");
+                    "Try to schedule follower's LogPROPOSAL. (This should usually occur in / just after SYNC)");
         } finally {
             // Step 2. follower log, and wait for follower's SYNC thread sending ACK steady
             totalExecuted = scheduleInternalEventWithWaitingRetry(strategy, ModelAction.FollowerLog,
@@ -1580,18 +1604,23 @@ public class TestingService implements TestingRemoteService {
                                              int totalExecuted) throws SchedulerConfigurationException {
 
         // Step 1. release follower's ACK, and by default this will trigger leader to start committing process
-        scheduleInternalEventWithWaitingRetry(strategy, ModelAction.FollowerToLeaderACK,
-                followerId, leaderId, modelZxid, totalExecuted, 5);
-
-
-        // Step 2. release leader's local commit if not done
         try {
-            LOG.debug("try to schedule LeaderCommit leaderId: {}", leaderId);
-            scheduleInternalEvent(strategy, ModelAction.LeaderCommit, leaderId, -1, modelZxid, totalExecuted);
-        } catch (SchedulerConfigurationException e2) {
-            LOG.debug("This will be fine. SchedulerConfigurationException found when scheduling leader's local commit! " +
-                    "Ensure leader already commits this zxid {}", Long.toHexString(modelZxid));
+            scheduleInternalEventWithWaitingRetry(strategy, ModelAction.FollowerToLeaderACK,
+                    followerId, leaderId, modelZxid, totalExecuted, 3);
+        } catch (SchedulerConfigurationException e1) {
+            LOG.debug("This will be fine. SchedulerConfigurationException found when scheduling FollowerToLeaderACK! " +
+                    "Ensure this zxid {} is processed during sync ", Long.toHexString(modelZxid));
+        } finally {
+            // Step 2. release leader's local commit if not done
+            try {
+                LOG.debug("try to schedule LeaderCommit leaderId: {}", leaderId);
+                scheduleInternalEvent(strategy, ModelAction.LeaderCommit, leaderId, -1, modelZxid, totalExecuted);
+            } catch (SchedulerConfigurationException e2) {
+                LOG.debug("This will be fine. SchedulerConfigurationException found when scheduling leader's local commit! " +
+                        "Ensure leader already commits this zxid {}", Long.toHexString(modelZxid));
+            }
         }
+
 //        LOG.debug("try to schedule LeaderToFollowerCOMMIT leaderId: {}, followerId: {}", leaderId, followerId);
 //        totalExecuted = scheduleInternalEvent(strategy, ModelAction.LeaderToFollowerCOMMIT, leaderId, followerId, totalExecuted);
 
@@ -1603,14 +1632,20 @@ public class TestingService implements TestingRemoteService {
                                                 final int leaderId,
                                                 final long modelZxid,
                                                 int totalExecuted) throws SchedulerConfigurationException {
-        // Step 1. leader release PROPOSAL successfully
-        scheduleInternalEventWithWaitingRetry(strategy, ModelAction.LeaderToFollowerCOMMIT,
-                leaderId, followerId, modelZxid, totalExecuted, 1);
-
-        // Step 2. follower log, and wait for follower's SYNC thread sending ACK steady
-        totalExecuted = scheduleInternalEventWithWaitingRetry(strategy, ModelAction.FollowerCommit,
-                followerId, -1, modelZxid, totalExecuted, 1);
-
+        // In broadcast, leader release PROPOSAL successfully
+        // Or,  follower just log request that received in SYNC
+        try {
+            LOG.debug("try to schedule LeaderToFollowerCOMMIT leaderId: {}", leaderId);
+            scheduleInternalEventWithWaitingRetry(strategy, ModelAction.LeaderToFollowerCOMMIT,
+                    leaderId, followerId, modelZxid, totalExecuted, 1);
+        } catch (SchedulerConfigurationException e2) {
+            LOG.debug("SchedulerConfigurationException found when scheduling LeaderToFollowerCOMMIT! " +
+                    "Try to schedule follower's FollowerCommit. (This should usually occur in / just after SYNC)");
+        } finally {
+            // Step 2. follower log, and wait for follower's SYNC thread sending ACK steady
+            totalExecuted = scheduleInternalEventWithWaitingRetry(strategy, ModelAction.FollowerCommit,
+                    followerId, -1, modelZxid, totalExecuted, 1);
+        }
         return totalExecuted;
     }
 
@@ -2562,10 +2597,10 @@ public class TestingService implements TestingRemoteService {
         final Subnode sendingSubnode = subnodes.get(sendingSubnodeId);
         final int sendingNodeId = sendingSubnode.getNodeId();
 
-        // Problem: It will make the message that come immediately after the node restarts to be missed
-        if (partitionMap.get(sendingNodeId).get(receivingNodeId)){
-            return TestingDef.RetCode.NODE_PAIR_IN_PARTITION;
-        }
+//        // Problem: It will make the message that come immediately after the node restarts to be missed
+//        if (partitionMap.get(sendingNodeId).get(receivingNodeId)){
+//            return TestingDef.RetCode.NODE_PAIR_IN_PARTITION;
+//        }
 
         // We want to determinize the order in which the first messages are added, so we wait until
         // all nodes with smaller ids have offered their first message.
@@ -2648,11 +2683,11 @@ public class TestingService implements TestingRemoteService {
         assert leaderElectionStates.contains(LeaderElectionState.LEADING);
         final int receivingNodeId = leaderElectionStates.indexOf(LeaderElectionState.LEADING);
 
-        // if partition occurs, just return without sending this message
-        // mute the effect of events before adding it to the scheduling list
-        if (partitionMap.get(sendingNodeId).get(receivingNodeId)){
-            return TestingDef.RetCode.NODE_PAIR_IN_PARTITION;
-        }
+//        // if partition occurs, just return without sending this message
+//        // mute the effect of events before adding it to the scheduling list
+//        if (partitionMap.get(sendingNodeId).get(receivingNodeId)){
+//            return TestingDef.RetCode.NODE_PAIR_IN_PARTITION;
+//        }
 
         // not in partition
         // NEWLEADER / UPTODATE / PROPOSAL / PING / REQUEST / ...
@@ -2677,6 +2712,9 @@ public class TestingService implements TestingRemoteService {
                     break;
                 case MessageType.PROPOSAL:
                     LOG.debug("-------follower is about to reply ACK to PROPOSAL in BROADCAST phase!");
+                    break;
+                case MessageType.PROPOSAL_IN_SYNC:
+                    LOG.debug("-------follower is about to reply ACK to PROPOSAL that should be processed in SYNC phase!");
                     break;
                 default:
                     LOG.debug("-------follower is about to reply ACK that will not be intercepted in BROADCAST phase!");
@@ -2776,11 +2814,11 @@ public class TestingService implements TestingRemoteService {
             }
         }
 
-        // if partition occurs, just return without sending this message
-        // mute the effect of events before adding it to the scheduling list
-        if (partitionMap.get(sendingNodeId).get(receivingNodeId)){
-            return TestingDef.RetCode.NODE_PAIR_IN_PARTITION;
-        }
+//        // if partition occurs, just return without sending this message
+//        // mute the effect of events before adding it to the scheduling list
+//        if (partitionMap.get(sendingNodeId).get(receivingNodeId)){
+//            return TestingDef.RetCode.NODE_PAIR_IN_PARTITION;
+//        }
 
         // not in partition
         // during client session establishment, do not intercept
@@ -3090,6 +3128,9 @@ public class TestingService implements TestingRemoteService {
                 int leaderId = leaderElectionStates.indexOf(LeaderElectionState.LEADING);
                 if (leaderId >= 0 ) {
                     controlMonitor.notifyAll();
+                    releaseBroadcastEvent(new HashSet<Integer>() {{
+                        add(leaderId);
+                    }});
                     waitAliveNodesInLookingState(new HashSet<Integer>() {{
                         add(leaderId);
                     }});

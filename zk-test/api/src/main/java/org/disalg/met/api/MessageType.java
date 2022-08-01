@@ -61,6 +61,8 @@ public class MessageType {
      */
     public final static int PROPOSAL = 2;
 
+    public final static int PROPOSAL_IN_SYNC = -1;
+
     /**
      * This message type is sent by a follower after it has synced a proposal.
      */

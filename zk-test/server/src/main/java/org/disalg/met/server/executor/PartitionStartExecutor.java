@@ -47,14 +47,22 @@ public class PartitionStartExecutor extends BaseEventExecutor {
     /***
      * Called by the partition start executor
      * partition between a leader and a follower will make the follower back into LOOKING state
-     * then, if the leader loses quorum, the leader will be back into LOOKING too
+     * then, if the leader loses quorum, the leader will be back into LOOKING too (similar to the effects of stopNode)
      * @return
      */
     public void startPartition(final int node1, final int node2) {
-//        // 1. PRE_EXECUTION: set unstable state (set STARTING)
-//        List<NodeState> nodeStates = testingService.getNodeStates();
-//        nodeStates.set(node1, NodeState.STARTING);
-//        nodeStates.set(node2, NodeState.STARTING);
+        // 1. PRE_EXECUTION: set unstable state
+
+        // 2. EXECUTION
+        List<List<Boolean>> partitionMap = testingService.getPartitionMap();
+        LOG.debug("start partition: {} & {}", node1, node2);
+        LOG.debug("before partition: {}, {}, {}", partitionMap.get(0), partitionMap.get(1), partitionMap.get(2));
+        partitionMap.get(node1).set(node2, true);
+        partitionMap.get(node2).set(node1, true);
+        LOG.debug("after partition: {}, {}, {}", partitionMap.get(0), partitionMap.get(1), partitionMap.get(2));
+
+
+        // 3. POST_EXECUTION: wait for the state to be stable (set ONLINE)
 
         // if leader & follower, wait for leader / follower into LOOKING
         List<LeaderElectionState> leaderElectionStates = testingService.getLeaderElectionStates();
@@ -73,6 +81,9 @@ public class PartitionStartExecutor extends BaseEventExecutor {
 
             // release follower's intercepted events
             testingService.getControlMonitor().notifyAll();
+            testingService.releaseBroadcastEvent(new HashSet<Integer>() {{
+                add(follower);
+            }});
             testingService.waitAliveNodesInLookingState(new HashSet<Integer>() {{
                 add(follower);
             }});
@@ -82,28 +93,17 @@ public class PartitionStartExecutor extends BaseEventExecutor {
             int participantCount = testingService.getParticipants().size();
             if (participantCount <= (nodeNum / 2)) {
                 LOG.debug("Leader's quorum peers count {} less than half the node num {}!  " +
-                                "Wait for leader {} to be LOOKING", participantCount, nodeNum, leader);
+                        "Wait for leader {} to be LOOKING", participantCount, nodeNum, leader);
                 // release leader's intercepted events
-                // TODO: how to avoid deadlock here?
                 testingService.getControlMonitor().notifyAll();
+                testingService.releaseBroadcastEvent(new HashSet<Integer>() {{
+                    add(leader);
+                }});
                 testingService.waitAliveNodesInLookingState(new HashSet<Integer>() {{
                     add(leader);
                 }});
             }
         }
-
-        List<List<Boolean>> partitionMap = testingService.getPartitionMap();
-        // 2. EXECUTION
-        LOG.debug("start partition: {} & {}", node1, node2);
-        LOG.debug("before partition: {}, {}, {}", partitionMap.get(0), partitionMap.get(1), partitionMap.get(2));
-        partitionMap.get(node1).set(node2, true);
-        partitionMap.get(node2).set(node1, true);
-        LOG.debug("after partition: {}, {}, {}", partitionMap.get(0), partitionMap.get(1), partitionMap.get(2));
-
-
-////      3. POST_EXECUTION: wait for the state to be stable (set ONLINE)
-//        nodeStates.set(node1, NodeState.ONLINE);
-//        nodeStates.set(node2, NodeState.ONLINE);
 
         testingService.getControlMonitor().notifyAll();
     }

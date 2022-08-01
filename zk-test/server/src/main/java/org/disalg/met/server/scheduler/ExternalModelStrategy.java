@@ -342,6 +342,7 @@ public class ExternalModelStrategy implements SchedulingStrategy{
                         if (!action.equals(ModelAction.FollowerProcessUPTODATE)) continue;
                         break;
                     case MessageType.PROPOSAL: // as for ACK to PROPOSAL during SYNC, we regard it as a local event
+                    case MessageType.PROPOSAL_IN_SYNC:
                         if (!action.equals(ModelAction.FollowerToLeaderACK) ) continue;
                         // check the equality between zxid mapping from model to code
                         if (event.getZxid() != testingService.getModelToCodeZxidMap().get(modelZxid)) continue;
@@ -350,6 +351,7 @@ public class ExternalModelStrategy implements SchedulingStrategy{
                                 Long.toHexString(testingService.getModelToCodeZxidMap().get(modelZxid)),
                                 Long.toHexString(event.getZxid()));
                         break;
+
                     default:
                         continue;
                 }

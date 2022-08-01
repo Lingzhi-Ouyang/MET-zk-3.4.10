@@ -19,10 +19,10 @@ public class LocalEvent extends AbstractEvent{
 
     private final int nodeId;
     private final int subnodeId;
-    private final SubnodeType subnodeType;
+    private final SubnodeType subnodeType; // QuorumPeer / SYNC / COMMIT
     private final String payload;
     private final long zxid;
-    private final int type;
+    private final int type;  // ZooDefs.OpCode for SYNC / COMMIT , and messageType for QuorumPeer of follower
 
     public LocalEvent(final int id, final int nodeId, final int subnodeId, final SubnodeType subnodeType,
                       final String payload, final long zxid, final int type, final LocalEventExecutor localEventExecutor) {
@@ -61,28 +61,34 @@ public class LocalEvent extends AbstractEvent{
     @Override
     public String toString() {
         String action = "LocalEvent";
-        switch (type) {
-            case MessageType.DIFF:
-                action = "FollowerProcessDIFF";
-                break;
-            case MessageType.TRUNC:
-                action = "FollowerProcessTRUNC";
-                break;
-            case MessageType.SNAP:
-                action = "FollowerProcessSNAP";
-                break;
-            case MessageType.NEWLEADER:
-                action = "FollowerProcessNEWLEADER";
-                break;
-            case MessageType.UPTODATE:
-                action = "FollowerProcessUPTODATE";
-                break;
-            case MessageType.PROPOSAL:
-                action = "FollowerLogPROPOSAL";
-                break;
-            case MessageType.COMMIT:
-                action = "FollowerProcessCOMMIT";
-                break;
+        if (subnodeType.equals(SubnodeType.SYNC_PROCESSOR)) {
+            action = "LogRequest";
+        } else if (subnodeType.equals(SubnodeType.COMMIT_PROCESSOR)) {
+            action = "Commit";
+        } else if (subnodeType.equals(SubnodeType.QUORUM_PEER)) {
+            switch (type) {
+                case MessageType.DIFF:
+                    action = "FollowerProcessDIFF";
+                    break;
+                case MessageType.TRUNC:
+                    action = "FollowerProcessTRUNC";
+                    break;
+                case MessageType.SNAP:
+                    action = "FollowerProcessSNAP";
+                    break;
+                case MessageType.NEWLEADER:
+                    action = "FollowerProcessNEWLEADER";
+                    break;
+                case MessageType.UPTODATE:
+                    action = "FollowerProcessUPTODATE";
+                    break;
+                case MessageType.PROPOSAL:
+                    action = "FollowerLogPROPOSAL";
+                    break;
+                case MessageType.COMMIT:
+                    action = "FollowerProcessCOMMIT";
+                    break;
+            }
         }
         return action +
                 "{id=" + getId() +
