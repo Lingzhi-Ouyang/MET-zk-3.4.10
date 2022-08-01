@@ -4,6 +4,8 @@ import org.disalg.met.server.TestingService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Set;
+
 public class ClientSessionReady implements WaitPredicate{
     private static final Logger LOG = LoggerFactory.getLogger(ClientSessionReady.class);
 
@@ -17,8 +19,17 @@ public class ClientSessionReady implements WaitPredicate{
     }
 
     @Override
-    //TODO: need to complete
     public boolean isTrue() {
+        // all participants keep the same zxid after session initialization ( createSession & createKey all committed)
+        Set<Integer> participants = testingService.getParticipants();
+        long lastProcessedZxid = -1L;
+        for (Integer peer: participants) {
+            if (lastProcessedZxid < 0) {
+                lastProcessedZxid = testingService.getLastProcessedZxid(peer);
+            } else if (lastProcessedZxid != testingService.getLastProcessedZxid(peer)){
+                return false;
+            }
+        }
         return testingService.getClientProxy(clientId).isReady();
     }
 
