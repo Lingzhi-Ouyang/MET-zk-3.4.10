@@ -455,8 +455,8 @@ public class TestingService implements TestingRemoteService {
 
                     LOG.debug("nextStep: {}", jsonObject);
                     LOG.debug("action: {}, nodeId: {}", action, nodeId);
-                    modelAction = ModelAction.valueOf(action);
 
+                    modelAction = ModelAction.valueOf(action);
                     switch (modelAction) {
                         // external events
                         case NodeCrash:
@@ -573,8 +573,12 @@ public class TestingService implements TestingRemoteService {
                 LOG.info("NullPointerException found when scheduling Trace {} in Step {} / {}. ",
                         traceName, currentStep, stepCount);
                 tracePassed = false;
-            }
-            finally {
+            } catch (IllegalArgumentException e) {
+                LOG.info("The scheduler cannot match action {}. " +
+                            "IllegalArgumentException found when scheduling Trace {} in Step {} / {}. ",
+                    action, traceName, currentStep, stepCount);
+                tracePassed = false;
+            } finally {
                 statistics.endTimer();
 
                 // report statistics of total trace
