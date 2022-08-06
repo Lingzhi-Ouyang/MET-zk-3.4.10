@@ -1,6 +1,9 @@
 package org.disalg.met.api;
 
 public enum ModelAction {
+    // set init state
+    SetInitState,
+
     // external events
     NodeCrash,
     NodeStart,

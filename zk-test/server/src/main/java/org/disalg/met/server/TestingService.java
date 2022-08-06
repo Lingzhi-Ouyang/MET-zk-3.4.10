@@ -32,6 +32,7 @@ import java.rmi.server.UnicastRemoteObject;
 import java.util.*;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
 
 public class TestingService implements TestingRemoteService {
 
@@ -381,7 +382,7 @@ public class TestingService implements TestingRemoteService {
         ExternalModelStatistics externalModelStatistics = new ExternalModelStatistics();
         ExternalModelStrategy externalModelStrategy = new ExternalModelStrategy(this, new Random(1), schedulerConfiguration.getTraceDir(), externalModelStatistics);
         bugReportWriter = new FileWriter(schedulerConfiguration.getWorkingDir() + File.separator
-                 + schedulerConfiguration.getBugReportFile());
+                + schedulerConfiguration.getBugReportFile());
         matchReportWriter = new FileWriter(schedulerConfiguration.getWorkingDir() + File.separator
                 + schedulerConfiguration.getMatchReportFile());
 
@@ -483,10 +484,8 @@ public class TestingService implements TestingRemoteService {
                         // internal events
                         case ElectionAndDiscovery:
                             JSONArray participants = elements.getJSONArray("peerId");
-                            List<Integer> peers = new ArrayList<>();
-                            for (Object peer: participants) {
-                                peers.add(serverIdMap.get(peer.toString()));
-                            }
+                            List<Integer> peers = participants.stream()
+                                    .map(p -> serverIdMap.get(p.toString())).collect(Collectors.toList());
                             LOG.debug("election leader: {}, other participants: {}", nodeId, peers);
                             totalExecuted = scheduleElectionAndDiscovery(currentStep, nodeId, peers, totalExecuted);
                             break;
@@ -494,7 +493,7 @@ public class TestingService implements TestingRemoteService {
                         // focus on history
                         case LeaderProcessRequest:  // set data & leader log & send PROPOSAL
                             int setDataClientId = elements.getInteger("clientId") != null ?
-                                    elements.getInteger("clientId") : 1;
+                                    elements.getInteger("clientId") : nodeId;
                             long lastZxidInLeaderHistory = getLastZxidInNodeHistory(elements, serverName);
                             LOG.debug("LeaderProcessRequest modelZxid: {}", Long.toHexString(lastZxidInLeaderHistory));
                             totalExecuted = scheduleLeaderProcessRequest(externalModelStrategy,
@@ -557,6 +556,14 @@ public class TestingService implements TestingRemoteService {
                             totalExecuted = scheduleInternalEventWithWaitingRetry(externalModelStrategy,
                                     modelAction, nodeId, peerId7, modelZxid7, totalExecuted, retry);
                             break;
+                        case SetInitState:
+                            JSONArray participants2 = elements.getJSONArray("peerId");
+                            List<Integer> peers2 = participants2.stream()
+                                    .map(p -> serverIdMap.get(p.toString())).collect(Collectors.toList());
+                            LOG.debug("SetInitState: election leader: {}, other participants: {}", nodeId, peers2);
+                            totalExecuted = setInitState(externalModelStrategy,
+                                    currentStep, nodeId, peers2, serverName, elements, totalExecuted);
+                            break;
                     }
 
                     committedLogVerifier.verify();
@@ -575,8 +582,8 @@ public class TestingService implements TestingRemoteService {
                 tracePassed = false;
             } catch (IllegalArgumentException e) {
                 LOG.info("The scheduler cannot match action {}. " +
-                            "IllegalArgumentException found when scheduling Trace {} in Step {} / {}. ",
-                    action, traceName, currentStep, stepCount);
+                                "IllegalArgumentException found when scheduling Trace {} in Step {} / {}. ",
+                        action, traceName, currentStep, stepCount);
                 tracePassed = false;
             } finally {
                 statistics.endTimer();
@@ -772,7 +779,7 @@ public class TestingService implements TestingRemoteService {
                 }
             } catch (SchedulerConfigurationException e) {
                 LOG.info("SchedulerConfigurationException found when scheduling EventSequence {} in Step {} / {}. " +
-                                "Complete trace: {}", traceName, currentStep, stepCount, trace);
+                        "Complete trace: {}", traceName, currentStep, stepCount, trace);
                 tracePassed = false;
             } finally {
                 statistics.endTimer();
@@ -800,7 +807,7 @@ public class TestingService implements TestingRemoteService {
             }
         }
         LOG.debug("total time: {}" , (System.currentTimeMillis() - startTime));
-        
+
     }
 
 
@@ -1138,6 +1145,38 @@ public class TestingService implements TestingRemoteService {
         nodeCrashExecutor = new NodeCrashExecutor(this, schedulerConfiguration.getNumCrashesAfterElection());
     }
 
+    public int setInitState(final ExternalModelStrategy strategy,
+                            final Integer currentStep,
+                            final Integer leaderId,
+                            final List<Integer> peers,
+                            final String serverName,
+                            final JSONObject elements,
+                            int totalExecuted) throws SchedulerConfigurationException {
+
+        scheduleElectionAndDiscovery(currentStep, leaderId, peers, totalExecuted);
+
+        for (Integer peer: peers) {
+            long modelZxid = -1L;
+            int retry1 = 3;
+            scheduleInternalEventWithWaitingRetry(strategy,
+                    ModelAction.LeaderSyncFollower, leaderId, peer, modelZxid, totalExecuted, retry1);
+            scheduleInternalEventWithWaitingRetry(strategy,
+                    ModelAction.FollowerProcessSyncMessage, peer, leaderId, modelZxid, totalExecuted, retry1);
+            scheduleInternalEventWithWaitingRetry(strategy,
+                    ModelAction.FollowerProcessNEWLEADER, peer, leaderId, modelZxid, totalExecuted, retry1);
+            scheduleInternalEventWithWaitingRetry(strategy,
+                    ModelAction.LeaderProcessACKLD, leaderId, peer, modelZxid, totalExecuted, retry1);
+            scheduleInternalEventWithWaitingRetry(strategy,
+                    ModelAction.FollowerProcessUPTODATE, peer, leaderId, modelZxid, totalExecuted, retry1);
+        }
+
+        long lastZxidInLeaderHistory1 = getLastZxidInNodeHistory(elements, serverName);
+        LOG.debug("LeaderProcessRequest modelZxid: {}", Long.toHexString(lastZxidInLeaderHistory1));
+        totalExecuted = scheduleLeaderProcessRequest(strategy,
+                leaderId, leaderId, lastZxidInLeaderHistory1, totalExecuted);
+        return totalExecuted;
+
+    }
     /***
      * The schedule process of election and discovery
      * Pre-condition: all alive participants steady and in looking state including the leader
@@ -1602,10 +1641,10 @@ public class TestingService implements TestingRemoteService {
     }
 
     private int scheduleLeaderProcessACK(ExternalModelStrategy strategy,
-                                             final int leaderId,
-                                             final int followerId,
-                                             final long modelZxid,
-                                             int totalExecuted) throws SchedulerConfigurationException {
+                                         final int leaderId,
+                                         final int followerId,
+                                         final long modelZxid,
+                                         int totalExecuted) throws SchedulerConfigurationException {
 
         // Step 1. release follower's ACK, and by default this will trigger leader to start committing process
         try {
@@ -1632,10 +1671,10 @@ public class TestingService implements TestingRemoteService {
     }
 
     private int scheduleFollowerProcessCOMMIT(ExternalModelStrategy strategy,
-                                                final int followerId,
-                                                final int leaderId,
-                                                final long modelZxid,
-                                                int totalExecuted) throws SchedulerConfigurationException {
+                                              final int followerId,
+                                              final int leaderId,
+                                              final long modelZxid,
+                                              int totalExecuted) throws SchedulerConfigurationException {
         // In broadcast, leader release PROPOSAL successfully
         // Or,  follower just log request that received in SYNC
         try {
@@ -1818,11 +1857,11 @@ public class TestingService implements TestingRemoteService {
     }
 
     public int scheduleInternalEventWithWaitingRetry(ExternalModelStrategy strategy,
-                                              final ModelAction action,
-                                              final int nodeId,
-                                              final int peerId,
-                                              final long modelZxid,
-                                              int totalExecuted, int retry) throws SchedulerConfigurationException {
+                                                     final ModelAction action,
+                                                     final int nodeId,
+                                                     final int peerId,
+                                                     final long modelZxid,
+                                                     int totalExecuted, int retry) throws SchedulerConfigurationException {
         while (retry > 0) {
             try {
                 synchronized (controlMonitor) {
@@ -2641,7 +2680,7 @@ public class TestingService implements TestingRemoteService {
             // case 1: this event is released since the sending node is crashed
             if (NodeState.STOPPING.equals(nodeStates.get(sendingNodeId)) ) {
                 LOG.debug("----------node {} is crashed! setting ElectionMessage executed and removed. {}",
-                         sendingNodeId, electionMessageEvent);
+                        sendingNodeId, electionMessageEvent);
                 id = TestingDef.RetCode.NODE_CRASH;
                 electionMessageEvent.setExecuted();
                 schedulingStrategy.remove(electionMessageEvent);
@@ -3433,10 +3472,10 @@ public class TestingService implements TestingRemoteService {
      * Pre-condition for scheduling an internal event
      */
     private Event waitTargetInternalEventReady(ExternalModelStrategy strategy,
-                                                 ModelAction action,
-                                                 Integer nodeId,
-                                                 Integer peerId,
-                                                 long modelZxid) {
+                                               ModelAction action,
+                                               Integer nodeId,
+                                               Integer peerId,
+                                               long modelZxid) {
         final TargetInternalEventReady targetInternalEventReady = new TargetInternalEventReady(this, strategy, action, nodeId, peerId, modelZxid);
         wait(targetInternalEventReady, 100L);
         Event e = targetInternalEventReady.getEvent();
