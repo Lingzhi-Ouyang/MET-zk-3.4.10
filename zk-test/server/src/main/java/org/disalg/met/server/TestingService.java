@@ -575,15 +575,18 @@ public class TestingService implements TestingRemoteService {
             } catch (SchedulerConfigurationException e) {
                 LOG.info("SchedulerConfigurationException found when scheduling Trace {} in Step {} / {}. ",
                         traceName, currentStep, stepCount);
+                e.printStackTrace();
                 tracePassed = false;
             } catch (NullPointerException e) {
                 LOG.info("NullPointerException found when scheduling Trace {} in Step {} / {}. ",
                         traceName, currentStep, stepCount);
+                e.printStackTrace();
                 tracePassed = false;
             } catch (IllegalArgumentException e) {
                 LOG.info("The scheduler cannot match action {}. " +
                                 "IllegalArgumentException found when scheduling Trace {} in Step {} / {}. ",
                         action, traceName, currentStep, stepCount);
+                e.printStackTrace();
                 tracePassed = false;
             } finally {
                 statistics.endTimer();
