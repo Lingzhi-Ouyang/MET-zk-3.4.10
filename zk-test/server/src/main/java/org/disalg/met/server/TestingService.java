@@ -447,7 +447,9 @@ public class TestingService implements TestingRemoteService {
                 }
                 for (; currentStep < stepCount; ++currentStep) {
                     JSONObject jsonObject = trace.getStep(currentStep);
-                    action = jsonObject.keySet().iterator().next();
+                    Iterator<String> keyIterator = jsonObject.keySet().iterator();
+                    String key = keyIterator.next();
+                    action = key.equals("Step") ? keyIterator.next() : key;
                     JSONObject elements = jsonObject.getJSONObject(action);
 
                     // get basic element
