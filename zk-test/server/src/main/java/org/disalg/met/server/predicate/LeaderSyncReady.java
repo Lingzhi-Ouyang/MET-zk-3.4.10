@@ -1,5 +1,6 @@
 package org.disalg.met.server.predicate;
 
+import org.disalg.met.api.NodeState;
 import org.disalg.met.api.SubnodeState;
 import org.disalg.met.server.TestingService;
 import org.disalg.met.api.SubnodeType;
@@ -28,31 +29,59 @@ public class LeaderSyncReady implements WaitPredicate {
 
     @Override
     public boolean isTrue() {
-//        return testingService.getLeaderSyncFollowerCountMap().get(leaderId) == 0;
+//        // check if the follower's corresponding learner handler thread is in SENDING state (SENDING DIFF / TRUNC / SNAP)
+//        List<Integer> followerLearnerHandlerMap = testingService.getFollowerLearnerHandlerMap();
+//        if (peers != null) {
+//            for (Integer peer: peers) {
+//                final Integer subnodeId = followerLearnerHandlerMap.get(peer);
+//                if (subnodeId == null) return false;
+//                Subnode subnode = testingService.getSubnodes().get(subnodeId);
+//                assert subnode.getSubnodeType().equals(SubnodeType.LEARNER_HANDLER);
+//                if (!subnode.getState().equals(SubnodeState.SENDING)){
+//                    return false;
+//                }
+//            }
+//        }
+//        else {
+//            for (int nodeId = 0; nodeId < testingService.getSchedulerConfiguration().getNumNodes(); ++nodeId) {
+//                final Integer subnodeId = followerLearnerHandlerMap.get(nodeId);
+//                if (subnodeId == null) return false;
+//                Subnode subnode = testingService.getSubnodes().get(subnodeId);
+//                assert subnode.getSubnodeType().equals(SubnodeType.LEARNER_HANDLER);
+//                if (!subnode.getState().equals(SubnodeState.SENDING)){
+//                    return false;
+//                }
+//            }
+//        }
 
-        // method 1: check if the follower's corresponding learner handler sender is in SENDING state
-        // method 2:
-        List<Integer> followerLearnerHandlerSenderMap = testingService.getFollowerLearnerHandlerSenderMap();
-        if (peers != null) {
-            for (Integer peer: peers) {
-                final Integer subnodeId = followerLearnerHandlerSenderMap.get(peer);
-                if (subnodeId == null) return false;
-                Subnode subnode = testingService.getSubnodes().get(subnodeId);
-                assert subnode.getSubnodeType().equals(SubnodeType.LEARNER_HANDLER_SENDER);
-                if (!subnode.getState().equals(SubnodeState.SENDING)){
-//                    LOG.debug();
-                    return false;
-                }
+
+        // check if the follower's quorum peer thread is in SENDING state (SENDING ACKEPOCH)
+        assert peers != null;
+        for (Integer nodeId: peers) {
+            // check node state
+            final NodeState nodeState = testingService.getNodeStates().get(nodeId);
+            if (NodeState.STARTING.equals(nodeState) || NodeState.STOPPING.equals(nodeState)) {
+                LOG.debug("------follower {} not steady to sync, status: {}\n", nodeId, nodeState);
+                return false;
             }
-        }
-        else {
-            for (int nodeId = 0; nodeId < testingService.getSchedulerConfiguration().getNumNodes(); ++nodeId) {
-                final Integer subnodeId = followerLearnerHandlerSenderMap.get(nodeId);
-                if (subnodeId == null) return false;
-                Subnode subnode = testingService.getSubnodes().get(subnodeId);
-                assert subnode.getSubnodeType().equals(SubnodeType.LEARNER_HANDLER_SENDER);
-                if (!subnode.getState().equals(SubnodeState.SENDING)){
-                    return  false;
+            else {
+                LOG.debug("-----------follower {} status: {}", nodeId, nodeState);
+            }
+            // check subnode state
+            for (final Subnode subnode : testingService.getSubnodeSets().get(nodeId)) {
+                if (subnode.getSubnodeType().equals(SubnodeType.QUORUM_PEER)) {
+                    if (!SubnodeState.SENDING.equals(subnode.getState())) {
+                        LOG.debug("------follower not steady to sync -----Node {} subnode {} status: {}, subnode type: {}\n",
+                                nodeId, subnode.getId(), subnode.getState(), subnode.getSubnodeType());
+                        return false;
+                    }
+                } else if (SubnodeState.PROCESSING.equals(subnode.getState())) {
+                    LOG.debug("------follower not steady to sync -----Node {} subnode {} status: {}, subnode type: {}\n",
+                            nodeId, subnode.getId(), subnode.getState(), subnode.getSubnodeType());
+                    return false;
+                } else {
+                    LOG.debug("-----------follower {} subnode {} status: {}, subnode type: {}",
+                            nodeId, subnode.getId(), subnode.getState(), subnode.getSubnodeType());
                 }
             }
         }
