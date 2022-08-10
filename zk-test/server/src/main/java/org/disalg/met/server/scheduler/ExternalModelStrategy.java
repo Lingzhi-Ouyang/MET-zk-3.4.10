@@ -4,6 +4,7 @@ import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONObject;
 import org.disalg.met.api.MessageType;
 import org.disalg.met.api.ModelAction;
+import org.disalg.met.api.Phase;
 import org.disalg.met.api.SubnodeType;
 import org.disalg.met.api.configuration.SchedulerConfigurationException;
 import org.disalg.met.server.TestingService;
@@ -235,29 +236,27 @@ public class ExternalModelStrategy implements SchedulingStrategy{
             throw new SchedulerConfigurationException();
         }
         nextEvent = null;
-        // 2. search specific internal event type
+        // 2. search specific pre-condition event that should be lied in the sender
         switch (action) {
-            case LeaderSyncFollower: // send NEWLEADER. for now we pass DIFF / TRUNC. NOTE: SNAP is beyond consideration.
-            case LeaderProcessACKLD: // send UPTODATE
-            case LeaderToFollowerCOMMIT: // SEND COMMIT
-            case LeaderToFollowerProposal:
-                searchLeaderMessage(action, nodeId, peerId, modelZxid, enabled);
+            case LeaderSyncFollower: // follower to release ACKEPOCH (reply to LEADERINFO)
+            case LeaderProcessACKLD: // follower to release ACKLD
+            case FollowerToLeaderACK: // follower to release ACK
+                searchFollowerMessage(action, peerId, nodeId, modelZxid, enabled);
+                break;
+            case FollowerProcessSyncMessage: // leader to release DIFF / TRUNC / SNAP
+            case FollowerProcessPROPOSALInSync: // leader to release PROPOSAL
+            case FollowerProcessCOMMITInSync: // leader to release COMMIT
+            case FollowerProcessNEWLEADER: // leader to release NEWLEADER
+            case FollowerProcessUPTODATE: // leader to release UPTODATE
+            case LeaderToFollowerProposal: // leader to release PROPOSAL
+            case LeaderToFollowerCOMMIT: // leader to release COMMIT
+                searchLeaderMessage(action, peerId, nodeId, modelZxid, enabled);
                 break;
             case LeaderLog:
             case FollowerLog:
-            case FollowerProcessSyncMessage: // no ACK. process DIFF / TRUNC / SNAP
-            case FollowerProcessPROPOSALInSync: // no reply
-            case FollowerProcessCOMMITInSync: // no reply
-            case FollowerProcessPROPOSAL: // no reply TODO: this is only the first phase
             case LeaderCommit:
             case FollowerCommit:
-            case FollowerProcessCOMMIT: // COMMIT
                 searchLocalMessage(action, nodeId, modelZxid, enabled);
-                break;
-            case FollowerProcessNEWLEADER: // ACK to NEWLEADER
-            case FollowerProcessUPTODATE: // ACK to UPTODATE
-            case FollowerToLeaderACK: // ACK to PROPOSAL
-                searchFollowerMessage(action, nodeId, peerId, modelZxid, enabled);
                 break;
         }
 
@@ -272,8 +271,8 @@ public class ExternalModelStrategy implements SchedulingStrategy{
     }
 
     public void searchLeaderMessage(final ModelAction action,
-                                    final int nodeId,
-                                    final int peerId,
+                                    final int leaderId,
+                                    final int followerId,
                                     final long modelZxid,
                                     List<Event> enabled) {
         for (final Event e : enabled) {
@@ -283,32 +282,45 @@ public class ExternalModelStrategy implements SchedulingStrategy{
                 final int sendingSubnodeId = event.getSendingSubnodeId();
                 final Subnode sendingSubnode = testingService.getSubnodes().get(sendingSubnodeId);
                 final int sendingNodeId = sendingSubnode.getNodeId();
-                if (sendingNodeId != nodeId || receivingNodeId != peerId) continue;
+                if (sendingNodeId != leaderId || receivingNodeId != followerId) continue;
                 final int type = event.getType();
                 switch (type) {
-                    case MessageType.NEWLEADER:
-                        if (!action.equals(ModelAction.LeaderSyncFollower)) continue;
-                        break;
-                    case MessageType.UPTODATE:
-                        if (!action.equals(ModelAction.LeaderProcessACKLD)) continue;
+                    case MessageType.DIFF:
+                    case MessageType.TRUNC:
+                    case MessageType.SNAP:
+                        if (!action.equals(ModelAction.FollowerProcessSyncMessage)) continue;
                         break;
                     case MessageType.PROPOSAL:
-                        if (!action.equals(ModelAction.LeaderToFollowerProposal)) continue;
-                        // check the equality between zxid mapping from model to code
-                        if (event.getZxid() != testingService.getModelToCodeZxidMap().get(modelZxid)) continue;
-                        LOG.debug("LeaderToFollowerProposal, check getModelToCodeZxidMap: {}, {}, {}",
-                                Long.toHexString(modelZxid),
-                                Long.toHexString(testingService.getModelToCodeZxidMap().get(modelZxid)),
-                                Long.toHexString(event.getZxid()));
+                        if (testingService.getNodePhases().get(followerId).equals(Phase.SYNC)) {
+                            if (!action.equals(ModelAction.FollowerProcessPROPOSALInSync)) continue;
+                        } else {
+                            if (!action.equals(ModelAction.LeaderToFollowerProposal)) continue;
+                            // check the equality between zxid mapping from model to code
+                            if (event.getZxid() != testingService.getModelToCodeZxidMap().get(modelZxid)) continue;
+                            LOG.debug("LeaderToFollowerProposal, check getModelToCodeZxidMap: {}, {}, {}",
+                                    Long.toHexString(modelZxid),
+                                    Long.toHexString(testingService.getModelToCodeZxidMap().get(modelZxid)),
+                                    Long.toHexString(event.getZxid()));
+                        }
                         break;
                     case MessageType.COMMIT:
-                        if (!action.equals(ModelAction.LeaderToFollowerCOMMIT)) continue;
-                        // check the equality between zxid mapping from model to code
-                        if (event.getZxid() != testingService.getModelToCodeZxidMap().get(modelZxid)) continue;
-                        LOG.debug("LeaderToFollowerCOMMIT, check getModelToCodeZxidMap: {}, {}, {}",
-                                Long.toHexString(modelZxid),
-                                Long.toHexString(testingService.getModelToCodeZxidMap().get(modelZxid)),
-                                Long.toHexString(event.getZxid()));
+                        if (testingService.getNodePhases().get(followerId).equals(Phase.SYNC)) {
+                            if (!action.equals(ModelAction.FollowerProcessCOMMITInSync)) continue;
+                        } else {
+                            if (!action.equals(ModelAction.LeaderToFollowerCOMMIT)) continue;
+                            // check the equality between zxid mapping from model to code
+                            if (event.getZxid() != testingService.getModelToCodeZxidMap().get(modelZxid)) continue;
+                            LOG.debug("LeaderToFollowerCOMMIT, check getModelToCodeZxidMap: {}, {}, {}",
+                                    Long.toHexString(modelZxid),
+                                    Long.toHexString(testingService.getModelToCodeZxidMap().get(modelZxid)),
+                                    Long.toHexString(event.getZxid()));
+                        }
+                        break;
+                    case MessageType.NEWLEADER:
+                        if (!action.equals(ModelAction.FollowerProcessNEWLEADER)) continue;
+                        break;
+                    case MessageType.UPTODATE:
+                        if (!action.equals(ModelAction.FollowerProcessUPTODATE)) continue;
                         break;
                     default:
                         continue;
@@ -321,8 +333,8 @@ public class ExternalModelStrategy implements SchedulingStrategy{
     }
 
     public void searchFollowerMessage(final ModelAction action,
-                                      final int nodeId,
-                                      final int peerId,
+                                      final int followerId,
+                                      final int leaderId,
                                       final long modelZxid,
                                       List<Event> enabled) {
         for (final Event e : enabled) {
@@ -332,15 +344,18 @@ public class ExternalModelStrategy implements SchedulingStrategy{
                 final int sendingSubnodeId = event.getSendingSubnodeId();
                 final Subnode sendingSubnode = testingService.getSubnodes().get(sendingSubnodeId);
                 final int sendingNodeId = sendingSubnode.getNodeId();
-                if (sendingNodeId != nodeId || receivingNodeId != peerId) continue;
-                final int type = event.getType(); // this describes the message type that this ACK replies to
-                switch (type) {
+                if (sendingNodeId != followerId || receivingNodeId != leaderId) continue;
+                final int lastReadType = event.getType(); // this describes the message type that this ACK replies to
+                switch (lastReadType) {
+                    case MessageType.LEADERINFO:
+                        if (!action.equals(ModelAction.LeaderSyncFollower)) continue;
+                        break;
                     case MessageType.NEWLEADER:
-                        if (!action.equals(ModelAction.FollowerProcessNEWLEADER)) continue;
+                        if (!action.equals(ModelAction.LeaderProcessACKLD)) continue;
                         break;
-                    case MessageType.UPTODATE:
-                        if (!action.equals(ModelAction.FollowerProcessUPTODATE)) continue;
-                        break;
+//                    case MessageType.UPTODATE:
+//                        if (!action.equals(ModelAction.FollowerProcessUPTODATE)) continue;
+//                        break;
                     case MessageType.PROPOSAL: // as for ACK to PROPOSAL during SYNC, we regard it as a local event
                     case MessageType.PROPOSAL_IN_SYNC:
                         if (!action.equals(ModelAction.FollowerToLeaderACK) ) continue;
@@ -351,7 +366,6 @@ public class ExternalModelStrategy implements SchedulingStrategy{
                                 Long.toHexString(testingService.getModelToCodeZxidMap().get(modelZxid)),
                                 Long.toHexString(event.getZxid()));
                         break;
-
                     default:
                         continue;
                 }
@@ -397,14 +411,14 @@ public class ExternalModelStrategy implements SchedulingStrategy{
                         if (!subnodeType.equals(SubnodeType.SYNC_PROCESSOR)) continue;
 //                        if (type != MessageType.PROPOSAL) continue; // set_data type == 5 not proposal!
                         break;
-                    case FollowerProcessSyncMessage: // intercept readPacketInSyncWithLeader. no ACK. process DIFF / TRUNC / SNAP /
-                    case FollowerProcessCOMMITInSync: // intercept readPacketInSyncWithLeader. no ACK
-                    case FollowerProcessPROPOSALInSync: // intercept readPacketInSyncWithLeader. TODO: this will reply ACK later
-                        if (!subnodeType.equals(SubnodeType.QUORUM_PEER)) continue;
-                        break;
+//                    case FollowerProcessSyncMessage: // intercept readPacketInSyncWithLeader. no ACK. process DIFF / TRUNC / SNAP /
+//                    case FollowerProcessCOMMITInSync: // intercept readPacketInSyncWithLeader. no ACK
+//                    case FollowerProcessPROPOSALInSync: // intercept readPacketInSyncWithLeader. TODO: this will reply ACK later
+//                        if (!subnodeType.equals(SubnodeType.QUORUM_PEER)) continue;
+//                        break;
                     case LeaderCommit:
                     case FollowerCommit:
-                    case FollowerProcessCOMMIT: // DEPRECATED
+//                    case FollowerProcessCOMMIT: // DEPRECATED
                         if (!subnodeType.equals(SubnodeType.COMMIT_PROCESSOR)) continue;
                         // check the equality between zxid mapping from model to code
                         LOG.debug("ProcessCOMMIT, check getModelToCodeZxidMap: {}, {}, {}",
