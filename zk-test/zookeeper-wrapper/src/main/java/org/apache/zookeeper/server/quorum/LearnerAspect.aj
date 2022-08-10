@@ -19,6 +19,59 @@ public aspect LearnerAspect {
     private int lastReadType = -1;
 
     /***
+     * After Election and at the end of discovery, follower will send ACKEPOCH to leader
+     * Only ACKEPOCH will be intercepted
+     * Related code: Learner.java
+     */
+    pointcut writePacketInRegisterWithLeader(QuorumPacket packet, boolean flush):
+            withincode(* org.apache.zookeeper.server.quorum.Learner.registerWithLeader(..)) &&
+                    call(void org.apache.zookeeper.server.quorum.Learner.writePacket(QuorumPacket, boolean)) && args(packet, flush);
+
+    void around(QuorumPacket packet, boolean flush): writePacketInRegisterWithLeader(packet, flush) {
+        final long threadId = Thread.currentThread().getId();
+        final String threadName = Thread.currentThread().getName();
+        LOG.debug("follower writePacketInRegisterWithLeader-------Thread: {}, {}------", threadId, threadName);
+
+        final String payload = quorumPeerAspect.packetToString(packet);
+        final int quorumPeerSubnodeId = quorumPeerAspect.getQuorumPeerSubnodeId();
+        LOG.debug("---------writePacket: ({}). Subnode: {}", payload, quorumPeerSubnodeId);
+
+        final int type =  packet.getType();
+        if (type != Leader.ACKEPOCH) {
+            LOG.debug("Follower is about to reply a message to leader which is not an ACKEPOCH. (type={})", type);
+            proceed(packet, flush);
+            return;
+        }
+
+        try {
+            lastReadType = Leader.LEADERINFO;
+            quorumPeerAspect.setSubnodeSending();
+            final long zxid = packet.getZxid();
+            final int followerWritePacketId = quorumPeerAspect.getTestingService().offerFollowerToLeaderMessage(quorumPeerSubnodeId, zxid, payload, lastReadType);
+
+            // after offerMessage: decrease sendingSubnodeNum and shutdown this node if sendingSubnodeNum == 0
+            quorumPeerAspect.postSend(quorumPeerSubnodeId, followerWritePacketId);
+
+            // Trick: set RECEIVING state here
+            quorumPeerAspect.getTestingService().setReceivingState(quorumPeerSubnodeId);
+
+            // to check if the partition happens
+            if (followerWritePacketId == TestingDef.RetCode.NODE_PAIR_IN_PARTITION){
+                // just drop the message
+                LOG.debug("partition occurs! just drop the message. What about other types of messages?");
+                return;
+            }
+
+            proceed(packet, flush);
+            return;
+        } catch (RemoteException e) {
+            LOG.debug("Encountered a remote exception", e);
+            throw new RuntimeException(e);
+        }
+    }
+
+
+    /***
      * For follower's sync with leader process without replying (partition will not work)
      * For getting lastReadType during SYNC:
      *  DIFF / TRUNC / SNAP --> FollowerProcessSyncMessage : will not send ACK.
@@ -52,26 +105,26 @@ public aspect LearnerAspect {
         LOG.debug("---------readPacket: ({}). Subnode: {}", payload, quorumPeerSubnodeId);
         final int type =  packet.getType();
         lastReadType = type;
-        // will not intercept NEWLEADER / UPTODATE
-        if (type == Leader.DIFF || type == Leader.TRUNC || type == Leader.SNAP
-                || type == Leader.PROPOSAL || type == Leader.COMMIT) {
-            try {
-                // before offerMessage: increase sendingSubnodeNum
-                quorumPeerAspect.setSubnodeSending();
-                final long zxid = packet.getZxid();
-                final int followerReadPacketId =
-                        quorumPeerAspect.getTestingService().offerLocalEvent(quorumPeerSubnodeId, SubnodeType.QUORUM_PEER, zxid, payload, type);
-                LOG.debug("followerReadPacketId = {}", followerReadPacketId);
-                // after offerMessage: decrease sendingSubnodeNum and shutdown this node if sendingSubnodeNum == 0
-                quorumPeerAspect.postSend(quorumPeerSubnodeId, followerReadPacketId);
-
-                // Trick: set RECEIVING state here
-                quorumPeerAspect.getTestingService().setReceivingState(quorumPeerSubnodeId);
-
-            } catch (RemoteException e) {
-                e.printStackTrace();
-            }
-        }
+//        // will not intercept NEWLEADER / UPTODATE
+//        if (type == Leader.DIFF || type == Leader.TRUNC || type == Leader.SNAP
+//                || type == Leader.PROPOSAL || type == Leader.COMMIT) {
+//            try {
+//                // before offerMessage: increase sendingSubnodeNum
+//                quorumPeerAspect.setSubnodeSending();
+//                final long zxid = packet.getZxid();
+//                final int followerReadPacketId =
+//                        quorumPeerAspect.getTestingService().offerLocalEvent(quorumPeerSubnodeId, SubnodeType.QUORUM_PEER, zxid, payload, type);
+//                LOG.debug("followerReadPacketId = {}", followerReadPacketId);
+//                // after offerMessage: decrease sendingSubnodeNum and shutdown this node if sendingSubnodeNum == 0
+//                quorumPeerAspect.postSend(quorumPeerSubnodeId, followerReadPacketId);
+//
+//                // Trick: set RECEIVING state here
+//                quorumPeerAspect.getTestingService().setReceivingState(quorumPeerSubnodeId);
+//
+//            } catch (RemoteException e) {
+//                e.printStackTrace();
+//            }
+//        }
     }
 
     /***
@@ -166,4 +219,6 @@ public aspect LearnerAspect {
             return;
         }
     }
+
+
 }
