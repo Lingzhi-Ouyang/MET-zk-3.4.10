@@ -1,9 +1,6 @@
 package org.disalg.met.server.executor;
 
-import org.disalg.met.api.SubnodeState;
-import org.disalg.met.api.MessageType;
-import org.disalg.met.api.NodeState;
-import org.disalg.met.api.SubnodeType;
+import org.disalg.met.api.*;
 import org.disalg.met.server.TestingService;
 import org.disalg.met.server.event.LeaderToFollowerMessageEvent;
 import org.disalg.met.server.state.Subnode;
@@ -66,11 +63,13 @@ public class LeaderToFollowerMessageExecutor extends BaseEventExecutor {
 
         if (NodeState.ONLINE.equals(nodeState)) {
             switch (type) {
-//            case MessageType.DIFF:
-//            case MessageType.TRUNC:
-//            case MessageType.SNAP:
-                case MessageType.NEWLEADER:
-                case MessageType.UPTODATE:
+                case MessageType.DIFF:
+                case MessageType.TRUNC:
+                case MessageType.SNAP:
+                    LOG.info("leader sends DIFF / TRUNC / SNAP that follower will not reply : {}", event);
+                    break;
+                case MessageType.NEWLEADER: // wait for follower's ack to be sent
+                case MessageType.UPTODATE: // wait for follower's ack to be sent
                     for (final Subnode subnode : subnodes) {
                         if (subnode.getSubnodeType().equals(SubnodeType.QUORUM_PEER)
                                 && SubnodeState.RECEIVING.equals(subnode.getState())) {
@@ -80,23 +79,27 @@ public class LeaderToFollowerMessageExecutor extends BaseEventExecutor {
                         }
                     }
                     break;
-                case MessageType.PROPOSAL: // for now we do not intercept leader's PROPOSAL in sync
-                    for (final Subnode subnode : subnodes) {
-                        if (subnode.getSubnodeType().equals(SubnodeType.SYNC_PROCESSOR)
-                                && SubnodeState.RECEIVING.equals(subnode.getState())) {
-                            // set the receiving SYNC_PROCESSOR subnode to be PROCESSING
-                            subnode.setState(SubnodeState.PROCESSING);
-                            break;
+                case MessageType.PROPOSAL: // for leader's PROPOSAL in sync, follower will not produce any intercepted event
+                    if (Phase.BROADCAST.equals(testingService.getNodePhases().get(followerId))) {
+                        for (final Subnode subnode : subnodes) {
+                            if ( subnode.getSubnodeType().equals(SubnodeType.SYNC_PROCESSOR)
+                                    && SubnodeState.RECEIVING.equals(subnode.getState())) {
+                                // set the receiving SYNC_PROCESSOR subnode to be PROCESSING
+                                subnode.setState(SubnodeState.PROCESSING);
+                                break;
+                            }
                         }
                     }
                     break;
-                case MessageType.COMMIT: // for now we do not intercept leader's COMMIT in sync
-                    for (final Subnode subnode : subnodes) {
-                        if (subnode.getSubnodeType() == SubnodeType.COMMIT_PROCESSOR
-                                && SubnodeState.RECEIVING.equals(subnode.getState())) {
-                            // set the receiving COMMIT_PROCESSOR subnode to be PROCESSING
-                            subnode.setState(SubnodeState.PROCESSING);
-                            break;
+                case MessageType.COMMIT: // for leader's COMMIT in sync, follower will not produce any intercepted event
+                    if (Phase.BROADCAST.equals(testingService.getNodePhases().get(followerId))) {
+                        for (final Subnode subnode : subnodes) {
+                            if (subnode.getSubnodeType() == SubnodeType.COMMIT_PROCESSOR
+                                    && SubnodeState.RECEIVING.equals(subnode.getState())) {
+                                // set the receiving COMMIT_PROCESSOR subnode to be PROCESSING
+                                subnode.setState(SubnodeState.PROCESSING);
+                                break;
+                            }
                         }
                     }
                     break;

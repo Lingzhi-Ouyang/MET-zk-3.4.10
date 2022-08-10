@@ -52,6 +52,9 @@ public class FollowerToLeaderMessageEvent extends AbstractEvent {
     public String toString() {
         String action = "ACKto";
         switch (type) {
+            case MessageType.LEADERINFO:
+                action += "LEADERINFO(i.e.ACKEPOCH)";
+                break;
             case MessageType.NEWLEADER:
                 action += "NEWLEADER";
                 break;
