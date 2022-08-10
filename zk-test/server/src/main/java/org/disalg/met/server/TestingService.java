@@ -81,7 +81,7 @@ public class TestingService implements TestingRemoteService {
     private final Object controlMonitor = new Object();
 
     // For indication of client initialization
-    private boolean clientInitializationDone = false;
+    private boolean clientInitializationDone = true;
 
     // For network partition
     private List<List<Boolean>> partitionMap = new ArrayList<>();
@@ -1219,20 +1219,6 @@ public class TestingService implements TestingRemoteService {
                         long begintime = System.currentTimeMillis();
                         LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted);
                         final Event event = schedulingStrategy.nextEvent();
-//                        // TODO: this may wrongly delete newly produced LeaderToFollowerMessageEvent!
-//                        // TODO: should be make executed when the node crash
-//                        if (event instanceof LeaderToFollowerMessageEvent) {
-//                            final int sendingSubnodeId = ((LeaderToFollowerMessageEvent) event).getSendingSubnodeId();
-//
-//                            final int receivingNodeId = ((LeaderToFollowerMessageEvent) event).getReceivingNodeId();
-//                            if (peers.contains(receivingNodeId)) {
-//                                // confirm this works / use partition / let
-//                                deregisterSubnode(sendingSubnodeId);
-//                                ((LeaderToFollowerMessageEvent) event).setExecuted();
-//                                LOG.debug("----Do not let the previous learner handler message occur here! So pass this event---------\n\n\n");
-//                                continue;
-//                            }
-//                        }
                         if (!(event instanceof ElectionMessageEvent)) {
                             nonElectionEvents.add(event);
                             continue;
@@ -1240,12 +1226,8 @@ public class TestingService implements TestingRemoteService {
                         if (event.execute()) {
                             recordProperties(totalExecuted, begintime, event);
                         }
-//                        if (!event.execute()) {
-//                            LOG.debug("something wrong during election when executing {}", event);
-//                        }
                     }
                     // pre-condition for election property check
-
                     leaderExists = waitAllParticipantsVoted(allParticipants);
                 }
                 // throw SchedulerConfigurationException if leader does not exist
@@ -1632,7 +1614,7 @@ public class TestingService implements TestingRemoteService {
         try {
             LOG.debug("try to schedule LeaderToFollowerProposal leaderId: {}", leaderId);
             scheduleInternalEventWithWaitingRetry(strategy, ModelAction.LeaderToFollowerProposal,
-                    leaderId, followerId, modelZxid, totalExecuted, 1);
+                    followerId, leaderId, modelZxid, totalExecuted, 1);
         } catch (SchedulerConfigurationException e2) {
             LOG.debug("SchedulerConfigurationException found when scheduling LeaderToFollowerProposal! " +
                     "Try to schedule follower's LogPROPOSAL. (This should usually occur in / just after SYNC)");
@@ -1654,7 +1636,7 @@ public class TestingService implements TestingRemoteService {
         // Step 1. release follower's ACK, and by default this will trigger leader to start committing process
         try {
             scheduleInternalEventWithWaitingRetry(strategy, ModelAction.FollowerToLeaderACK,
-                    followerId, leaderId, modelZxid, totalExecuted, 3);
+                    leaderId, followerId, modelZxid, totalExecuted, 3);
         } catch (SchedulerConfigurationException e1) {
             LOG.debug("This will be fine. SchedulerConfigurationException found when scheduling FollowerToLeaderACK! " +
                     "Ensure this zxid {} is processed during sync ", Long.toHexString(modelZxid));
@@ -1685,7 +1667,7 @@ public class TestingService implements TestingRemoteService {
         try {
             LOG.debug("try to schedule LeaderToFollowerCOMMIT leaderId: {}", leaderId);
             scheduleInternalEventWithWaitingRetry(strategy, ModelAction.LeaderToFollowerCOMMIT,
-                    leaderId, followerId, modelZxid, totalExecuted, 1);
+                    followerId, leaderId, modelZxid, totalExecuted, 1);
         } catch (SchedulerConfigurationException e2) {
             LOG.debug("SchedulerConfigurationException found when scheduling LeaderToFollowerCOMMIT! " +
                     "Try to schedule follower's FollowerCommit. (This should usually occur in / just after SYNC)");
@@ -2738,37 +2720,64 @@ public class TestingService implements TestingRemoteService {
 //        }
 
         // not in partition
-        // NEWLEADER / UPTODATE / PROPOSAL / PING / REQUEST / ...
-        // during client session establishment, do not intercept
-        Phase phase = nodePhases.get(sendingNodeId);
-        if (phase.equals(Phase.SYNC) ) {
-            if (type == MessageType.NEWLEADER) {
+        if (!clientInitializationDone) {
+            LOG.debug("----client initialization is not done!---");
+            return TestingDef.RetCode.CLIENT_INITIALIZATION_NOT_DONE;
+        }
+        switch (type) {
+            case MessageType.LEADERINFO:
+                LOG.debug("-------follower reply ACK to LEADERINFO in SYNC phase!");
+                break;
+            case MessageType.NEWLEADER:
                 LOG.debug("-------follower reply ACK to NEWLEADER in SYNC phase!");
-            } else {
-                LOG.debug("-------follower is about to reply a message that will not be intercepted before BROADCAST phase!");
+                break;
+            case MessageType.UPTODATE:
+                LOG.debug("-------follower is about to reply ACK to UPTODATE that will not be intercepted in SYNC phase!");
                 return TestingDef.RetCode.NOT_INTERCEPTED;
-            }
+            case MessageType.PROPOSAL:
+                LOG.debug("-------follower is about to reply ACK to PROPOSAL in BROADCAST phase!");
+                break;
+            case MessageType.PROPOSAL_IN_SYNC:
+                LOG.debug("-------follower is about to reply ACK to PROPOSAL that should be processed in SYNC phase!");
+                break;
+            default:
+                LOG.debug("-------follower is about to reply ACK that will not be intercepted in BROADCAST phase!");
+                return TestingDef.RetCode.NOT_INTERCEPTED;
         }
-        else if (phase.equals(Phase.BROADCAST)) {
-            if (type != MessageType.UPTODATE & !clientInitializationDone) {
-                LOG.debug("----client initialization is not done!---");
-                return TestingDef.RetCode.CLIENT_INITIALIZATION_NOT_DONE;
-            }
-            switch (type) {
-                case MessageType.UPTODATE:
-                    LOG.debug("-------follower is about to reply ACK to UPTODATE in SYNC phase!");
-                    break;
-                case MessageType.PROPOSAL:
-                    LOG.debug("-------follower is about to reply ACK to PROPOSAL in BROADCAST phase!");
-                    break;
-                case MessageType.PROPOSAL_IN_SYNC:
-                    LOG.debug("-------follower is about to reply ACK to PROPOSAL that should be processed in SYNC phase!");
-                    break;
-                default:
-                    LOG.debug("-------follower is about to reply ACK that will not be intercepted in BROADCAST phase!");
-                    return TestingDef.RetCode.NOT_INTERCEPTED;
-            }
-        }
+
+
+//        Phase phase = nodePhases.get(sendingNodeId);
+//        if (phase.equals(Phase.SYNC) ) {
+//            if (type == MessageType.LEADERINFO) {
+//                LOG.debug("-------follower reply ACK to LEADERINFO in SYNC phase!");
+//            } else if (type == MessageType.NEWLEADER) {
+//                LOG.debug("-------follower reply ACK to NEWLEADER in SYNC phase!");
+//            } else {
+//                LOG.debug("-------follower is about to reply a message that will not be intercepted before BROADCAST phase!");
+//                return TestingDef.RetCode.NOT_INTERCEPTED;
+//            }
+//        }
+//        else if (phase.equals(Phase.BROADCAST)) {
+//            // during client session establishment, do not intercept
+//            if (type != MessageType.UPTODATE & !clientInitializationDone) {
+//                LOG.debug("----client initialization is not done!---");
+//                return TestingDef.RetCode.CLIENT_INITIALIZATION_NOT_DONE;
+//            }
+//            switch (type) {
+//                case MessageType.UPTODATE:
+//                    LOG.debug("-------follower is about to reply ACK to UPTODATE that will not be intercepted in SYNC phase!");
+//                    return TestingDef.RetCode.NOT_INTERCEPTED;
+//                case MessageType.PROPOSAL:
+//                    LOG.debug("-------follower is about to reply ACK to PROPOSAL in BROADCAST phase!");
+//                    break;
+//                case MessageType.PROPOSAL_IN_SYNC:
+//                    LOG.debug("-------follower is about to reply ACK to PROPOSAL that should be processed in SYNC phase!");
+//                    break;
+//                default:
+//                    LOG.debug("-------follower is about to reply ACK that will not be intercepted in BROADCAST phase!");
+//                    return TestingDef.RetCode.NOT_INTERCEPTED;
+//            }
+//        }
 
         // intercept the event
         int id = generateEventId();
@@ -2818,7 +2827,6 @@ public class TestingService implements TestingRemoteService {
     }
 
     @Override
-    // leader to looking???
     public int offerLeaderToFollowerMessage(int sendingSubnodeId, String receivingAddr, long zxid, String payload, int type) throws RemoteException {
 //        if (!clientInitializationDone) {
 //            LOG.debug("----client initialization is not done!---");
@@ -2828,6 +2836,7 @@ public class TestingService implements TestingRemoteService {
         final Subnode sendingSubnode = subnodes.get(sendingSubnodeId);
         final int sendingNodeId = sendingSubnode.getNodeId();
 
+        // PRE-Process
         // record critical info: follower address & follower-learnerHandler relationship
         int receivingNodeId;
         synchronized (controlMonitor) {
@@ -2836,12 +2845,12 @@ public class TestingService implements TestingRemoteService {
             LOG.debug("Leader {} offerLeaderToFollowerMessage. type: {}. receivingNodeId: {}, {}",
                     sendingNodeId, type, receivingNodeId, receivingAddr);
             switch (type) {
-//                case MessageType.DIFF:
-//                case MessageType.TRUNC:
-//                case MessageType.SNAP:
-//                    // LearnerHandler
-//                    followerLearnerHandlerMap.set(receivingNodeId, sendingSubnodeId);
-//                    break;
+                case MessageType.DIFF:
+                case MessageType.TRUNC:
+                case MessageType.SNAP:
+                    // LearnerHandler
+                    followerLearnerHandlerMap.set(receivingNodeId, sendingSubnodeId);
+                    break;
                 case MessageType.NEWLEADER:
                     assert leaderSyncFollowerCountMap.containsKey(sendingNodeId);
                     leaderSyncFollowerCountMap.put(sendingNodeId, leaderSyncFollowerCountMap.get(sendingNodeId) - 1);
@@ -2870,35 +2879,86 @@ public class TestingService implements TestingRemoteService {
 
         // not in partition
         // during client session establishment, do not intercept
-        Phase phase = nodePhases.get(sendingNodeId);
-        if (phase.equals(Phase.SYNC) ) {
-            if (type == MessageType.NEWLEADER) {
-                LOG.debug("-------leader is about to send NEWLEADER in SYNC phase!");
-            } else {
+        if (!clientInitializationDone) {
+            LOG.debug("----client initialization is not done!---");
+            return TestingDef.RetCode.CLIENT_INITIALIZATION_NOT_DONE;
+        }
+        switch (type) {
+            case MessageType.DIFF:
+                LOG.debug("-------leader {} is about to send DIFF to follower {}!", sendingNodeId, receivingNodeId);
+                break;
+            case MessageType.TRUNC:
+                LOG.debug("-------leader {} is about to send TRUNC to follower {}!", sendingNodeId, receivingNodeId);
+                break;
+            case MessageType.SNAP:
+                LOG.debug("-------leader {} is about to send SNAP to follower {}!", sendingNodeId, receivingNodeId);
+                break;
+            case MessageType.COMMIT:
+                LOG.debug("-------leader {} is about to send COMMIT to follower {}!", sendingNodeId, receivingNodeId);
+                break;
+            case MessageType.PROPOSAL:
+                LOG.debug("-------leader {} is about to send PROPOSAL to follower {}!", sendingNodeId, receivingNodeId);
+                break;
+            case MessageType.NEWLEADER:
+                LOG.debug("-------leader {} is about to send NEWLEADER to follower {}!", sendingNodeId, receivingNodeId);
+                break;
+            case MessageType.UPTODATE:
+                LOG.debug("-------leader {} is about to send UPTODATE to follower {}!", sendingNodeId, receivingNodeId);
+                break;
+            default:
                 LOG.debug("-------leader is about to send a message that will not be intercepted in SYNC phase!");
                 return TestingDef.RetCode.NOT_INTERCEPTED;
-            }
         }
-        else if (phase.equals(Phase.BROADCAST)) {
-            if (type != MessageType.UPTODATE & !clientInitializationDone) {
-                LOG.debug("----client initialization is not done!---");
-                return TestingDef.RetCode.CLIENT_INITIALIZATION_NOT_DONE;
-            }
-            switch (type) {
-                case MessageType.UPTODATE:
-                    LOG.debug("-------leader is about to send UPTODATE in SYNC phase!");
-                    break;
-                case MessageType.COMMIT:
-                    LOG.debug("-------leader is about to send COMMIT in BROADCAST phase!");
-                    break;
-                case MessageType.PROPOSAL:
-                    LOG.debug("-------leader is about to send PROPOSAL in BROADCAST phase!");
-                    break;
-                default:
-                    LOG.debug("-------leader is about to send a message that will not be intercepted in BROADCAST phase!");
-                    return TestingDef.RetCode.NOT_INTERCEPTED;
-            }
-        }
+
+//        Phase phase = nodePhases.get(sendingNodeId);
+////        Phase phase = nodePhases.get(receivingNodeId);
+//
+//        if (phase.equals(Phase.SYNC) ) {
+//            // DIFF / TRUNC / SNAP / PROPOSAL / COMMIT / NEWLEADER
+//            switch (type) {
+//                case MessageType.NEWLEADER:
+//                    LOG.debug("-------leader {} is about to send NEWLEADER to follower {} in SYNC phase!", sendingNodeId, receivingNodeId);
+//                    break;
+//                case MessageType.DIFF:
+//                    LOG.debug("-------leader {} is about to send DIFF to follower {} in SYNC phase!", sendingNodeId, receivingNodeId);
+//                    break;
+//                case MessageType.TRUNC:
+//                    LOG.debug("-------leader {} is about to send TRUNC to follower {} in SYNC phase!", sendingNodeId, receivingNodeId);
+//                    break;
+//                case MessageType.SNAP:
+//                    LOG.debug("-------leader {} is about to send SNAP to follower {} in SYNC phase!", sendingNodeId, receivingNodeId);
+//                    break;
+//                case MessageType.COMMIT:
+//                    LOG.debug("-------leader {} is about to send COMMIT to follower {} in SYNC phase!", sendingNodeId, receivingNodeId);
+//                    break;
+//                case MessageType.PROPOSAL:
+//                    LOG.debug("-------leader {} is about to send PROPOSAL to follower {} in SYNC phase!", sendingNodeId, receivingNodeId);
+//                    break;
+//                default:
+//                    LOG.debug("-------leader is about to send a message that will not be intercepted in SYNC phase!");
+//                    return TestingDef.RetCode.NOT_INTERCEPTED;
+//            }
+//        }
+//        else if (phase.equals(Phase.BROADCAST)) {
+//            if (type != MessageType.UPTODATE & !clientInitializationDone) {
+//                LOG.debug("----client initialization is not done!---");
+//                return TestingDef.RetCode.CLIENT_INITIALIZATION_NOT_DONE;
+//            }
+//            switch (type) {
+//                case MessageType.UPTODATE:
+//                    LOG.debug("-------leader {} is about to send UPTODATE to follower {} in SYNC phase!", sendingNodeId, receivingNodeId);
+//                    break;
+//                case MessageType.COMMIT:
+//                    LOG.debug("-------leader {} is about to send COMMIT to follower {} in BROADCAST phase!", sendingNodeId, receivingNodeId);
+//                    break;
+//                case MessageType.PROPOSAL:
+//                    LOG.debug("-------leader {} is about to send PROPOSAL to follower {} in BROADCAST phase!", sendingNodeId, receivingNodeId);
+//                    break;
+//                default:
+//                    LOG.debug("-------leader is about to send a message that will not be intercepted in BROADCAST phase!");
+//                    return TestingDef.RetCode.NOT_INTERCEPTED;
+//            }
+//        }
 
         // intercept the event
         final List<Event> predecessorEvents = new ArrayList<>();
