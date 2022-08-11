@@ -2707,15 +2707,15 @@ public class TestingService implements TestingRemoteService {
     }
 
     @Override
-    public int offerFollowerToLeaderMessage(int sendingSubnodeId, long zxid, String payload, int type) throws RemoteException {
+    public int offerFollowerToLeaderMessage(int sendingSubnodeId, long zxid, String payload, int lastReceivedType) throws RemoteException {
         final Subnode sendingSubnode = subnodes.get(sendingSubnodeId);
         final int sendingNodeId = sendingSubnode.getNodeId();
 
-        LOG.debug("Follower {} offerFollowerToLeaderMessage. last received type: {}", sendingNodeId, type);
+        LOG.debug("Follower {} offerFollowerToLeaderMessage. last received type: {}", sendingNodeId, lastReceivedType);
 
         // record critical info
         synchronized (controlMonitor) {
-            if (type == MessageType.UPTODATE) {
+            if (lastReceivedType == MessageType.UPTODATE) {
                 LOG.debug("----set follower {} to BROADCAST phase !---", sendingNodeId);
                 nodePhases.set(sendingNodeId, Phase.BROADCAST);
             }
@@ -2736,7 +2736,7 @@ public class TestingService implements TestingRemoteService {
             LOG.debug("----client initialization is not done!---");
             return TestingDef.RetCode.CLIENT_INITIALIZATION_NOT_DONE;
         }
-        switch (type) {
+        switch (lastReceivedType) {
             case MessageType.LEADERINFO:
                 LOG.debug("-------follower reply ACK to LEADERINFO in SYNC phase!");
                 break;
@@ -2753,54 +2753,20 @@ public class TestingService implements TestingRemoteService {
                 LOG.debug("-------follower is about to reply ACK to PROPOSAL that should be processed in SYNC phase!");
                 break;
             default:
-                LOG.debug("-------follower is about to reply ACK that will not be intercepted in BROADCAST phase!");
+                LOG.debug("-------follower is about to reply ACK that will not be intercepted!");
                 return TestingDef.RetCode.NOT_INTERCEPTED;
         }
-
-
-//        Phase phase = nodePhases.get(sendingNodeId);
-//        if (phase.equals(Phase.SYNC) ) {
-//            if (type == MessageType.LEADERINFO) {
-//                LOG.debug("-------follower reply ACK to LEADERINFO in SYNC phase!");
-//            } else if (type == MessageType.NEWLEADER) {
-//                LOG.debug("-------follower reply ACK to NEWLEADER in SYNC phase!");
-//            } else {
-//                LOG.debug("-------follower is about to reply a message that will not be intercepted before BROADCAST phase!");
-//                return TestingDef.RetCode.NOT_INTERCEPTED;
-//            }
-//        }
-//        else if (phase.equals(Phase.BROADCAST)) {
-//            // during client session establishment, do not intercept
-//            if (type != MessageType.UPTODATE & !clientInitializationDone) {
-//                LOG.debug("----client initialization is not done!---");
-//                return TestingDef.RetCode.CLIENT_INITIALIZATION_NOT_DONE;
-//            }
-//            switch (type) {
-//                case MessageType.UPTODATE:
-//                    LOG.debug("-------follower is about to reply ACK to UPTODATE that will not be intercepted in SYNC phase!");
-//                    return TestingDef.RetCode.NOT_INTERCEPTED;
-//                case MessageType.PROPOSAL:
-//                    LOG.debug("-------follower is about to reply ACK to PROPOSAL in BROADCAST phase!");
-//                    break;
-//                case MessageType.PROPOSAL_IN_SYNC:
-//                    LOG.debug("-------follower is about to reply ACK to PROPOSAL that should be processed in SYNC phase!");
-//                    break;
-//                default:
-//                    LOG.debug("-------follower is about to reply ACK that will not be intercepted in BROADCAST phase!");
-//                    return TestingDef.RetCode.NOT_INTERCEPTED;
-//            }
-//        }
 
         // intercept the event
         int id = generateEventId();
         final List<Event> predecessorEvents = new ArrayList<>();
         final FollowerToLeaderMessageEvent messageEvent = new FollowerToLeaderMessageEvent(
-                id, sendingSubnodeId, receivingNodeId, type, zxid, payload, followerToLeaderMessageExecutor);
+                id, sendingSubnodeId, receivingNodeId, lastReceivedType, zxid, payload, followerToLeaderMessageExecutor);
         messageEvent.addAllDirectPredecessors(predecessorEvents);
 
         synchronized (controlMonitor) {
             LOG.debug("Follower {} is offering a a type={} message to leader {}: msgId = {}, " +
-                    "set subnode {} to SENDING state", sendingNodeId, type, receivingNodeId, id, sendingSubnodeId);
+                    "set subnode {} to SENDING state", sendingNodeId, lastReceivedType, receivingNodeId, id, sendingSubnodeId);
 
             addEvent(messageEvent);
             sendingSubnode.setState(SubnodeState.SENDING);
@@ -2918,59 +2884,9 @@ public class TestingService implements TestingRemoteService {
                 LOG.debug("-------leader {} is about to send UPTODATE to follower {}!", sendingNodeId, receivingNodeId);
                 break;
             default:
-                LOG.debug("-------leader is about to send a message that will not be intercepted in SYNC phase!");
+                LOG.debug("-------leader is about to send a message that will not be intercepted!");
                 return TestingDef.RetCode.NOT_INTERCEPTED;
         }
-
-//        Phase phase = nodePhases.get(sendingNodeId);
-////        Phase phase = nodePhases.get(receivingNodeId);
-//
-//        if (phase.equals(Phase.SYNC) ) {
-//            // DIFF / TRUNC / SNAP / PROPOSAL / COMMIT / NEWLEADER
-//            switch (type) {
-//                case MessageType.NEWLEADER:
-//                    LOG.debug("-------leader {} is about to send NEWLEADER to follower {} in SYNC phase!", sendingNodeId, receivingNodeId);
-//                    break;
-//                case MessageType.DIFF:
-//                    LOG.debug("-------leader {} is about to send DIFF to follower {} in SYNC phase!", sendingNodeId, receivingNodeId);
-//                    break;
-//                case MessageType.TRUNC:
-//                    LOG.debug("-------leader {} is about to send TRUNC to follower {} in SYNC phase!", sendingNodeId, receivingNodeId);
-//                    break;
-//                case MessageType.SNAP:
-//                    LOG.debug("-------leader {} is about to send SNAP to follower {} in SYNC phase!", sendingNodeId, receivingNodeId);
-//                    break;
-//                case MessageType.COMMIT:
-//                    LOG.debug("-------leader {} is about to send COMMIT to follower {} in SYNC phase!", sendingNodeId, receivingNodeId);
-//                    break;
-//                case MessageType.PROPOSAL:
-//                    LOG.debug("-------leader {} is about to send PROPOSAL to follower {} in SYNC phase!", sendingNodeId, receivingNodeId);
-//                    break;
-//                default:
-//                    LOG.debug("-------leader is about to send a message that will not be intercepted in SYNC phase!");
-//                    return TestingDef.RetCode.NOT_INTERCEPTED;
-//            }
-//        }
-//        else if (phase.equals(Phase.BROADCAST)) {
-//            if (type != MessageType.UPTODATE & !clientInitializationDone) {
-//                LOG.debug("----client initialization is not done!---");
-//                return TestingDef.RetCode.CLIENT_INITIALIZATION_NOT_DONE;
-//            }
-//            switch (type) {
-//                case MessageType.UPTODATE:
-//                    LOG.debug("-------leader {} is about to send UPTODATE to follower {} in SYNC phase!", sendingNodeId, receivingNodeId);
-//                    break;
-//                case MessageType.COMMIT:
-//                    LOG.debug("-------leader {} is about to send COMMIT to follower {} in BROADCAST phase!", sendingNodeId, receivingNodeId);
-//                    break;
-//                case MessageType.PROPOSAL:
-//                    LOG.debug("-------leader {} is about to send PROPOSAL to follower {} in BROADCAST phase!", sendingNodeId, receivingNodeId);
-//                    break;
-//                default:
-//                    LOG.debug("-------leader is about to send a message that will not be intercepted in BROADCAST phase!");
-//                    return TestingDef.RetCode.NOT_INTERCEPTED;
-//            }
-//        }
 
         // intercept the event
         final List<Event> predecessorEvents = new ArrayList<>();
@@ -3070,6 +2986,11 @@ public class TestingService implements TestingRemoteService {
     public int registerSubnode(final int nodeId, final SubnodeType subnodeType) throws RemoteException {
         final int subnodeId;
         synchronized (controlMonitor) {
+            if (nodeStates.get(nodeId).equals(NodeState.OFFLINE) || nodeStates.get(nodeId).equals(NodeState.STOPPING) ){
+                LOG.debug("-----------will not register type: {} of node {},  since this node is {}--------",
+                        subnodeType, nodeId, nodeStates.get(nodeId));
+                return -1;
+            }
             subnodeId = subnodes.size();
             LOG.debug("-----------register subnode {} of node {}, type: {}--------", subnodeId, nodeId, subnodeType);
             final Subnode subnode = new Subnode(subnodeId, nodeId, subnodeType);
@@ -3267,7 +3188,7 @@ public class TestingService implements TestingRemoteService {
         }
     }
 
-    public boolean releaseBroadcastEvent(Set<Integer> peers) {
+    public boolean releasePartitionedEvent(Set<Integer> peers) {
         Set<Event> otherEvents = new HashSet<>();
         try {
             while (schedulingStrategy.hasNextEvent()) {
@@ -3278,6 +3199,58 @@ public class TestingService implements TestingRemoteService {
                     final Subnode sendingSubnode = subnodes.get(sendingSubnodeId);
                     final int sendingNodeId = sendingSubnode.getNodeId();
                     final int receivingNodeId = e1.getReceivingNodeId();
+                    if (peers.contains(sendingNodeId) && peers.contains(receivingNodeId)) {
+                        e1.execute();
+                    } else {
+                        otherEvents.add(event);
+                    }
+                } else if (event instanceof FollowerToLeaderMessageEvent) {
+                    FollowerToLeaderMessageEvent e1 = (FollowerToLeaderMessageEvent) event;
+                    final int sendingSubnodeId = e1.getSendingSubnodeId();
+                    final Subnode sendingSubnode = subnodes.get(sendingSubnodeId);
+                    final int sendingNodeId = sendingSubnode.getNodeId();
+                    final int receivingNodeId = e1.getReceivingNodeId();
+                    if (peers.contains(sendingNodeId) && peers.contains(receivingNodeId)) {
+                        e1.execute();
+                    } else {
+                        otherEvents.add(event);
+                    }
+                } else if (event instanceof ElectionMessageEvent) {
+                    ElectionMessageEvent e1 = (ElectionMessageEvent) event;
+                    final int sendingSubnodeId = e1.getSendingSubnodeId();
+                    final Subnode sendingSubnode = subnodes.get(sendingSubnodeId);
+                    final int sendingNodeId = sendingSubnode.getNodeId();
+                    final int receivingNodeId = e1.getReceivingNodeId();
+                    if (peers.contains(sendingNodeId) && peers.contains(receivingNodeId)) {
+                        e1.execute();
+                    } else {
+                        otherEvents.add(event);
+                    }
+                } else {
+                    otherEvents.add(event);
+                }
+            }
+            for (Event e: otherEvents) {
+                LOG.debug("Adding back event that is missed during partition: {}", e);
+                addEvent(e);
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return true;
+    }
+
+
+    public boolean releaseBroadcastEvent(Set<Integer> peers) {
+        Set<Event> otherEvents = new HashSet<>();
+        try {
+            while (schedulingStrategy.hasNextEvent()) {
+                final Event event = schedulingStrategy.nextEvent();
+                if (event instanceof LeaderToFollowerMessageEvent) {
+                    LeaderToFollowerMessageEvent e1 = (LeaderToFollowerMessageEvent) event;
+                    final int sendingSubnodeId = e1.getSendingSubnodeId();
+                    final Subnode sendingSubnode = subnodes.get(sendingSubnodeId);
+                    final int sendingNodeId = sendingSubnode.getNodeId();
                     if (peers.contains(sendingNodeId)) {
                         e1.execute();
                     } else {

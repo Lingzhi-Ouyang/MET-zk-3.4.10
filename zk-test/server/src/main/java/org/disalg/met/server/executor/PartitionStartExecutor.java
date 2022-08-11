@@ -70,7 +70,15 @@ public class PartitionStartExecutor extends BaseEventExecutor {
         LeaderElectionState role2 = leaderElectionStates.get(node2);
         LOG.debug("Node {} & {} partition start.", node1, node2);
 
-        // leader & follower
+
+        // release all nodes' event related to the partitioned nodes
+        testingService.getControlMonitor().notifyAll();
+        testingService.releasePartitionedEvent(new HashSet<Integer>() {{
+            add(node1);
+            add(node2);
+        }});
+
+        // leader & follower: need to set related nodes back to LOOKING state and release broadcast events
         boolean leaderExist = LeaderElectionState.LEADING.equals(role1) || LeaderElectionState.LEADING.equals(role2);
         boolean followerExist = LeaderElectionState.FOLLOWING.equals(role1) || LeaderElectionState.FOLLOWING.equals(role2);
         if (leaderExist & followerExist) {
