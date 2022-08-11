@@ -1212,15 +1212,27 @@ public class TestingService implements TestingRemoteService {
                 ++totalExecuted;
                 boolean leaderExists = false;
                 int retry = 0;
-                Set<Event> nonElectionEvents = new HashSet<>();
+                Set<Event> otherEvents = new HashSet<>();
                 while (!leaderExists && retry < 5) {
                     retry++;
                     while (schedulingStrategy.hasNextEvent() && totalExecuted < 100) {
                         long begintime = System.currentTimeMillis();
                         LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted);
                         final Event event = schedulingStrategy.nextEvent();
+                        // do not schedule other types' events
                         if (!(event instanceof ElectionMessageEvent)) {
-                            nonElectionEvents.add(event);
+                            LOG.debug(" During election, will not schedule non-election message {}", event);
+                            otherEvents.add(event);
+                            continue;
+                        }
+                        // do not schedule other nodes' election events
+                        ElectionMessageEvent e = (ElectionMessageEvent) event;
+                        final int receivingNodeId = e.getReceivingNodeId();
+                        final int sendingSubnodeId = e.getSendingSubnodeId();
+                        final int sendingNodeId = subnodes.get(sendingSubnodeId).getNodeId();
+                        if (!allParticipants.contains(sendingNodeId)) {
+                            LOG.debug(" During election, will not schedule non-participants' message {}", event);
+                            otherEvents.add(event);
                             continue;
                         }
                         if (event.execute()) {
@@ -1238,7 +1250,7 @@ public class TestingService implements TestingRemoteService {
                     throw new SchedulerConfigurationException();
                 }
                 participants.addAll(allParticipants);
-                for (Event e: nonElectionEvents) {
+                for (Event e: otherEvents) {
                     LOG.debug("Adding back event that is missed during election: {}", e);
                     addEvent(e);
                 }
