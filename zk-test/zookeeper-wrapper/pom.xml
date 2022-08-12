@@ -13,7 +13,7 @@
     <artifactId>zookeeper-wrapper</artifactId>
 
     <properties>
-        <zookeeper.version>3.4.13</zookeeper.version>
+        <zookeeper.version>3.4.10</zookeeper.version>
         <aspectj.version>1.8.13</aspectj.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
@@ -76,7 +76,7 @@
         <dependency>
             <groupId>org.disalg.met.zk</groupId>
             <artifactId>api</artifactId>
-            <version>1.0-SNAPSHOT</version>
+            <version>${project.version}</version>
         </dependency>
         <dependency>
             <groupId>org.jboss.netty</groupId>
@@ -93,7 +93,7 @@
         <dependency>
             <groupId>org.apache.zookeeper</groupId>
             <artifactId>zookeeper</artifactId>
-            <version>3.4.13</version>
+            <version>${zookeeper.version}</version>
         </dependency>
 
 
@@ -115,6 +115,24 @@
 
     <build>
         <plugins>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>properties-maven-plugin</artifactId>
+                <version>1.0-alpha-2</version>
+                <executions>
+                    <execution>
+                        <phase>initialize</phase>
+                        <goals>
+                            <goal>read-project-properties</goal>
+                        </goals>
+                        <configuration>
+                            <files>
+                                <file>../test/zookeeper.properties</file>
+                            </files>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
