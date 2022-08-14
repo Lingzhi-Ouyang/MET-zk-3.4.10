@@ -2,6 +2,7 @@ package org.disalg.met.server.executor;
 
 import org.disalg.met.api.SubnodeState;
 import org.disalg.met.api.SubnodeType;
+import org.disalg.met.api.TestingDef;
 import org.disalg.met.server.TestingService;
 import org.disalg.met.server.event.ElectionMessageEvent;
 import org.disalg.met.server.state.Subnode;
@@ -52,7 +53,8 @@ public class ElectionMessageExecutor extends BaseEventExecutor {
         // if in partition, then just drop it
         final int sendingNodeId = sendingSubnode.getNodeId();
         final int receivingNodeId = event.getReceivingNodeId();
-        if (testingService.getPartitionMap().get(sendingNodeId).get(receivingNodeId)) {
+        if (testingService.getPartitionMap().get(sendingNodeId).get(receivingNodeId)
+                || event.getFlag() == TestingDef.RetCode.NODE_PAIR_IN_PARTITION) {
             return;
         }
 

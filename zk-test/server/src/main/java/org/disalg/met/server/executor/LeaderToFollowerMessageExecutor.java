@@ -69,6 +69,21 @@ public class LeaderToFollowerMessageExecutor extends BaseEventExecutor {
                     LOG.info("leader sends DIFF / TRUNC / SNAP that follower will not reply : {}", event);
                     break;
                 case MessageType.NEWLEADER: // wait for follower's ack to be sent
+                    int followerQuorumPeerSubnodeId = -1;
+                    for (final Subnode subnode : subnodes) {
+                        if (subnode.getSubnodeType().equals(SubnodeType.QUORUM_PEER)
+                                && SubnodeState.RECEIVING.equals(subnode.getState())) {
+                            // set the receiving QUORUM_PEER subnode to be PROCESSING
+                            subnode.setState(SubnodeState.PROCESSING);
+                            followerQuorumPeerSubnodeId = subnode.getId();
+                            break;
+                        }
+                    }
+                    if (followerQuorumPeerSubnodeId > 0) {
+                        testingService.waitSubnodeInSendingState(followerQuorumPeerSubnodeId);
+                    } else {
+                        LOG.debug("follower {}'s QuorumPeerSubnodeId not found!", followerId);
+                    }
                 case MessageType.UPTODATE: // wait for follower's ack to be sent
                     for (final Subnode subnode : subnodes) {
                         if (subnode.getSubnodeType().equals(SubnodeType.QUORUM_PEER)
