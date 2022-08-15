@@ -127,6 +127,10 @@ public aspect LearnerHandlerAspect {
             LOG.debug("--------catch exception: {}", e.toString());
             throw new RuntimeException(e);
         }
+        if (subnodeId == TestingDef.RetCode.NODE_CRASH) {
+            LOG.debug("LearnerHandlerSender threadId: {}, subnodeId == -1, indicating the node is STOPPING or OFFLINE", threadId);
+            return;
+        }
         final AtomicInteger msgsInQueuedPackets = intercepter.getMsgsInQueue();
         LOG.debug("--------------My queuedPackets has {} element. msgsInQueuedPackets has {}.",
                 queue.size(), msgsInQueuedPackets.get());
@@ -172,7 +176,10 @@ public aspect LearnerHandlerAspect {
             LOG.debug("--------catch exception: {}", e.toString());
             throw new RuntimeException(e);
         }
-
+        if (subnodeId == TestingDef.RetCode.NODE_CRASH) {
+            LOG.debug("LearnerHandlerSender threadId: {}, subnodeId == -1, indicating the node is STOPPING or OFFLINE", threadId);
+            return;
+        }
         QuorumPacket packet = (QuorumPacket) r;
         final String payload = quorumPeerAspect.packetToString(packet);
         final int type =  packet.getType();
@@ -251,7 +258,10 @@ public aspect LearnerHandlerAspect {
             LOG.debug("--------catch exception in learnerHandlerWriteRecord: {}", e.toString());
             throw new RuntimeException(e);
         }
-
+        if (subnodeId == TestingDef.RetCode.NODE_CRASH) {
+            LOG.debug("LearnerHandler threadId: {}, subnodeId == -1, indicating the node is STOPPING or OFFLINE", threadId);
+            return;
+        }
         // Intercept QuorumPacket
         QuorumPacket packet = (QuorumPacket) r;
         final String payload = quorumPeerAspect.packetToString(packet);

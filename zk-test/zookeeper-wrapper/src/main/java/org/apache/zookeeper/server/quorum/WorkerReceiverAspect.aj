@@ -72,7 +72,7 @@ public aspect WorkerReceiverAspect {
             // after offerMessage: decrease sendingSubnodeNum and shutdown this node if sendingSubnodeNum == 0
             quorumPeerAspect.postSend(workerReceiverSubnodeId, lastSentMessageId);
 
-//            // TODO: to check if the partition happens with around()
+            // TODO: to check if the partition happens with around()
             if (lastSentMessageId == TestingDef.RetCode.NODE_PAIR_IN_PARTITION){
                 // just drop the message
                 LOG.debug("partition occurs! just drop the message. What about other types of messages?");

@@ -3,6 +3,7 @@ package org.apache.zookeeper.server.quorum;
 import org.apache.zookeeper.ZooDefs;
 import org.apache.zookeeper.server.Request;
 import org.disalg.met.api.SubnodeType;
+import org.disalg.met.api.TestingDef;
 import org.disalg.met.api.TestingRemoteService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -59,6 +60,10 @@ public aspect CommitProcessorAspect {
         final Request request = (Request) object;
         LOG.debug("--------------Before addToProcess {}: My toProcess has {} element. commitSubnode: {}",
                 request, queue.size(), subnodeId);
+        if (subnodeId == TestingDef.RetCode.NODE_CRASH) {
+            LOG.debug("COMMIT threadId: {}, subnodeId == -1, indicating the node is STOPPING or OFFLINE", threadId);
+            return;
+        }
         final int type =  request.type;
         switch (type) {
             case ZooDefs.OpCode.notification:

@@ -649,6 +649,10 @@ public aspect QuorumPeerAspect {
             final SubnodeType subnodeType = intercepter.getSubnodeType();
             final int subnodeId = intercepter.getSubnodeId();
             LOG.debug("De-registering {} subnode {}", subnodeType, subnodeId);
+            if (subnodeId == TestingDef.RetCode.NODE_CRASH) {
+                LOG.debug("{} subnodeId == -1, threadId: {}", subnodeType, threadId);
+                return;
+            }
             testingService.deregisterSubnode(subnodeId);
             LOG.debug("Finish de-registering {} subnode {}", subnodeType, subnodeId);
             // for LearnerHandlerSender

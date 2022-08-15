@@ -3,6 +3,7 @@ package org.apache.zookeeper.server;
 import org.apache.zookeeper.ZooDefs;
 import org.apache.zookeeper.server.quorum.QuorumPeerAspect;
 import org.disalg.met.api.SubnodeType;
+import org.disalg.met.api.TestingDef;
 import org.disalg.met.api.TestingRemoteService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -91,6 +92,10 @@ public aspect SyncRequestProcessorAspect {
 
         LOG.debug("--------------My queuedRequests has {} element. syncProcessorSubnodeId: {}.",
                 queue.size(), subnodeId);
+        if (subnodeId == TestingDef.RetCode.NODE_CRASH) {
+            LOG.debug("SYNC threadId: {}, subnodeId == -1, indicating the node is STOPPING or OFFLINE", threadId);
+            return;
+        }
 
         if (request == null){
             LOG.debug("------It's not a request! Using poll() and flush now");
@@ -98,7 +103,7 @@ public aspect SyncRequestProcessorAspect {
         }
         if (request instanceof Request) {
 //            this.request = (Request) request;
-            LOG.debug("It's a request!");
+            LOG.debug("It's a request {}", request);
             final String payload = quorumPeerAspect.constructRequest((Request) request);
             final int type =  ((Request) request).type;
             switch (type) {
