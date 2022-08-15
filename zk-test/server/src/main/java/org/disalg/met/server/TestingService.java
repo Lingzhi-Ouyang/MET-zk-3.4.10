@@ -546,7 +546,7 @@ public class TestingService implements TestingRemoteService {
                             break;
 
                         // others
-                        case LeaderSyncFollower: // sent DIFF / TRUNC / SNAP / .. / TODO: to send NEWLEADER, not make it sent
+                        case LeaderSyncFollower: // send DIFF / TRUNC / SNAP
                         case FollowerProcessSyncMessage:
                         case FollowerProcessNEWLEADER: // send ACK
                         case LeaderProcessACKLD: // send UPTODATE
@@ -554,7 +554,7 @@ public class TestingService implements TestingRemoteService {
                             int peerId7 = serverIdMap.get(elements.getString("peerId"));
                             long modelZxid7 = -1L;
                             LOG.debug("{}, modelZxid: {}", action, Long.toHexString(modelZxid7));
-                            int retry = 5;
+                            int retry = 10;
                             totalExecuted = scheduleInternalEventWithWaitingRetry(externalModelStrategy,
                                     modelAction, nodeId, peerId7, modelZxid7, totalExecuted, retry);
                             break;
@@ -1193,29 +1193,33 @@ public class TestingService implements TestingRemoteService {
      */
     public int scheduleElectionAndDiscovery(final Integer currentStep,
                                             final Integer leaderId,
-                                            final List<Integer> peers,
+                                            List<Integer> peers,
                                             int totalExecuted) throws SchedulerConfigurationException {
         try{
-//            statistics.startTimer();
+            Set<Integer> allParticipants = new HashSet<>(peers);
+            allParticipants.add(leaderId);
             Set<Integer> lookingParticipants = new HashSet<>(peers);
             if (!leaderElectionStates.get(leaderId).equals(LeaderElectionState.LEADING)) {
                 lookingParticipants.add(leaderId);
             }
-            Set<Integer> allParticipants = new HashSet<>(peers);
-            allParticipants.add(leaderId);
             synchronized (controlMonitor) {
                 // pre-condition
-
                 waitAliveNodesInLookingState(lookingParticipants);
+
+                // if model leader still in LOOKING state
+                // let leader's election messages to all nodes come first
+                if (!leaderElectionStates.get(leaderId).equals(LeaderElectionState.LEADING)) {
+                    waitFirstMessageOffered(leaderId);
+                }
 
                 // Make all message events during election one single step
                 ++totalExecuted;
                 boolean leaderExists = false;
                 int retry = 0;
                 Set<Event> otherEvents = new HashSet<>();
-                while (!leaderExists && retry < 5) {
+                while (!leaderExists && retry < 10) {
                     retry++;
-                    while (schedulingStrategy.hasNextEvent() && totalExecuted < 100) {
+                    while (schedulingStrategy.hasNextEvent()) {
                         long begintime = System.currentTimeMillis();
                         LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted);
                         final Event event = schedulingStrategy.nextEvent();
@@ -1227,7 +1231,6 @@ public class TestingService implements TestingRemoteService {
                         }
                         // do not schedule other nodes' election events
                         ElectionMessageEvent e = (ElectionMessageEvent) event;
-                        final int receivingNodeId = e.getReceivingNodeId();
                         final int sendingSubnodeId = e.getSendingSubnodeId();
                         final int sendingNodeId = subnodes.get(sendingSubnodeId).getNodeId();
                         if (!allParticipants.contains(sendingNodeId)) {
@@ -1235,13 +1238,110 @@ public class TestingService implements TestingRemoteService {
                             otherEvents.add(event);
                             continue;
                         }
+
+                        // if the receiving node is not a participants, just drop it.
+                        final int receivingNode = e.getReceivingNodeId();
+                        if (!allParticipants.contains(receivingNode)) {
+                            LOG.debug("the receiving node is not a participants, just drop it.");
+                            e.setFlag(TestingDef.RetCode.NODE_PAIR_IN_PARTITION);
+                        }
                         if (event.execute()) {
                             recordProperties(totalExecuted, begintime, event);
                         }
+
+
+//                        Set<Event> peerEvents = new HashSet<>(); // delay scheduling non-leader's message
+//
+//                        // prefer leader's message
+//                        while (schedulingStrategy.hasNextEvent()) {
+//                            long begintime = System.currentTimeMillis();
+//                            LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted);
+//                            final Event event = schedulingStrategy.nextEvent();
+//                            // do not schedule other types' events
+//                            if (!(event instanceof ElectionMessageEvent)) {
+//                                LOG.debug(" During election, will not schedule non-election message {}", event);
+//                                otherEvents.add(event);
+//                                continue;
+//                            }
+//                            // do not schedule other nodes' election events
+//                            ElectionMessageEvent e = (ElectionMessageEvent) event;
+//                            final int sendingSubnodeId = e.getSendingSubnodeId();
+//                            final int sendingNodeId = subnodes.get(sendingSubnodeId).getNodeId();
+//                            if (!allParticipants.contains(sendingNodeId)) {
+//                                LOG.debug(" During election, will not schedule non-participants' message {}", event);
+//                                otherEvents.add(event);
+//                                continue;
+//                            }
+//                            if (event.execute()) {
+//                                recordProperties(totalExecuted, begintime, event);
+//                            }
+
+
+//                            // if model leader still in LOOKING state
+//                            // let leader's election messages to all nodes come first
+//                            if (!leaderElectionStates.get(leaderId).equals(LeaderElectionState.LEADING)) {
+//                                if (sendingNodeId != leaderId) {
+//                                    peerEvents.add(event);
+//                                    continue;
+//                                }
+//                                // set leader's first message null before execution
+//                                firstMessage.set(leaderId, null);
+//                                if (event.execute()) {
+//                                    recordProperties(totalExecuted, begintime, event);
+//                                }
+//                                final int receivingNodeId = e.getReceivingNodeId();
+//                                if (receivingNodeId != schedulerConfiguration.getNumNodes() - 1) {
+//                                    // wait for leader's next election message LOOKING node to come
+//                                    controlMonitor.notifyAll();
+//                                    waitFirstMessageOffered(leaderId);
+//                                }
+//                            }
+//                            // model leader already in LEADING state
+//                            // just schedule anyway
+//                            else {
+//                                if (event.execute()) {
+//                                    recordProperties(totalExecuted, begintime, event);
+//                                }
+//                            }
+
+//                        }
+
+//                        // ensure that there exists no leader event
+//                        for (Event e: peerEvents) {
+//                            LOG.debug("Adding back peer election message that is missed during election: {}", e);
+//                            addEvent(e);
+//                        }
+//
+//                        // schedule one other election event
+//                        if (schedulingStrategy.hasNextEvent()) {
+//                            long begintime = System.currentTimeMillis();
+//                            LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted);
+//                            final Event event = schedulingStrategy.nextEvent();
+//                            // do not schedule other types' events
+//                            if (!(event instanceof ElectionMessageEvent)) {
+//                                LOG.debug(" During election, will not schedule non-election message {}", event);
+//                                otherEvents.add(event);
+//                                continue;
+//                            }
+//                            // do not schedule other nodes' election events
+//                            ElectionMessageEvent e = (ElectionMessageEvent) event;
+//                            final int sendingSubnodeId = e.getSendingSubnodeId();
+//                            final int sendingNodeId = subnodes.get(sendingSubnodeId).getNodeId();
+//                            if (!allParticipants.contains(sendingNodeId)) {
+//                                LOG.debug(" During election, will not schedule non-participants' message {}", event);
+//                                otherEvents.add(event);
+//                                continue;
+//                            }
+//                            if (event.execute()) {
+//                                recordProperties(totalExecuted, begintime, event);
+//                            }
+//                        }
+
                     }
                     // pre-condition for election property check
                     leaderExists = waitAllParticipantsVoted(allParticipants);
                 }
+
                 // throw SchedulerConfigurationException if leader does not exist
                 if (!leaderExists) {
                     LOG.debug("Leader not exist! " +
@@ -1633,7 +1733,7 @@ public class TestingService implements TestingRemoteService {
         } finally {
             // Step 2. follower log, and wait for follower's SYNC thread sending ACK steady
             totalExecuted = scheduleInternalEventWithWaitingRetry(strategy, ModelAction.FollowerLog,
-                    followerId, -1, modelZxid, totalExecuted, 1);
+                    followerId, -1, modelZxid, totalExecuted, 5);
         }
 
         return totalExecuted;
@@ -2643,6 +2743,10 @@ public class TestingService implements TestingRemoteService {
 //        if (partitionMap.get(sendingNodeId).get(receivingNodeId)){
 //            return TestingDef.RetCode.NODE_PAIR_IN_PARTITION;
 //        }
+        if (nodeStates.get(sendingNodeId).equals(NodeState.OFFLINE) ||
+                nodeStates.get(sendingNodeId).equals(NodeState.STOPPING)) {
+            return TestingDef.RetCode.NODE_CRASH;
+        }
 
         // We want to determinize the order in which the first messages are added, so we wait until
         // all nodes with smaller ids have offered their first message.
@@ -2668,6 +2772,7 @@ public class TestingService implements TestingRemoteService {
             messageEventMap.put(id, electionMessageEvent);
             addEvent(electionMessageEvent);
             if (firstMessage.get(sendingNodeId) == null) {
+                LOG.debug("set {}'s firstMessage true", sendingNodeId);
                 firstMessage.set(sendingNodeId, true);
             }
             sendingSubnode.setState(SubnodeState.SENDING);
@@ -2675,30 +2780,39 @@ public class TestingService implements TestingRemoteService {
 
             waitMessageReleased(id, sendingNodeId, sendingSubnodeId);
 
-            // normally, this event is released when scheduled except:
-            // case 1: this event is released since the sending node is crashed
-            if (NodeState.STOPPING.equals(nodeStates.get(sendingNodeId)) ) {
-                LOG.debug("----------node {} is crashed! setting ElectionMessage executed and removed. {}",
-                        sendingNodeId, electionMessageEvent);
-                id = TestingDef.RetCode.NODE_CRASH;
-                electionMessageEvent.setExecuted();
-                schedulingStrategy.remove(electionMessageEvent);
-            }
-            // case 2: this event is released since the sending subnode is unregistered
-            else if (SubnodeState.UNREGISTERED.equals(subnodes.get(sendingSubnodeId).getState())) {
-                LOG.debug("----------subnode {} of node {} is unregistered! setting ElectionMessage executed and removed. {}",
-                        sendingSubnodeId, sendingNodeId, electionMessageEvent);
-                id = TestingDef.RetCode.SUBNODE_UNREGISTERED;
-                electionMessageEvent.setExecuted();
-                schedulingStrategy.remove(electionMessageEvent);
-            }
-            // case 3: this event is released when the network partition occurs
-            else if (partitionMap.get(sendingNodeId).get(receivingNodeId)) {
-                LOG.debug("----------node {} and {} get partitioned! setting ElectionMessage executed and removed. {}",
-                        sendingNodeId, receivingNodeId, electionMessageEvent);
-                id = TestingDef.RetCode.NODE_PAIR_IN_PARTITION;
-                electionMessageEvent.setExecuted();
-                schedulingStrategy.remove(electionMessageEvent);
+            try {
+                // normally, this event is released when scheduled except:
+                // case 1: this event is released since the sending node is crashed
+                if (NodeState.STOPPING.equals(nodeStates.get(sendingNodeId)) ) {
+                    LOG.debug("----------node {} is crashed! setting ElectionMessage executed and removed. {}",
+                            sendingNodeId, electionMessageEvent);
+                    executionWriter.write("event id=" + id + " removed due to sending node STOPPING");
+                    id = TestingDef.RetCode.NODE_CRASH;
+                    electionMessageEvent.setExecuted();
+                    schedulingStrategy.remove(electionMessageEvent);
+
+                }
+                // case 2: this event is released since the sending subnode is unregistered
+                else if (SubnodeState.UNREGISTERED.equals(subnodes.get(sendingSubnodeId).getState())) {
+                    LOG.debug("----------subnode {} of node {} is unregistered! setting ElectionMessage executed and removed. {}",
+                            sendingSubnodeId, sendingNodeId, electionMessageEvent);
+                    executionWriter.write("event id=" + id + " removed due to unregistered");
+                    id = TestingDef.RetCode.SUBNODE_UNREGISTERED;
+                    electionMessageEvent.setExecuted();
+                    schedulingStrategy.remove(electionMessageEvent);
+                }
+                // case 3: this event is released when the network partition occurs
+                else if (partitionMap.get(sendingNodeId).get(receivingNodeId) ||
+                        electionMessageEvent.getFlag() == TestingDef.RetCode.NODE_PAIR_IN_PARTITION) {
+                    LOG.debug("----------node {} and {} get partitioned! setting ElectionMessage executed and removed. {}",
+                            sendingNodeId, receivingNodeId, electionMessageEvent);
+                    executionWriter.write("\nevent id=" + id + " removed due to partition");
+                    id = TestingDef.RetCode.NODE_PAIR_IN_PARTITION;
+                    electionMessageEvent.setExecuted();
+                    schedulingStrategy.remove(electionMessageEvent);
+                }
+            } catch (IOException e) {
+                e.printStackTrace();
             }
 
         }
@@ -2730,6 +2844,11 @@ public class TestingService implements TestingRemoteService {
 //        if (partitionMap.get(sendingNodeId).get(receivingNodeId)){
 //            return TestingDef.RetCode.NODE_PAIR_IN_PARTITION;
 //        }
+
+        if (nodeStates.get(sendingNodeId).equals(NodeState.OFFLINE) ||
+                nodeStates.get(sendingNodeId).equals(NodeState.STOPPING)) {
+            return TestingDef.RetCode.NODE_CRASH;
+        }
 
         // not in partition
         if (!clientInitializationDone) {
@@ -2828,10 +2947,10 @@ public class TestingService implements TestingRemoteService {
                 case MessageType.SNAP:
                     // LearnerHandler
                     followerLearnerHandlerMap.set(receivingNodeId, sendingSubnodeId);
+                    leaderSyncFollowerCountMap.put(sendingNodeId, leaderSyncFollowerCountMap.get(sendingNodeId) - 1);
                     break;
                 case MessageType.NEWLEADER:
                     assert leaderSyncFollowerCountMap.containsKey(sendingNodeId);
-                    leaderSyncFollowerCountMap.put(sendingNodeId, leaderSyncFollowerCountMap.get(sendingNodeId) - 1);
                     // LearnerHandlerSender
                     followerLearnerHandlerSenderMap.set(receivingNodeId, sendingSubnodeId);
                     break;
@@ -2854,6 +2973,11 @@ public class TestingService implements TestingRemoteService {
 //        if (partitionMap.get(sendingNodeId).get(receivingNodeId)){
 //            return TestingDef.RetCode.NODE_PAIR_IN_PARTITION;
 //        }
+
+        if (nodeStates.get(sendingNodeId).equals(NodeState.OFFLINE) ||
+                nodeStates.get(sendingNodeId).equals(NodeState.STOPPING)) {
+            return TestingDef.RetCode.NODE_CRASH;
+        }
 
         // not in partition
         // during client session establishment, do not intercept
@@ -2946,6 +3070,11 @@ public class TestingService implements TestingRemoteService {
 
         final Subnode subnode = subnodes.get(subnodeId);
         final int nodeId = subnode.getNodeId();
+
+        if (nodeStates.get(nodeId).equals(NodeState.OFFLINE) ||
+                nodeStates.get(nodeId).equals(NodeState.STOPPING)) {
+            return TestingDef.RetCode.NODE_CRASH;
+        }
 
         int id = generateEventId();
         final LocalEvent localEvent =
@@ -3085,6 +3214,7 @@ public class TestingService implements TestingRemoteService {
         nodeStateForClientRequests.set(nodeId, NodeStateForClientRequest.SET_DONE);
         votes.set(nodeId, null);
         leaderElectionStates.set(nodeId, LeaderElectionState.LOOKING);
+        firstMessage.set(nodeId, null);
         followerSocketAddressBook.set(nodeId, null);
         followerLearnerHandlerMap.set(nodeId, null);
         followerLearnerHandlerSenderMap.set(nodeId, null);
@@ -3150,6 +3280,7 @@ public class TestingService implements TestingRemoteService {
         }
 
         votes.set(nodeId, null);
+        firstMessage.set(nodeId, false);
         // is it needed to still keep the role info before crash for further property check？
         leaderElectionStates.set(nodeId, LeaderElectionState.NULL);
         followerSocketAddressBook.set(nodeId, null);
@@ -3332,6 +3463,8 @@ public class TestingService implements TestingRemoteService {
             leaderElectionStates.set(nodeId, state);
             if (LeaderElectionState.LOOKING.equals(state)) {
                 nodePhases.set(nodeId, Phase.ELECTION_AND_DISCOVERY);
+                LOG.debug("set {}'s firstMessage null", nodeId);
+                firstMessage.set(nodeId, null);
                 votes.set(nodeId, null);
                 followerSocketAddressBook.set(nodeId, null);
                 followerLearnerHandlerMap.set(nodeId, null);
@@ -3509,13 +3642,17 @@ public class TestingService implements TestingRemoteService {
     private boolean waitAllParticipantsVoted(final Set<Integer> participants) {
         final WaitPredicate allParticipantsVoted = new AllNodesVoted(this, participants);
         wait(allParticipantsVoted, 100L);
-        for (int nodeId = 0; nodeId < schedulerConfiguration.getNumNodes(); ++nodeId) {
+        boolean leaderExist = false;
+        boolean lookingExist = false;
+        for (int nodeId: participants) {
             if (LeaderElectionState.LEADING.equals(leaderElectionStates.get(nodeId))) {
-                return true;
+                leaderExist = true;
+            } else if (!LeaderElectionState.FOLLOWING.equals(leaderElectionStates.get(nodeId))) {
+                lookingExist = true;
             }
         }
-        LOG.debug("Leader does not exist after voting!");
-        return false;
+        LOG.debug("Leader does not exist or some node still looking after voting!");
+        return leaderExist && !lookingExist;
     }
 
     /***
@@ -3612,6 +3749,11 @@ public class TestingService implements TestingRemoteService {
      */
     private void waitFirstMessageOffered(final int nodeId) {
         final WaitPredicate firstMessageOffered = new FirstMessageOffered(this, nodeId);
+        wait(firstMessageOffered, 0L);
+    }
+
+    private void waitMessageOffered(final int leaderId, final int peerId) {
+        final WaitPredicate firstMessageOffered = new MessageOffered(this, leaderId, peerId);
         wait(firstMessageOffered, 0L);
     }
 
