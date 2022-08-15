@@ -33,7 +33,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * -> 1. the thread is about to construct a message payload (constructXXX)
  * ->
  */
-public aspect QuorumPeerAspect {
+public privileged aspect QuorumPeerAspect {
 
     private static final Logger LOG = LoggerFactory.getLogger(QuorumPeerAspect.class);
 
@@ -724,10 +724,7 @@ public aspect QuorumPeerAspect {
 
     public String packetToString(QuorumPacket p) {
         if (p == null) return "null";
-        String type = null;
-//        String mess = null;
-//        Record txn = null;
-
+        String type;
         switch (p.getType()) {
             case Leader.ACK:
                 type = "ACK";
@@ -746,28 +743,12 @@ public aspect QuorumPeerAspect {
                 break;
             case Leader.PROPOSAL:
                 type = "PROPOSAL";
-//                TxnHeader hdr = new TxnHeader();
-//                try {
-//                    txn = SerializeUtils.deserializeTxn(p.getData(), hdr);
-//                    // mess = "transaction: " + txn.toString();
-//                } catch (IOException e) {
-//                    LOG.warn("Unexpected exception",e);
-//                }
                 break;
             case Leader.REQUEST:
                 type = "REQUEST";
                 break;
             case Leader.REVALIDATE:
                 type = "REVALIDATE";
-//                ByteArrayInputStream bis = new ByteArrayInputStream(p.getData());
-//                DataInputStream dis = new DataInputStream(bis);
-//                try {
-//                    long id = dis.readLong();
-//                    mess = " sessionid = " + id;
-//                } catch (IOException e) {
-//                    LOG.warn("Unexpected exception", e);
-//                }
-
                 break;
             case Leader.UPTODATE:
                 type = "UPTODATE";
@@ -777,7 +758,7 @@ public aspect QuorumPeerAspect {
         }
         String entry = null;
         if (type != null) {
-            // TODO: acquire receivign node from remote socket
+            // TODO: acquire receiving node from remote socket
             entry = "type=" + type +
                     ", typeId=" + p.getType() +
                     ", sendingNode=" + myId +
@@ -792,6 +773,20 @@ public aspect QuorumPeerAspect {
                 ", cxid=" + request.cxid +
                 ", zxid=0x" + Long.toHexString(request.zxid) +
                 ", typeId=" + request.type;
+    }
+
+    // Identify the last processed zxid of this node
+
+    pointcut writeLongToFile(String name, long epoch): execution(void QuorumPeer.writeLongToFile(String, long)) && args(name, epoch);
+
+    after(final String name, final long epoch) returning: writeLongToFile(name, epoch) {
+        try {
+            LOG.debug("-------nodeId: {}, after writeLongToFile: set {} = 0x{}", myId, name, Long.toHexString(epoch));
+            testingService.writeLongToFile(myId, name, epoch);
+        } catch (final Exception e) {
+            LOG.error("Encountered a remote exception", e);
+            throw new RuntimeException(e);
+        }
     }
 
 
