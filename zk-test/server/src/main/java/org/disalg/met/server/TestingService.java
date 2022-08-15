@@ -115,6 +115,12 @@ public class TestingService implements TestingRemoteService {
     // record each node's lastProcessedZxid
     private final List<Long> lastProcessedZxids = new ArrayList<>();
 
+    // record each node's currentEpoch
+    private final List<Long> acceptedEpochs = new ArrayList<>();
+
+    // record each node's currentEpoch
+    private final List<Long> currentEpochs = new ArrayList<>();
+
     // zxid map from model to code
     private final Map<Long, Long> modelToCodeZxidMap = new HashMap<>();
 
@@ -217,6 +223,14 @@ public class TestingService implements TestingRemoteService {
 
     public long getLastProcessedZxid(int nodeId) {
         return lastProcessedZxids.get(nodeId);
+    }
+
+    public long getCurrentEpoch(int nodeId) {
+        return currentEpochs.get(nodeId);
+    }
+
+    public long getAcceptedEpoch(int nodeId) {
+        return acceptedEpochs.get(nodeId);
     }
 
     public List<Long> getLastCommittedZxid() {
@@ -1061,6 +1075,8 @@ public class TestingService implements TestingRemoteService {
         lastCommittedZxid.add(0L);
 
         lastProcessedZxids.clear();
+        acceptedEpochs.clear();
+        currentEpochs.clear();
         allZxidRecords.clear();
         modelToCodeZxidMap.clear();
 
@@ -1103,6 +1119,8 @@ public class TestingService implements TestingRemoteService {
             nodePhases.add(Phase.ELECTION_AND_DISCOVERY);
             subnodeSets.add(new HashSet<Subnode>());
             lastProcessedZxids.add(0L);
+            acceptedEpochs.add(0L);
+            currentEpochs.add(0L);
             nodeStateForClientRequests.add(NodeStateForClientRequest.SET_DONE);
             followerSocketAddressBook.add(null);
             followerLearnerHandlerMap.add(null);
@@ -1217,7 +1235,7 @@ public class TestingService implements TestingRemoteService {
                 boolean leaderExists = false;
                 int retry = 0;
                 Set<Event> otherEvents = new HashSet<>();
-                while (!leaderExists && retry < 10) {
+                while (!leaderExists && retry < 20) {
                     retry++;
                     while (schedulingStrategy.hasNextEvent()) {
                         long begintime = System.currentTimeMillis();
@@ -3563,6 +3581,27 @@ public class TestingService implements TestingRemoteService {
         }
     }
 
+    @Override
+    public void writeLongToFile(final int nodeId, final String name, final long epoch) throws RemoteException {
+        synchronized (controlMonitor) {
+            try {
+                // Update currentEpoch / acceptedEpoch
+                if (name.equals("currentEpoch")) {
+                    currentEpochs.set(nodeId, epoch);
+                } else if (name.equals("acceptedEpoch")) {
+                    acceptedEpochs.set(nodeId, epoch);
+                }
+                LOG.debug("Node " + nodeId + "'s " + name + " file updated: " + Long.toHexString(epoch));
+                executionWriter.write(
+                        "\n---Update Node " + nodeId + "'s " + name + " file: " + Long.toHexString(epoch));
+                executionWriter.write("\n");
+                controlMonitor.notifyAll();
+            } catch (final IOException e) {
+                LOG.debug("IO exception", e);
+            }
+        }
+    }
+
     public void recordProperties(final int step, final long startTime, final Event event) throws IOException {
         executionWriter.write("\n---Step: " + step + "--->");
         executionWriter.write(event.toString());
@@ -3570,6 +3609,16 @@ public class TestingService implements TestingRemoteService {
         // Property verification
         for (int nodeId = 0; nodeId < schedulerConfiguration.getNumNodes(); nodeId++) {
             executionWriter.write(Long.toHexString(lastProcessedZxids.get(nodeId)) + " # ");
+        }
+        executionWriter.write("\ncurrentEpoch: 0x");
+        // Property verification
+        for (int nodeId = 0; nodeId < schedulerConfiguration.getNumNodes(); nodeId++) {
+            executionWriter.write(Long.toHexString(currentEpochs.get(nodeId)) + " # ");
+        }
+        executionWriter.write("\nacceptedEpoch: 0x");
+        // Property verification
+        for (int nodeId = 0; nodeId < schedulerConfiguration.getNumNodes(); nodeId++) {
+            executionWriter.write(Long.toHexString(acceptedEpochs.get(nodeId)) + " # ");
         }
         executionWriter.write("\ntime/ms: " + (System.currentTimeMillis() - startTime) + "\n");
         executionWriter.flush();
@@ -3641,7 +3690,7 @@ public class TestingService implements TestingRemoteService {
     // Should be called while holding a lock on controlMonitor
     private boolean waitAllParticipantsVoted(final Set<Integer> participants) {
         final WaitPredicate allParticipantsVoted = new AllNodesVoted(this, participants);
-        wait(allParticipantsVoted, 100L);
+        wait(allParticipantsVoted, 2000L);
         boolean leaderExist = false;
         boolean lookingExist = false;
         for (int nodeId: participants) {
@@ -3651,7 +3700,13 @@ public class TestingService implements TestingRemoteService {
                 lookingExist = true;
             }
         }
-        LOG.debug("Leader does not exist or some node still looking after voting!");
+        if (!leaderExist) {
+            LOG.debug("Leader does not exist!");
+        } else if (lookingExist) {
+            LOG.debug("Some node still looking after voting!");
+        } else {
+            LOG.debug("All participants have voted!");
+        }
         return leaderExist && !lookingExist;
     }
 
@@ -3664,7 +3719,7 @@ public class TestingService implements TestingRemoteService {
                                                Integer peerId,
                                                long modelZxid) {
         final TargetInternalEventReady targetInternalEventReady = new TargetInternalEventReady(this, strategy, action, nodeId, peerId, modelZxid);
-        wait(targetInternalEventReady, 100L);
+        wait(targetInternalEventReady, 2000L);
         Event e = targetInternalEventReady.getEvent();
         return e;
     }
@@ -3797,6 +3852,26 @@ public class TestingService implements TestingRemoteService {
         final long zxid = lastProcessedZxids.get(nodeId);
         final WaitPredicate commitProcessorDone = new CommitProcessorDone(this, msgId, nodeId, zxid);
         wait(commitProcessorDone, 0L);
+    }
+
+    /***
+     * Post-condition for scheduling LeaderSyncFollower
+     * Not forced
+     * @param nodeId
+     */
+    public void waitCurrentEpochUpdated(final int nodeId) {
+        final long lastCurrentEpoch = currentEpochs.get(nodeId);
+        final WaitPredicate currentEpochFileUpdated = new CurrentEpochFileUpdated(this, nodeId, lastCurrentEpoch);
+        wait(currentEpochFileUpdated, 100L);
+        final long currentEpoch = currentEpochs.get(nodeId);
+        if (currentEpoch > lastCurrentEpoch) {
+            LOG.debug("node " + nodeId + "'s current epoch file is updated from 0x"
+                    + Long.toHexString(lastCurrentEpoch) + " to 0x"
+                    + Long.toHexString(currentEpoch));
+        } else {
+            LOG.debug("node " + nodeId + "'s current epoch file is not updated: still 0x"
+                    + Long.toHexString(lastCurrentEpoch));
+        }
     }
 
     /***
