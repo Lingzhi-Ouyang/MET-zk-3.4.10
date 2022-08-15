@@ -114,7 +114,11 @@ public class FollowerToLeaderMessageExecutor extends BaseEventExecutor {
                 case MessageType.COMMIT: // for now we do not intercept leader's COMMIT in sync
                     LOG.info("follower replies to previous COMMIT message type : {}", event);
                     break;
-                case MessageType.LEADERINFO: // for now we just pass this post-condition
+                case MessageType.LEADERINFO:
+                    // wait for leader update currentEpoch file
+                    LOG.info("follower replies ACKEPOCH : {}", event);
+                    testingService.waitCurrentEpochUpdated(leaderId);
+                    break;
                 default:
                     LOG.info("follower replies to previous message type : {}", event);
             }

@@ -68,7 +68,9 @@ public class LeaderToFollowerMessageExecutor extends BaseEventExecutor {
                 case MessageType.SNAP:
                     LOG.info("leader sends DIFF / TRUNC / SNAP that follower will not reply : {}", event);
                     break;
-                case MessageType.NEWLEADER: // wait for follower's ack to be sent
+                case MessageType.NEWLEADER:
+                    // wait for follower's ack to be sent.
+                    // Before this done, follower's currentEpoch file is updated
                     int followerQuorumPeerSubnodeId = -1;
                     for (final Subnode subnode : subnodes) {
                         if (subnode.getSubnodeType().equals(SubnodeType.QUORUM_PEER)
