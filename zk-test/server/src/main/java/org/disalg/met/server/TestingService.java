@@ -3807,11 +3807,6 @@ public class TestingService implements TestingRemoteService {
         wait(firstMessageOffered, 0L);
     }
 
-    private void waitMessageOffered(final int leaderId, final int peerId) {
-        final WaitPredicate firstMessageOffered = new MessageOffered(this, leaderId, peerId);
-        wait(firstMessageOffered, 0L);
-    }
-
     private void waitNewMessageOffered() {
         final WaitPredicate newMessageOffered = new NewMessageOffered(this);
         wait(newMessageOffered, 0L);
