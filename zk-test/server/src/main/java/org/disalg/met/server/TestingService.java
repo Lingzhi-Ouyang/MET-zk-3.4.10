@@ -2812,10 +2812,6 @@ public class TestingService implements TestingRemoteService {
         final Subnode sendingSubnode = subnodes.get(sendingSubnodeId);
         final int sendingNodeId = sendingSubnode.getNodeId();
 
-//        // Problem: It will make the message that come immediately after the node restarts to be missed
-//        if (partitionMap.get(sendingNodeId).get(receivingNodeId)){
-//            return TestingDef.RetCode.NODE_PAIR_IN_PARTITION;
-//        }
         if (nodeStates.get(sendingNodeId).equals(NodeState.OFFLINE) ||
                 nodeStates.get(sendingNodeId).equals(NodeState.STOPPING)) {
             return TestingDef.RetCode.NODE_CRASH;
@@ -2828,6 +2824,11 @@ public class TestingService implements TestingRemoteService {
                 waitFirstMessageOffered(sendingNodeId - 1);
             }
         }
+
+//        // Problem: It will make the message that come immediately after the node restarts to be missed
+//        if (partitionMap.get(sendingNodeId).get(receivingNodeId)){
+//            return TestingDef.RetCode.NODE_PAIR_IN_PARTITION;
+//        }
 
 //        final NodeStartEvent lastNodeStartEvent = lastNodeStartEvents.get(sendingNodeId);
 //        if (null != lastNodeStartEvent) {
@@ -2908,6 +2909,12 @@ public class TestingService implements TestingRemoteService {
             }
         }
 
+        // not in partition
+        if (!clientInitializationDone) {
+            LOG.debug("----client initialization is not done!---");
+            return TestingDef.RetCode.CLIENT_INITIALIZATION_NOT_DONE;
+        }
+
         // check who is the leader, or the leader has crashed
 //        assert leaderElectionStates.contains(LeaderElectionState.LEADING);
         final int receivingNodeId = leaderElectionStates.indexOf(LeaderElectionState.LEADING);
@@ -2917,22 +2924,20 @@ public class TestingService implements TestingRemoteService {
             return TestingDef.RetCode.NODE_PAIR_IN_PARTITION;
         }
 
-//        // if partition occurs, just return without sending this message
-//        // mute the effect of events before adding it to the scheduling list
-//        if (partitionMap.get(sendingNodeId).get(receivingNodeId)){
-//            return TestingDef.RetCode.NODE_PAIR_IN_PARTITION;
-//        }
 
         if (nodeStates.get(sendingNodeId).equals(NodeState.OFFLINE) ||
                 nodeStates.get(sendingNodeId).equals(NodeState.STOPPING)) {
             return TestingDef.RetCode.NODE_CRASH;
         }
 
-        // not in partition
-        if (!clientInitializationDone) {
-            LOG.debug("----client initialization is not done!---");
-            return TestingDef.RetCode.CLIENT_INITIALIZATION_NOT_DONE;
+//        // if partition occurs, just return without sending this message
+//        // mute the effect of events before adding it to the scheduling list
+        if (partitionMap.get(sendingNodeId).get(receivingNodeId)){
+            LOG.debug("Follower {} is trying to reply leader {}'s type={} message: " +
+                    "where they are partitioned. Just return", sendingNodeId, receivingNodeId, lastReceivedType);
+            return TestingDef.RetCode.NODE_PAIR_IN_PARTITION;
         }
+
         switch (lastReceivedType) {
             case MessageType.LEADERINFO:
                 LOG.debug("-------follower reply ACK to LEADERINFO in SYNC phase!");
@@ -3003,10 +3008,6 @@ public class TestingService implements TestingRemoteService {
 
     @Override
     public int offerLeaderToFollowerMessage(int sendingSubnodeId, String receivingAddr, long zxid, String payload, int type) throws RemoteException {
-//        if (!clientInitializationDone) {
-//            LOG.debug("----client initialization is not done!---");
-//            return TestingDef.RetCode.CLIENT_INITIALIZATION_NOT_DONE;
-//        }
 
         final Subnode sendingSubnode = subnodes.get(sendingSubnodeId);
         final int sendingNodeId = sendingSubnode.getNodeId();
@@ -3050,23 +3051,27 @@ public class TestingService implements TestingRemoteService {
             }
         }
 
-//        // if partition occurs, just return without sending this message
-//        // mute the effect of events before adding it to the scheduling list
-//        if (partitionMap.get(sendingNodeId).get(receivingNodeId)){
-//            return TestingDef.RetCode.NODE_PAIR_IN_PARTITION;
-//        }
-
-        if (nodeStates.get(sendingNodeId).equals(NodeState.OFFLINE) ||
-                nodeStates.get(sendingNodeId).equals(NodeState.STOPPING)) {
-            return TestingDef.RetCode.NODE_CRASH;
-        }
-
         // not in partition
         // during client session establishment, do not intercept
         if (!clientInitializationDone) {
             LOG.debug("----client initialization is not done!---");
             return TestingDef.RetCode.CLIENT_INITIALIZATION_NOT_DONE;
         }
+
+        if (nodeStates.get(sendingNodeId).equals(NodeState.OFFLINE) ||
+                nodeStates.get(sendingNodeId).equals(NodeState.STOPPING)) {
+            return TestingDef.RetCode.NODE_CRASH;
+        }
+
+        // if partition occurs, just return without sending this message
+        // mute the effect of events before adding it to the scheduling list
+        if (partitionMap.get(sendingNodeId).get(receivingNodeId)){
+            LOG.debug("Leader {} is trying to send a a type={} message to follower {}: " +
+                    "where they are partitioned. Just return", sendingNodeId, type, receivingNodeId);
+            return TestingDef.RetCode.NODE_PAIR_IN_PARTITION;
+        }
+
+
         switch (type) {
             case MessageType.DIFF:
                 LOG.debug("-------leader {} is about to send DIFF to follower {}!", sendingNodeId, receivingNodeId);
