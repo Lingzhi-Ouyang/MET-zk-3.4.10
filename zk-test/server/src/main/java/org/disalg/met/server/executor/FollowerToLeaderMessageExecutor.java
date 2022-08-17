@@ -51,6 +51,7 @@ public class FollowerToLeaderMessageExecutor extends BaseEventExecutor {
         // if in partition, then just drop it
         final int followerId = sendingSubnode.getNodeId();
         final int leaderId = event.getReceivingNodeId();
+        LOG.debug("partition map: {}, follower: {}, leader: {}", testingService.getPartitionMap(), followerId, leaderId);
         if (testingService.getPartitionMap().get(followerId).get(leaderId)) {
             return;
         }

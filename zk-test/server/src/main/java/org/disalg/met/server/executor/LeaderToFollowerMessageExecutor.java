@@ -51,6 +51,7 @@ public class LeaderToFollowerMessageExecutor extends BaseEventExecutor {
         // if in partition, then just drop it
         final int leaderId = sendingSubnode.getNodeId();
         final int followerId = event.getReceivingNodeId();
+        LOG.debug("partition map: {}, leader: {}, follower: {}", testingService.getPartitionMap(), leaderId, followerId);
         if (testingService.getPartitionMap().get(leaderId).get(followerId)) {
             return;
         }
@@ -95,6 +96,7 @@ public class LeaderToFollowerMessageExecutor extends BaseEventExecutor {
                             break;
                         }
                     }
+                    // TODO: wait for follower to register COMMIT & SYNC subnode
                     break;
                 case MessageType.PROPOSAL: // for leader's PROPOSAL in sync, follower will not produce any intercepted event
                     if (Phase.BROADCAST.equals(testingService.getNodePhases().get(followerId))) {

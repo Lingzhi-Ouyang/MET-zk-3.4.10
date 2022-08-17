@@ -89,9 +89,7 @@ public class PartitionStartExecutor extends BaseEventExecutor {
 
             // release follower's intercepted events
             testingService.getControlMonitor().notifyAll();
-            testingService.releaseBroadcastEvent(new HashSet<Integer>() {{
-                add(follower);
-            }});
+            // Predicate AliveNodesInLookingState will releaseBroadcastEvent
             testingService.waitAliveNodesInLookingState(new HashSet<Integer>() {{
                 add(follower);
             }});
@@ -104,9 +102,7 @@ public class PartitionStartExecutor extends BaseEventExecutor {
                         "Wait for leader {} to be LOOKING", participantCount, nodeNum, leader);
                 // release leader's intercepted events
                 testingService.getControlMonitor().notifyAll();
-                testingService.releaseBroadcastEvent(new HashSet<Integer>() {{
-                    add(leader);
-                }});
+                // Predicate AliveNodesInLookingState will releaseBroadcastEvent
                 testingService.waitAliveNodesInLookingState(new HashSet<Integer>() {{
                     add(leader);
                 }});
