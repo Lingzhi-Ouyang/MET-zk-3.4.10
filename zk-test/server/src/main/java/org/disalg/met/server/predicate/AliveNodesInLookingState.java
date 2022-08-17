@@ -8,7 +8,7 @@ import org.disalg.met.server.state.Subnode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.List;
+import java.util.HashSet;
 import java.util.Set;
 
 public class AliveNodesInLookingState implements WaitPredicate{
@@ -21,7 +21,10 @@ public class AliveNodesInLookingState implements WaitPredicate{
 
     public AliveNodesInLookingState(final TestingService testingService) {
         this.testingService = testingService;
-        this.participants = null;
+        participants = new HashSet<>();
+        for (int nodeId = 0; nodeId < testingService.getSchedulerConfiguration().getNumNodes(); ++nodeId) {
+            participants.add(nodeId);
+        }
     }
 
     public AliveNodesInLookingState(final TestingService testingService, final Set<Integer> participants) {
@@ -34,11 +37,10 @@ public class AliveNodesInLookingState implements WaitPredicate{
     @Override
     public boolean isTrue() {
         if (participants != null) {
+            // broadcast events should be released first
+            // o.w. the node will be blocked and will not return to LOOKING state
+            testingService.releaseBroadcastEvent(participants);
             for (Integer nodeId : participants) {
-                if (checkNodeNotLooking(nodeId)) return false;
-            }
-        } else {
-            for (int nodeId = 0; nodeId < testingService.getSchedulerConfiguration().getNumNodes(); ++nodeId) {
                 if (checkNodeNotLooking(nodeId)) return false;
             }
         }
