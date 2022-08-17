@@ -418,19 +418,20 @@ public class TestingService implements TestingRemoteService {
             Trace trace = externalModelStrategy.getCurrentTrace(executionId - 1);
             String traceName = trace.getTraceName();
             int stepCount = trace.getStepCount();
-            LOG.info("currentTrace: {}, total steps: {}", trace, stepCount);
+            LOG.info("\n\n\n\n\nTrace {}, steps: {}", executionId, stepCount);
+//            LOG.info("\n\n\n\n\ncurrentTrace: {}, total steps: {}", trace, stepCount);
 
-            // get event info
-            Set<String> keys = new HashSet<>();
-
-            int crnt = 1;
-            for (; crnt <= stepCount; ++crnt) {
-                JSONObject jsonObject = trace.nextStep();
-                String key = jsonObject.keySet().iterator().next();
-                keys.add(key);
-            }
-            LOG.debug("keySize: {}", keys.size());
-            LOG.debug("keys: {}", keys);
+//            // get event info
+//            Set<String> keys = new HashSet<>();
+//
+//            int crnt = 1;
+//            for (; crnt <= stepCount; ++crnt) {
+//                JSONObject jsonObject = trace.nextStep();
+//                String key = jsonObject.keySet().iterator().next();
+//                keys.add(key);
+//            }
+//            LOG.debug("keySize: {}", keys.size());
+//            LOG.debug("keys: {}", keys);
 
 
             ensemble.configureEnsemble(traceName);
@@ -630,9 +631,13 @@ public class TestingService implements TestingRemoteService {
                 }
 
                 // shutdown clients & servers
-                for (Integer i: clientMap.keySet()) {
-                    LOG.debug("shutting down client {}", i);
-                    clientMap.get(i).shutdown();
+                synchronized (controlMonitor) {
+                    for (Integer i: clientMap.keySet()) {
+                        LOG.debug("shutting down client {}", i);
+                        clientMap.get(i).shutdown();
+                        controlMonitor.notifyAll();
+                        waitClientSessionClosed(i);
+                    }
                 }
                 clientMap.clear();
                 ensemble.stopEnsemble();
@@ -1650,6 +1655,56 @@ public class TestingService implements TestingRemoteService {
             LOG.debug("------------------finish the client session initialization------------------\n");
         }
     }
+
+//    /***
+//     * This triggers two events :
+//     *  --> setData
+//     *  --> Leader log proposal
+//     *  --> send LeaderToFollowerMessageEvent(PROPOSAL)
+//     *  Note: if without specific data, will use eventId as its written string value
+//     */
+//    private int scheduleLeaderProcessRequest(ExternalModelStrategy strategy,
+//                                             final int clientId,
+//                                             final int serverId,
+//                                             final long modelZxid,
+//                                             int totalExecuted) throws SchedulerConfigurationException {
+//        try {
+//            // Step 0. establish session if un-exists
+//            ClientProxy clientProxy = clientMap.get(clientId);
+//            if (clientProxy == null || clientProxy.isStop()) {
+//                String serverAddr = getServerAddr(serverId);
+//                LOG.debug("client establish connection with server {}", serverAddr);
+//                establishSession(clientId, true, serverAddr);
+//            }
+//
+//            // Step 1. setData
+//            synchronized (controlMonitor) {
+//                waitAllNodesSteadyBeforeRequest();
+//                long startTime = System.currentTimeMillis();
+//                Event event;
+//                String data = Long.toHexString(modelZxid);
+//                event = new ClientRequestEvent(generateEventId(), clientId,
+//                        ClientRequestType.SET_DATA, data, clientRequestExecutor);
+//                LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
+//                LOG.debug("prepare to execute event: {}", event);
+//                if (event.execute()) {
+////                    ++totalExecuted;
+//                    recordProperties(totalExecuted + 1, startTime, event);
+//                }
+//            }
+//        } catch (IOException e) {
+//            e.printStackTrace();
+//        }
+//
+//        // Step 2. Leader log proposal
+//        totalExecuted = scheduleInternalEventWithWaitingRetry(strategy, ModelAction.LeaderLog,
+//                serverId, -1, modelZxid, totalExecuted, 1);
+//
+////        // Step 3. release LeaderToFollowerPROPOSAL(PROPOSAL) if partition un-exists
+////        totalExecuted = scheduleLeaderToFollowerPROPOSAL(strategy, totalExecuted);
+//
+//        return totalExecuted;
+//    }
 
     /***
      * This triggers two events :
@@ -2853,9 +2908,14 @@ public class TestingService implements TestingRemoteService {
             }
         }
 
-        // check who is the leader
-        assert leaderElectionStates.contains(LeaderElectionState.LEADING);
+        // check who is the leader, or the leader has crashed
+//        assert leaderElectionStates.contains(LeaderElectionState.LEADING);
         final int receivingNodeId = leaderElectionStates.indexOf(LeaderElectionState.LEADING);
+
+        if (receivingNodeId == -1) {
+            LOG.debug("Leader has crashed / un-exist!");
+            return TestingDef.RetCode.NODE_PAIR_IN_PARTITION;
+        }
 
 //        // if partition occurs, just return without sending this message
 //        // mute the effect of events before adding it to the scheduling list
@@ -2959,6 +3019,10 @@ public class TestingService implements TestingRemoteService {
             receivingNodeId = followerSocketAddressBook.indexOf(receivingAddr);
             LOG.debug("Leader {} offerLeaderToFollowerMessage. type: {}. receivingNodeId: {}, {}",
                     sendingNodeId, type, receivingNodeId, receivingAddr);
+            if (receivingNodeId == -1) {
+                LOG.debug("The receiving node has crashed / un-exist!");
+                return TestingDef.RetCode.NODE_PAIR_IN_PARTITION;
+            }
             switch (type) {
                 case MessageType.DIFF:
                 case MessageType.TRUNC:
@@ -3137,6 +3201,17 @@ public class TestingService implements TestingRemoteService {
                 LOG.debug("-----------will not register type: {} of node {},  since this node is {}--------",
                         subnodeType, nodeId, nodeStates.get(nodeId));
                 return -1;
+            }
+            if (nodePhases.get(nodeId).equals(Phase.ELECTION_AND_DISCOVERY)) {
+                switch (subnodeType) {
+                    case COMMIT_PROCESSOR:
+                    case SYNC_PROCESSOR:
+                    case LEARNER_HANDLER:
+                    case LEARNER_HANDLER_SENDER:
+                        LOG.debug("-----------will not register previous type: {} of node {},  since this node is {}--------",
+                                subnodeType, nodeId, nodeStates.get(nodeId));
+                        return -1;
+                }
             }
             subnodeId = subnodes.size();
             LOG.debug("-----------register subnode {} of node {}, type: {}--------", subnodeId, nodeId, subnodeType);
@@ -3317,10 +3392,8 @@ public class TestingService implements TestingRemoteService {
                 // if leader loses quorum, then wait for the leader back into LOOKING
                 int leaderId = leaderElectionStates.indexOf(LeaderElectionState.LEADING);
                 if (leaderId >= 0 ) {
+                    LOG.debug("release Broadcast Events of leader {} and wait for it in LOOKING state", leaderId);
                     controlMonitor.notifyAll();
-                    releaseBroadcastEvent(new HashSet<Integer>() {{
-                        add(leaderId);
-                    }});
                     waitAliveNodesInLookingState(new HashSet<Integer>() {{
                         add(leaderId);
                     }});
@@ -3329,13 +3402,14 @@ public class TestingService implements TestingRemoteService {
         }
         else if (role.equals(LeaderElectionState.LEADING)) {
             // if leader un-exists, then wait for the other nodes back into LOOKING. For now we just wait.
-            controlMonitor.notifyAll();
             // release all SYNC /COMMIT message
-            LOG.debug("release Broadcast Events of {}", participants);
-            releaseBroadcastEvent(participants);
+            LOG.debug("release Broadcast Events of server {} and wait for them in LOOKING state", participants);
+            controlMonitor.notifyAll();
             waitAliveNodesInLookingState(participants);
         }
     }
+
+
 
     public boolean releasePartitionedEvent(Set<Integer> peers) {
         Set<Event> otherEvents = new HashSet<>();
@@ -3812,6 +3886,16 @@ public class TestingService implements TestingRemoteService {
         wait(newMessageOffered, 0L);
     }
 
+    private void waitClientSessionClosed(final int clientId) {
+        final WaitPredicate clientSessionClosed = new ClientSessionClosed(this, clientId);
+        wait(clientSessionClosed, 0L);
+    }
+
+    public void waitClientRequestOffered(final int clientId) {
+        final WaitPredicate clientRequestOffered = new ClientRequestOffered(this, clientId);
+        wait(clientRequestOffered, 1000L);
+    }
+
     /***
      * Pre-condition for scheduling the message event
      * Including: notification message in the election, leader-to-follower message, log message
@@ -3899,7 +3983,6 @@ public class TestingService implements TestingRemoteService {
         final WaitPredicate aliveNodesInLookingState = new AliveNodesInLookingState(this, peers);
         wait(aliveNodesInLookingState, 0L);
     }
-
 
     public void waitFollowerMappingLearnerHandlerSender(final int subnodeId) {
         final WaitPredicate followerMappingLearnerHandlerSender = new FollowerMappingLearnerHandlerSender(this, subnodeId);
