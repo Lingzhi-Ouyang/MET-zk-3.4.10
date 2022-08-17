@@ -10,7 +10,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 
-public class ZooKeeperClient extends Thread{
+public class ZooKeeperClient {
     private static final Logger LOG = LoggerFactory.getLogger(ZooKeeperClient.class);
 
     private static final int SESSION_TIME_OUT = 1000000;
@@ -71,6 +71,15 @@ public class ZooKeeperClient extends Thread{
 //        } else {
 //            zk = new ZooKeeper(serverList, SESSION_TIME_OUT, watcher);
 //        }
+        zk = new ZooKeeper(serverList, SESSION_TIME_OUT, watcher, true);
+        LOG.debug("---new ZooKeeperClient got!");
+    }
+
+    public ZooKeeperClient(String serverList, boolean readOnly) throws IOException, InterruptedException, KeeperException {
+        countDownLatch = new CountDownLatch(1);
+        isSyncConnected = false;
+        clientProxy = null;
+        LOG.debug("---to get new ZooKeeperClient!");
         zk = new ZooKeeper(serverList, SESSION_TIME_OUT, watcher, true);
         LOG.debug("---new ZooKeeperClient got!");
     }

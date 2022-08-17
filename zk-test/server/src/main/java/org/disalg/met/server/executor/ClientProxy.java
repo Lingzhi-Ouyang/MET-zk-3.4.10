@@ -22,6 +22,8 @@ public class ClientProxy extends Thread{
 
     volatile boolean stop;
 
+    volatile boolean done;
+
     private static int count = 0;
 
     private String serverList = "127.0.0.1:4002,127.0.0.1:4001,127.0.0.1:4000";
@@ -32,7 +34,8 @@ public class ClientProxy extends Thread{
 
     public ClientProxy(final TestingService testingService){
         this.ready = false;
-        this.stop = true;
+        this.stop = false;
+        this.done = false;
         this.testingService = testingService;
         this.requestQueue.clear();
         this.responseQueue.clear();
@@ -43,7 +46,7 @@ public class ClientProxy extends Thread{
 
     public ClientProxy(final TestingService testingService, final int clientId, final String serverList){
         this.ready = false;
-        this.stop = true;
+        this.stop = false;
 
         this.testingService = testingService;
         this.serverList = serverList;
@@ -61,6 +64,10 @@ public class ClientProxy extends Thread{
 
     public boolean isStop() {
         return stop;
+    }
+
+    public boolean isDone() {
+        return done;
     }
 
     public boolean init() {
@@ -110,39 +117,43 @@ public class ClientProxy extends Thread{
     @Override
     public void run() {
         stop = false;
-        while (!stop) {
-            if (init()) {
-                this.ready = true;
-                LOG.info("Thread {} is ready", currentThread().getName());
-            } else {
-                LOG.info("Something wrong during Thread {} initializing ZooKeeper client.", currentThread().getName());
-                return;
-            }
-            synchronized (testingService.getControlMonitor()) {
-                testingService.getControlMonitor().notifyAll();
-            }
-            while (ready) {
-                try {
-                    ClientRequestEvent m = requestQueue.poll(3000, TimeUnit.MILLISECONDS);
-                    if(m == null) continue;
-                    process(m);
-                } catch (InterruptedException | KeeperException e) {
-                    e.printStackTrace();
-                    break;
-                }
-            }
-            LOG.info("Thread {} is not ready", currentThread().getName());
-            // TODO: closeSession is time consuming. Any better idea?
-            try {
-                zooKeeperClient.close();
-            } catch (InterruptedException e) {
-                e.printStackTrace();
-            }
-            this.ready = false;
-            // let the proxy start new session
-//            this.stop = true;
+        if (init()) {
+            this.ready = true;
+            LOG.info("Thread {} is ready", currentThread().getName());
+        } else {
+            LOG.info("Something wrong during Thread {} initializing ZooKeeper client.", currentThread().getName());
+            return;
         }
-        LOG.info("Thread {} is stopping", currentThread().getName());
+        synchronized (testingService.getControlMonitor()) {
+            testingService.getControlMonitor().notifyAll();
+//                    testingService.waitClientRequestOffered(clientId);
+        }
+        while (!stop) {
+            try {
+                ClientRequestEvent m = requestQueue.poll(3000, TimeUnit.MILLISECONDS);
+                if (stop) break;
+                if(m == null) continue;
+                process(m);
+            } catch (InterruptedException | KeeperException e) {
+                e.printStackTrace();
+                LOG.info("Something wrong in Thread {} of ZooKeeper client.",
+                        currentThread().getName());
+                if (stop) break;
+            }
+        }
+
+        try {
+            zooKeeperClient.close();
+        } catch (InterruptedException e) {
+            LOG.info(" InterruptedException when client {} is closing.", clientId);
+            e.printStackTrace();
+        }
+
+        LOG.info("Thread {} is going to exit", currentThread().getName());
+        done = true;
+        synchronized (testingService.getControlMonitor()) {
+            testingService.getControlMonitor().notifyAll();
+        }
     }
 
     private void process(ClientRequestEvent event) throws InterruptedException, KeeperException {
