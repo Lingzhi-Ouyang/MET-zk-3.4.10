@@ -270,16 +270,16 @@ public aspect LearnerHandlerAspect {
         LOG.debug("--------------I am a LearnerHandler. QuorumPacket {}. Set subnode {} to RECEIVING state. Type: {}",
                 payload, subnodeId, type);
 
-        // TODO: this filter can be moved to the server side
-        switch (type) {
-            case Leader.DIFF:
-            case Leader.TRUNC:
-            case Leader.SNAP:
-                break;
-            default:
-                proceed(r, s);
-                return;
-        }
+//        // TODO: this filter can be moved to the server side
+//        switch (type) {
+//            case Leader.DIFF:
+//            case Leader.TRUNC:
+//            case Leader.SNAP:
+//                break;
+//            default:
+//                proceed(r, s);
+//                return;
+//        }
 
         try {
 
