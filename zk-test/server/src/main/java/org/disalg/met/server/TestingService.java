@@ -418,7 +418,7 @@ public class TestingService implements TestingRemoteService {
             Trace trace = externalModelStrategy.getCurrentTrace(executionId - 1);
             String traceName = trace.getTraceName();
             int stepCount = trace.getStepCount();
-            LOG.info("\n\n\n\n\nTrace {}, steps: {}", executionId, stepCount);
+            LOG.info("\n\n\n\n\nTrace {}: {}, total steps: {}", executionId, traceName, stepCount);
 //            LOG.info("\n\n\n\n\ncurrentTrace: {}, total steps: {}", trace, stepCount);
 
 //            // get event info
@@ -471,6 +471,7 @@ public class TestingService implements TestingRemoteService {
                     String serverName = elements.getString("nodeId");
                     int nodeId = serverIdMap.get(serverName);
 
+                    LOG.debug("trace name: {}", traceName);
                     LOG.debug("nextStep: {}", jsonObject);
                     LOG.debug("action: {}, nodeId: {}", action, nodeId);
 
@@ -587,6 +588,7 @@ public class TestingService implements TestingRemoteService {
                     statistics.reportCurrentStep("[Step " + (currentStep + 1) + "/" + stepCount + "]-" + action);
                     statistics.reportTotalExecutedEvents(totalExecuted);
                     statisticsWriter.write(statistics.toString() + "\n\n");
+                    LOG.info("trace: {}", traceName);
                     LOG.info(statistics.toString() + "\n\n\n\n\n");
                 }
             } catch (SchedulerConfigurationException e) {
@@ -3025,12 +3027,20 @@ public class TestingService implements TestingRemoteService {
                 return TestingDef.RetCode.NODE_PAIR_IN_PARTITION;
             }
             switch (type) {
-                case MessageType.DIFF:
-                case MessageType.TRUNC:
-                case MessageType.SNAP:
+                case MessageType.LEADERINFO:
                     // LearnerHandler
                     followerLearnerHandlerMap.set(receivingNodeId, sendingSubnodeId);
                     leaderSyncFollowerCountMap.put(sendingNodeId, leaderSyncFollowerCountMap.get(sendingNodeId) - 1);
+                    LOG.debug("leaderSyncFollowerCountMap, leader: {}, count: {}",
+                            sendingNodeId, leaderSyncFollowerCountMap.get(sendingNodeId));
+                    controlMonitor.notifyAll();
+                    break;
+                case MessageType.DIFF:
+                case MessageType.TRUNC:
+                case MessageType.SNAP:
+//                    // LearnerHandler
+//                    followerLearnerHandlerMap.set(receivingNodeId, sendingSubnodeId);
+//                    leaderSyncFollowerCountMap.put(sendingNodeId, leaderSyncFollowerCountMap.get(sendingNodeId) - 1);
                     break;
                 case MessageType.NEWLEADER:
                     assert leaderSyncFollowerCountMap.containsKey(sendingNodeId);
@@ -3987,6 +3997,11 @@ public class TestingService implements TestingRemoteService {
     public void waitAliveNodesInLookingState(final Set<Integer> peers) {
         final WaitPredicate aliveNodesInLookingState = new AliveNodesInLookingState(this, peers);
         wait(aliveNodesInLookingState, 0L);
+    }
+
+    public void waitAliveNodesInLookingState(final Set<Integer> peers, final long timeout) {
+        final WaitPredicate aliveNodesInLookingState = new AliveNodesInLookingState(this, peers);
+        wait(aliveNodesInLookingState, timeout);
     }
 
     public void waitFollowerMappingLearnerHandlerSender(final int subnodeId) {
