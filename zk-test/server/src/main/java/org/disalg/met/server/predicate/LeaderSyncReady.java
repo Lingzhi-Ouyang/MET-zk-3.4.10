@@ -29,30 +29,25 @@ public class LeaderSyncReady implements WaitPredicate {
 
     @Override
     public boolean isTrue() {
-//        // check if the follower's corresponding learner handler thread is in SENDING state (SENDING DIFF / TRUNC / SNAP)
-//        List<Integer> followerLearnerHandlerMap = testingService.getFollowerLearnerHandlerMap();
-//        if (peers != null) {
-//            for (Integer peer: peers) {
-//                final Integer subnodeId = followerLearnerHandlerMap.get(peer);
-//                if (subnodeId == null) return false;
-//                Subnode subnode = testingService.getSubnodes().get(subnodeId);
-//                assert subnode.getSubnodeType().equals(SubnodeType.LEARNER_HANDLER);
-//                if (!subnode.getState().equals(SubnodeState.SENDING)){
-//                    return false;
-//                }
-//            }
+//        // check if the follower's corresponding learner handler thread exists
+//        if (testingService.getLeaderSyncFollowerCountMap().get(leaderId) != 0) {
+//            return false;
 //        }
-//        else {
-//            for (int nodeId = 0; nodeId < testingService.getSchedulerConfiguration().getNumNodes(); ++nodeId) {
-//                final Integer subnodeId = followerLearnerHandlerMap.get(nodeId);
-//                if (subnodeId == null) return false;
-//                Subnode subnode = testingService.getSubnodes().get(subnodeId);
-//                assert subnode.getSubnodeType().equals(SubnodeType.LEARNER_HANDLER);
-//                if (!subnode.getState().equals(SubnodeState.SENDING)){
-//                    return false;
-//                }
-//            }
-//        }
+        List<Integer> followerLearnerHandlerMap = testingService.getFollowerLearnerHandlerMap();
+
+        for (Integer peer: peers) {
+            final Integer subnodeId = followerLearnerHandlerMap.get(peer);
+            if (subnodeId == null) return false;
+            Subnode subnode = testingService.getSubnodes().get(subnodeId);
+            if (!subnode.getSubnodeType().equals(SubnodeType.LEARNER_HANDLER)) {
+                LOG.debug("something wrong in the followerLearnerHandlerMap! follower: {}, learnerHandlerSubnode: {}",
+                        peer, subnodeId);
+                return false;
+            }
+            if (subnode.getState().equals(SubnodeState.PROCESSING)) {
+                return false;
+            }
+        }
 
 
         // check if the follower's quorum peer thread is in SENDING state (SENDING ACKEPOCH)
