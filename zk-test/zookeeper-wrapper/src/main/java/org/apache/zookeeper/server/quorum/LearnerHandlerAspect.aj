@@ -230,6 +230,56 @@ public aspect LearnerHandlerAspect {
 
     }
 
+
+//    /***
+//     * For LearnerHandler reading record during DISCOVERY & SYNC
+//     * Related code: LearnerHandler.java
+//     */
+//    pointcut learnerHandlerReadRecord(Record r, String s):
+//            withincode(* org.apache.zookeeper.server.quorum.LearnerHandler.run()) &&
+//                    call(* org.apache.jute.BinaryInputArchive.readRecord(Record, String)) && args(r, s);
+//
+//    after(Record r, String s) returning: learnerHandlerReadRecord(r, s) {
+//        LOG.debug("------after learnerHandlerReadRecord");
+//        final long threadId = Thread.currentThread().getId();
+//        final String threadName = Thread.currentThread().getName();
+//        LOG.debug("after advice of learner handler read-------Thread: {}, {}------", threadId, threadName);
+//
+//        QuorumPeerAspect.SubnodeIntercepter intercepter = quorumPeerAspect.getIntercepter(threadId);
+//        int subnodeId;
+//        try{
+//            subnodeId = intercepter.getSubnodeId();
+//        } catch (RuntimeException e) {
+//            LOG.debug("--------catch exception: {}", e.toString());
+//            throw new RuntimeException(e);
+//        }
+//        if (subnodeId == TestingDef.RetCode.NODE_CRASH) {
+//            LOG.debug("LearnerHandler threadId: {}, subnodeId == -1, indicating the node is STOPPING or OFFLINE", threadId);
+//            return;
+//        }
+//        QuorumPacket packet = (QuorumPacket) r;
+//        final String payload = quorumPeerAspect.packetToString(packet);
+//        final int type =  packet.getType();
+//        LOG.debug("---------learnerHandler reading the packet ({}). Subnode: {}",
+//                payload, subnodeId);
+//
+//        if (type != Leader.ACKEPOCH) {
+//            return;
+//        }
+//
+//        try {
+//            final String receivingAddr = threadName.split("-")[1];
+//            final long zxid = packet.getZxid();
+//            final int lastPacketId = intercepter.getTestingService()
+//                    .offerLeaderToFollowerMessage(subnodeId, receivingAddr, zxid, payload, type);
+//            // Trick: set RECEIVING state here
+//            intercepter.getTestingService().setReceivingState(subnodeId);
+//        } catch (RemoteException e) {
+//            LOG.debug("Encountered a remote exception", e);
+//            throw new RuntimeException(e);
+//        }
+//    }
+
     /***
      * For LearnerHandler sending followers' message during SYNC phase immediately without adding to the queue
      * package type:
@@ -318,5 +368,48 @@ public aspect LearnerHandlerAspect {
 //    pointcut learnerHandlerWriteRecord(Record r, String s):
 //            withincode(* org.apache.zookeeper.server.quorum.LearnerHandler.run()) &&
 //                    call(* org.apache.jute.BinaryOutputArchive.writeRecord(Record, String)) && args(r, s);
+
+
+//    /***
+//     * intercept learnerHandler calling leader's waitForEpochAck method
+//     */
+//    pointcut waitForEpochAck(long id):
+//            withincode(* org.apache.zookeeper.server.quorum.LearnerHandler.run()) &&
+//                    call(* org.apache.zookeeper.server.quorum.Leader.waitForEpochAck(long, *)) && args(id, *);
 //
+//    before(long id): waitForEpochAck(id) {
+//        LOG.debug("before waitForEpochAck, sid: {}", id);
+//        final long threadId = Thread.currentThread().getId();
+//        final String threadName = Thread.currentThread().getName();
+//        LOG.debug("before advice of waitForEpochAck-------Thread: {}, {}------", threadId, threadName);
+//
+//        QuorumPeerAspect.SubnodeIntercepter intercepter = quorumPeerAspect.getIntercepter(threadId);
+//        int subnodeId = -1;
+//        try{
+//            subnodeId = intercepter.getSubnodeId();
+//        } catch (RuntimeException e) {
+//            LOG.debug("--------catch exception in waitForEpochAck: {}", e.toString());
+//            throw new RuntimeException(e);
+//        }
+//        if (subnodeId == TestingDef.RetCode.NODE_CRASH) {
+//            LOG.debug("LearnerHandler threadId: {}, subnodeId == -1, indicating the node is STOPPING or OFFLINE", threadId);
+//            return;
+//        }
+//
+//        try {
+//
+//            // before offerMessage: increase sendingSubnodeNum
+//            quorumPeerAspect.setSubnodeSending(intercepter);
+//            final int lastPacketId = intercepter.getTestingService()
+//                    .offerLocalEvent(subnodeId, SubnodeType.LEARNER_HANDLER, id, null, TestingDef.LocalEventType.waitForEpochAck);
+//            LOG.debug("waitForEpochAck lastPacketId = {}", lastPacketId);
+//            quorumPeerAspect.postSend(intercepter, subnodeId, lastPacketId);
+//            // Trick: set RECEIVING state here
+//            intercepter.getTestingService().setReceivingState(subnodeId);
+//        } catch (RemoteException e) {
+//            LOG.debug("Encountered a remote exception", e);
+//            throw new RuntimeException(e);
+//        }
+//    }
+
 }

@@ -1,6 +1,5 @@
 package org.apache.zookeeper.server;
 
-import org.apache.zookeeper.ZooDefs;
 import org.apache.zookeeper.server.quorum.QuorumPeerAspect;
 import org.disalg.met.api.SubnodeType;
 import org.disalg.met.api.TestingDef;
@@ -107,21 +106,21 @@ public aspect SyncRequestProcessorAspect {
             final String payload = quorumPeerAspect.constructRequest((Request) request);
             final int type =  ((Request) request).type;
             switch (type) {
-                case ZooDefs.OpCode.notification:
-                case ZooDefs.OpCode.create:
-                case ZooDefs.OpCode.delete:
-                case ZooDefs.OpCode.createSession:
-                case ZooDefs.OpCode.exists:
-                case ZooDefs.OpCode.check:
-                case ZooDefs.OpCode.multi:
-                case ZooDefs.OpCode.sync:
-                case ZooDefs.OpCode.getACL:
-                case ZooDefs.OpCode.setACL:
-                case ZooDefs.OpCode.getChildren:
-                case ZooDefs.OpCode.getChildren2:
-                case ZooDefs.OpCode.ping:
-                case ZooDefs.OpCode.closeSession:
-                case ZooDefs.OpCode.setWatches:
+                case TestingDef.OpCode.notification:
+                case TestingDef.OpCode.create:
+                case TestingDef.OpCode.delete:
+                case TestingDef.OpCode.createSession:
+                case TestingDef.OpCode.exists:
+                case TestingDef.OpCode.check:
+                case TestingDef.OpCode.multi:
+                case TestingDef.OpCode.sync:
+                case TestingDef.OpCode.getACL:
+                case TestingDef.OpCode.setACL:
+                case TestingDef.OpCode.getChildren:
+                case TestingDef.OpCode.getChildren2:
+                case TestingDef.OpCode.ping:
+                case TestingDef.OpCode.closeSession:
+                case TestingDef.OpCode.setWatches:
                     LOG.debug("Won't intercept log request: {} ", request);
                     return;
                 default:

@@ -1,6 +1,5 @@
 package org.apache.zookeeper.server.quorum;
 
-import org.apache.zookeeper.ZooDefs;
 import org.apache.zookeeper.server.Request;
 import org.disalg.met.api.SubnodeType;
 import org.disalg.met.api.TestingDef;
@@ -66,22 +65,22 @@ public aspect CommitProcessorAspect {
         }
         final int type =  request.type;
         switch (type) {
-            case ZooDefs.OpCode.notification:
-            case ZooDefs.OpCode.create:
-            case ZooDefs.OpCode.delete:
-            case ZooDefs.OpCode.getData:
-            case ZooDefs.OpCode.exists:
-            case ZooDefs.OpCode.check:
-            case ZooDefs.OpCode.multi:
-            case ZooDefs.OpCode.sync:
-            case ZooDefs.OpCode.getACL:
-            case ZooDefs.OpCode.setACL:
-            case ZooDefs.OpCode.getChildren:
-            case ZooDefs.OpCode.getChildren2:
-            case ZooDefs.OpCode.ping:
-            case ZooDefs.OpCode.createSession:
-            case ZooDefs.OpCode.closeSession:
-            case ZooDefs.OpCode.setWatches:
+            case TestingDef.OpCode.notification:
+            case TestingDef.OpCode.create:
+            case TestingDef.OpCode.delete:
+            case TestingDef.OpCode.getData:
+            case TestingDef.OpCode.exists:
+            case TestingDef.OpCode.check:
+            case TestingDef.OpCode.multi:
+            case TestingDef.OpCode.sync:
+            case TestingDef.OpCode.getACL:
+            case TestingDef.OpCode.setACL:
+            case TestingDef.OpCode.getChildren:
+            case TestingDef.OpCode.getChildren2:
+            case TestingDef.OpCode.ping:
+            case TestingDef.OpCode.createSession:
+            case TestingDef.OpCode.closeSession:
+            case TestingDef.OpCode.setWatches:
                 LOG.debug("Won't intercept toProcess request: {} ", request);
                 return;
             default:
@@ -104,13 +103,13 @@ public aspect CommitProcessorAspect {
         }
     }
 
-    /***
-     *  possible issue: other threads may reach this pointcut before the CommitProcessor starts
-     *     // intercept getting the request from the queue committedRequests
-     *     // This method is called by
-     *     // For follower: QuorumPeer
-     *     // For leader: LearnerHandler / SyncRequestProcessor
-     */
+//    /***
+//     *  possible issue: other threads may reach this pointcut before the CommitProcessor starts
+//     *     // intercept getting the request from the queue committedRequests
+//     *     // This method is called by
+//     *     // For follower: QuorumPeer
+//     *     // For leader: LearnerHandler / SyncRequestProcessor
+//     */
 //    pointcut commit(LinkedList queue, Request request):
 //            withincode(void CommitProcessor.commit(Request))
 //                && call(* LinkedList.add(..))
@@ -125,21 +124,21 @@ public aspect CommitProcessorAspect {
 //                request.type, queue.size(), subnodeId);
 //        final int type =  request.type;
 //        switch (type) {
-//            case ZooDefs.OpCode.notification:
-//            case ZooDefs.OpCode.create:
-//            case ZooDefs.OpCode.delete:
-//            case ZooDefs.OpCode.createSession:
-//            case ZooDefs.OpCode.exists:
-//            case ZooDefs.OpCode.check:
-//            case ZooDefs.OpCode.multi:
-//            case ZooDefs.OpCode.sync:
-//            case ZooDefs.OpCode.getACL:
-//            case ZooDefs.OpCode.setACL:
-//            case ZooDefs.OpCode.getChildren:
-//            case ZooDefs.OpCode.getChildren2:
-//            case ZooDefs.OpCode.ping:
-//            case ZooDefs.OpCode.closeSession:
-//            case ZooDefs.OpCode.setWatches:
+//            case TestingDef.OpCode.notification:
+//            case TestingDef.OpCode.create:
+//            case TestingDef.OpCode.delete:
+//            case TestingDef.OpCode.createSession:
+//            case TestingDef.OpCode.exists:
+//            case TestingDef.OpCode.check:
+//            case TestingDef.OpCode.multi:
+//            case TestingDef.OpCode.sync:
+//            case TestingDef.OpCode.getACL:
+//            case TestingDef.OpCode.setACL:
+//            case TestingDef.OpCode.getChildren:
+//            case TestingDef.OpCode.getChildren2:
+//            case TestingDef.OpCode.ping:
+//            case TestingDef.OpCode.closeSession:
+//            case TestingDef.OpCode.setWatches:
 //                LOG.debug("Won't intercept commit request: {} ", request);
 //                return;
 //            default:

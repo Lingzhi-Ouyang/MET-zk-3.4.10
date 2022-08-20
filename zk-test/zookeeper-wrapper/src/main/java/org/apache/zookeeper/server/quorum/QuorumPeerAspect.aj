@@ -789,6 +789,32 @@ public privileged aspect QuorumPeerAspect {
         }
     }
 
+//    /***
+//     * intercept leader calling waitForEpochAck method
+//     */
+//    pointcut waitForEpochAck(long id):
+//            withincode(* Leader.lead()) &&
+//                    call(* Leader.waitForEpochAck(long, *)) && args(id, *);
+//
+//    before(long id): waitForEpochAck(id) {
+//        LOG.debug("before waitForEpochAck, sid: {}", id);
+//
+//        try {
+//
+//            // before offerMessage: increase sendingSubnodeNum
+//            setSubnodeSending();
+//            final int lastPacketId = testingService
+//                    .offerLocalEvent(quorumPeerSubnodeId, SubnodeType.QUORUM_PEER, id, null, -2);
+//            LOG.debug("waitForEpochAck lastPacketId = {}", lastPacketId);
+//            postSend(quorumPeerSubnodeId, lastPacketId);
+//            // Trick: set RECEIVING state here
+//            testingService.setReceivingState(quorumPeerSubnodeId);
+//        } catch (RemoteException e) {
+//            LOG.debug("Encountered a remote exception", e);
+//            throw new RuntimeException(e);
+//        }
+//    }
+
 
 
 
