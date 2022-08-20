@@ -1,20 +1,15 @@
 package org.disalg.met.server.executor;
 
-import org.apache.zookeeper.server.quorum.Learner;
-import org.disalg.met.api.NodeState;
 import org.disalg.met.api.Phase;
 import org.disalg.met.api.state.LeaderElectionState;
 import org.disalg.met.server.TestingService;
 import org.disalg.met.server.event.PartitionStartEvent;
-import org.disalg.met.server.predicate.AliveNodesInLookingState;
-import org.disalg.met.server.predicate.WaitPredicate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 
 public class PartitionStartExecutor extends BaseEventExecutor {
     private static final Logger LOG = LoggerFactory.getLogger(PartitionStopExecutor.class);
@@ -73,7 +68,7 @@ public class PartitionStartExecutor extends BaseEventExecutor {
 
         // release all nodes' event related to the partitioned nodes
         testingService.getControlMonitor().notifyAll();
-        testingService.releasePartitionedEvent(new HashSet<Integer>() {{
+        testingService.recordPartitionedEvent(new HashSet<Integer>() {{
             add(node1);
             add(node2);
         }});
@@ -81,11 +76,11 @@ public class PartitionStartExecutor extends BaseEventExecutor {
         // leader & follower: need to set related nodes back to LOOKING state and release broadcast events
         boolean leaderExist = LeaderElectionState.LEADING.equals(role1) || LeaderElectionState.LEADING.equals(role2);
         boolean followerExist = LeaderElectionState.FOLLOWING.equals(role1) || LeaderElectionState.FOLLOWING.equals(role2);
-        if (leaderExist & followerExist) {
+        if (leaderExist && followerExist) {
             int leader = LeaderElectionState.LEADING.equals(role1) ? node1 : node2;
             int follower = LeaderElectionState.FOLLOWING.equals(role1) ? node1 : node2;
-            LOG.debug("Leader {} & Follower {} get partition. Wait for follower {} to be LOOKING",
-                    leader, follower, follower);
+            LOG.debug("Leader {} & Follower {} get partition. ",
+                    leader, follower);
 
             // release follower's intercepted events
             testingService.getControlMonitor().notifyAll();
@@ -93,20 +88,17 @@ public class PartitionStartExecutor extends BaseEventExecutor {
             // if still in discovery phase, like follower sending ACKEPOCH, then,
             // follower will not be back to LOOKING until leader timeout due to waitForEpochAck
             // therefore, here we just wait for limited time
-//            if (testingService.getNodePhases().get(follower).equals(Phase.SYNC)) {
-//                LOG.debug("do not wait for follower {} back into LOOKING since it is in SYNC.", follower);
-////                testingService.waitAliveNodesInLookingState(new HashSet<Integer>() {{
-////                    add(follower);
-////                }}, 500L);
-//            } else {
+            if (testingService.getNodePhases().get(follower).equals(Phase.DISCOVERY)) {
+                LOG.debug("do not wait for follower {} back into LOOKING since it is in DISCOVERY.", follower);
 //                testingService.waitAliveNodesInLookingState(new HashSet<Integer>() {{
 //                    add(follower);
-//                }});
-//            }
-
-            testingService.waitAliveNodesInLookingState(new HashSet<Integer>() {{
+//                }}, 500L);
+            } else {
+                LOG.debug("do not wait for follower {} back into LOOKING.", follower);
+                testingService.waitAliveNodesInLookingState(new HashSet<Integer>() {{
                     add(follower);
-            }});
+                }});
+            }
 
             // if quorum breaks, wait for the leader into LOOKING
             int nodeNum = testingService.getSchedulerConfiguration().getNumNodes();
@@ -122,9 +114,6 @@ public class PartitionStartExecutor extends BaseEventExecutor {
                 }});
             }
         }
-//        else {
-//
-//        }
 
         testingService.getControlMonitor().notifyAll();
     }
