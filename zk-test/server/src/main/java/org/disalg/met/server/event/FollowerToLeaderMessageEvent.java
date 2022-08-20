@@ -70,6 +70,7 @@ public class FollowerToLeaderMessageEvent extends AbstractEvent {
         }
         return action + "{" +
                 "id=" + getId() +
+                ", flag=" + getFlag() +
                 ", receivingNode=" + receivingNodeId +
                 ", predecessors=" + getDirectPredecessorsString() +
                 ", ackMessageType=" + type +

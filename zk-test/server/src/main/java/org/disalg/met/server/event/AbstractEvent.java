@@ -1,5 +1,6 @@
 package org.disalg.met.server.event;
 
+import org.disalg.met.api.TestingDef;
 import org.disalg.met.server.executor.BaseEventExecutor;
 
 import java.util.*;
@@ -15,11 +16,24 @@ public abstract class AbstractEvent implements Event {
     public AbstractEvent(final int id, final BaseEventExecutor eventExecutor) {
         this.id = id;
         this.eventExecutor = eventExecutor;
+        this.flag = TestingDef.RetCode.UNDEFINED;
     }
 
     @Override
     public int getId() {
         return id;
+    }
+
+    private Integer flag;
+
+    @Override
+    public int getFlag() {
+        return flag;
+    }
+
+    @Override
+    public void setFlag(int flag) {
+        this.flag = flag;
     }
 
     public BaseEventExecutor getEventExecutor() {

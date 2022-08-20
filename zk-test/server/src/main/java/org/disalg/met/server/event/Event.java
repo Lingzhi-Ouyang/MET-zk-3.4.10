@@ -27,4 +27,8 @@ public interface Event {
     int getLabel();
 
     void setLabel(int label);
+
+    int getFlag();
+
+    void setFlag(int flag);
 }
