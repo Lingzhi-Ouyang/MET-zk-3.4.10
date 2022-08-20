@@ -563,6 +563,11 @@ public class TestingService implements TestingRemoteService {
 
                         // others
                         case LeaderSyncFollower: // send DIFF / TRUNC / SNAP
+                            int peerId8 = serverIdMap.get(elements.getString("peerId"));
+                            LOG.debug("LeaderSyncFollower, {}, {}", nodeId, peerId8);
+                            totalExecuted = scheduleLeaderSyncFollower(externalModelStrategy,
+                                    nodeId, peerId8, -1L, totalExecuted);
+                            break;
                         case FollowerProcessSyncMessage:
                         case FollowerProcessNEWLEADER: // send ACK
                         case LeaderProcessACKLD: // send UPTODATE
@@ -611,7 +616,7 @@ public class TestingService implements TestingRemoteService {
                 statistics.endTimer();
 
                 // report statistics of total trace
-                LOG.info("setTraceLen: {}, setExecutedStep: {} ", stepCount, currentStep);
+                LOG.info("tracename: {}, setTraceLen: {}, setExecutedStep: {} ", traceName, stepCount, currentStep);
                 traceVerifier.setTraceLen(stepCount);
                 traceVerifier.setExecutedStep(currentStep);
                 boolean matchedAndPassed = traceVerifier.verify();
@@ -1123,7 +1128,7 @@ public class TestingService implements TestingRemoteService {
 
         for (int i = 0 ; i < nodeNum; i++) {
             nodeStates.add(NodeState.STARTING);
-            nodePhases.add(Phase.ELECTION_AND_DISCOVERY);
+            nodePhases.add(Phase.ELECTION);
             subnodeSets.add(new HashSet<Subnode>());
             lastProcessedZxids.add(0L);
             acceptedEpochs.add(0L);
@@ -1189,7 +1194,7 @@ public class TestingService implements TestingRemoteService {
             long modelZxid = -1L;
             int retry1 = 3;
             scheduleInternalEventWithWaitingRetry(strategy,
-                    ModelAction.LeaderSyncFollower, leaderId, peer, modelZxid, totalExecuted, retry1);
+                    ModelAction.FollowerSendACKEPOCH, leaderId, peer, modelZxid, totalExecuted, retry1);
             scheduleInternalEventWithWaitingRetry(strategy,
                     ModelAction.FollowerProcessSyncMessage, peer, leaderId, modelZxid, totalExecuted, retry1);
             scheduleInternalEventWithWaitingRetry(strategy,
@@ -1863,6 +1868,33 @@ public class TestingService implements TestingRemoteService {
             totalExecuted = scheduleInternalEventWithWaitingRetry(strategy, ModelAction.FollowerCommit,
                     followerId, -1, modelZxid, totalExecuted, 1);
         }
+        return totalExecuted;
+    }
+
+    private int scheduleLeaderSyncFollower(ExternalModelStrategy strategy,
+                                           final int leaderId,
+                                           final int followerId,
+                                           final long modelEpoch,
+                                           int totalExecuted) throws SchedulerConfigurationException {
+        // step 1. release follower's ACKEPOCH
+        try {
+            LOG.debug("try to schedule FollowerSendACKEPOCH follower: {}", followerId);
+            totalExecuted = scheduleInternalEventWithWaitingRetry(strategy, ModelAction.FollowerSendACKEPOCH,
+                    leaderId, followerId, modelEpoch, totalExecuted, 1);
+        } catch (SchedulerConfigurationException e2) {
+            LOG.debug("SchedulerConfigurationException found when scheduling FollowerSendACKEPOCH! " +
+                    "Try to schedule FollowerSendACKEPOCH. (This should usually occur in Discovery)");
+            throw new SchedulerConfigurationException();
+        }
+//        // Step 2. release leader's waitForEpochACK
+//        try {
+//            LOG.debug("try to schedule LeaderWaitForEpochAck leader: {}", leaderId);
+//            totalExecuted = scheduleInternalEventWithWaitingRetry(strategy, ModelAction.LeaderWaitForEpochAck,
+//                    leaderId, -1, modelEpoch, totalExecuted, 1);
+//        } catch (SchedulerConfigurationException e2) {
+//            LOG.debug("SchedulerConfigurationException found when scheduling LeaderWaitForEpochAck! " +
+//                    "Try to schedule LeaderWaitForEpochAck. (This should usually occur in Discovery)");
+//        }
         return totalExecuted;
     }
 
@@ -2854,7 +2886,7 @@ public class TestingService implements TestingRemoteService {
             sendingSubnode.setState(SubnodeState.SENDING);
             controlMonitor.notifyAll();
 
-            waitMessageReleased(id, sendingNodeId, sendingSubnodeId);
+            waitMessageReleased(id, sendingNodeId, sendingSubnodeId, electionMessageEvent);
 
             try {
                 // normally, this event is released when scheduled except:
@@ -2976,7 +3008,7 @@ public class TestingService implements TestingRemoteService {
             sendingSubnode.setState(SubnodeState.SENDING);
             controlMonitor.notifyAll();
 
-            waitMessageReleased(id, sendingNodeId, sendingSubnodeId);
+            waitMessageReleased(id, sendingNodeId, sendingSubnodeId, messageEvent);
 
             // normally, this event is released when scheduled except:
             // case 1: this event is released since the sending node is crashed
@@ -2996,7 +3028,8 @@ public class TestingService implements TestingRemoteService {
                 schedulingStrategy.remove(messageEvent);
             }
             // case 3: this event is released when the network partition occurs
-            else if (partitionMap.get(sendingNodeId).get(receivingNodeId)) {
+            else if (partitionMap.get(sendingNodeId).get(receivingNodeId) ||
+                    messageEvent.getFlag() == TestingDef.RetCode.NODE_PAIR_IN_PARTITION) {
                 LOG.debug("----------node {} and {} get partitioned! setting messageEvent executed and removed. {}",
                         sendingNodeId, receivingNodeId, messageEvent);
                 sendingSubnode.setState(SubnodeState.RECEIVING);
@@ -3041,6 +3074,8 @@ public class TestingService implements TestingRemoteService {
 //                    // LearnerHandler
 //                    followerLearnerHandlerMap.set(receivingNodeId, sendingSubnodeId);
 //                    leaderSyncFollowerCountMap.put(sendingNodeId, leaderSyncFollowerCountMap.get(sendingNodeId) - 1);
+                    nodePhases.set(sendingNodeId, Phase.SYNC);
+                    nodePhases.set(receivingNodeId, Phase.SYNC);
                     break;
                 case MessageType.NEWLEADER:
                     assert leaderSyncFollowerCountMap.containsKey(sendingNodeId);
@@ -3124,7 +3159,7 @@ public class TestingService implements TestingRemoteService {
             sendingSubnode.setState(SubnodeState.SENDING);
             controlMonitor.notifyAll();
 
-            waitMessageReleased(id, sendingNodeId, sendingSubnodeId);
+            waitMessageReleased(id, sendingNodeId, sendingSubnodeId, messageEvent);
 
             // normally, this event is released when scheduled except:
             // case 1: this event is released since the sending node is crashed
@@ -3144,7 +3179,8 @@ public class TestingService implements TestingRemoteService {
                 schedulingStrategy.remove(messageEvent);
             }
             // case 3: this event is released when the network partition occurs
-            else if (partitionMap.get(sendingNodeId).get(receivingNodeId)) {
+            else if (partitionMap.get(sendingNodeId).get(receivingNodeId) ||
+                    messageEvent.getFlag() == TestingDef.RetCode.NODE_PAIR_IN_PARTITION) {
                 LOG.debug("----------node {} and {} get partitioned! setting messageEvent executed and removed. {}",
                         sendingNodeId, receivingNodeId, messageEvent);
                 sendingSubnode.setState(SubnodeState.RECEIVING);
@@ -3157,7 +3193,7 @@ public class TestingService implements TestingRemoteService {
     }
 
     @Override
-    public int offerLocalEvent(int subnodeId, SubnodeType subnodeType, long zxid, String payload, int type) throws RemoteException {
+    public int offerLocalEvent(int subnodeId, SubnodeType subnodeType, long zxidOrEpoch, String payload, int type) throws RemoteException {
         if (!subnodeType.equals(SubnodeType.QUORUM_PEER)) {
             if (!clientInitializationDone) {
                 LOG.debug("----client initialization is not done!---");
@@ -3175,14 +3211,14 @@ public class TestingService implements TestingRemoteService {
 
         int id = generateEventId();
         final LocalEvent localEvent =
-                new LocalEvent(id, nodeId, subnodeId, subnodeType, payload, zxid, type, localEventExecutor);
+                new LocalEvent(id, nodeId, subnodeId, subnodeType, payload, zxidOrEpoch, type, localEventExecutor);
         synchronized (controlMonitor) {
             LOG.debug("{} {} of Node {} is about to process the request ({}): msgId = {}, " +
                     "set subnode {} to SENDING state", subnodeType, subnodeId, nodeId, payload, id, subnodeId);
             addEvent(localEvent);
             subnode.setState(SubnodeState.SENDING);
             if (SubnodeType.COMMIT_PROCESSOR.equals(subnodeType)) {
-                zxidToCommitMap.put(zxid, zxidToCommitMap.getOrDefault(zxid, 0) + 1);
+                zxidToCommitMap.put(zxidOrEpoch, zxidToCommitMap.getOrDefault(zxidOrEpoch, 0) + 1);
             }
             controlMonitor.notifyAll();
 
@@ -3217,7 +3253,7 @@ public class TestingService implements TestingRemoteService {
                         subnodeType, nodeId, nodeStates.get(nodeId));
                 return -1;
             }
-            if (nodePhases.get(nodeId).equals(Phase.ELECTION_AND_DISCOVERY)) {
+            if (nodePhases.get(nodeId).equals(Phase.ELECTION)) {
                 switch (subnodeType) {
                     case COMMIT_PROCESSOR:
                     case SYNC_PROCESSOR:
@@ -3318,7 +3354,7 @@ public class TestingService implements TestingRemoteService {
     public void startNode(final int nodeId) throws RemoteException {
         // 1. PRE_EXECUTION: set unstable state (set STARTING)
         nodeStates.set(nodeId, NodeState.STARTING);
-        nodePhases.set(nodeId, Phase.ELECTION_AND_DISCOVERY);
+        nodePhases.set(nodeId, Phase.ELECTION);
         nodeStateForClientRequests.set(nodeId, NodeStateForClientRequest.SET_DONE);
         votes.set(nodeId, null);
         leaderElectionStates.set(nodeId, LeaderElectionState.LOOKING);
@@ -3346,6 +3382,7 @@ public class TestingService implements TestingRemoteService {
     public void stopNode(final int nodeId) {
         // 1. PRE_EXECUTION: set unstable state (set STOPPING)
         LeaderElectionState role = leaderElectionStates.get(nodeId);
+        int leaderId = leaderElectionStates.indexOf(LeaderElectionState.LEADING);
         boolean hasSending = false;
         for (final Subnode subnode : subnodeSets.get(nodeId)) {
             if (SubnodeState.SENDING.equals(subnode.getState())) {
@@ -3405,7 +3442,6 @@ public class TestingService implements TestingRemoteService {
             // if a follower is crashed
             if (participants.size() <= schedulerConfiguration.getNumNodes() / 2) {
                 // if leader loses quorum, then wait for the leader back into LOOKING
-                int leaderId = leaderElectionStates.indexOf(LeaderElectionState.LEADING);
                 if (leaderId >= 0 ) {
                     LOG.debug("release Broadcast Events of leader {} and wait for it in LOOKING state", leaderId);
                     controlMonitor.notifyAll();
@@ -3426,7 +3462,7 @@ public class TestingService implements TestingRemoteService {
 
 
 
-    public boolean releasePartitionedEvent(Set<Integer> peers) {
+    public boolean recordPartitionedEvent(Set<Integer> peers) {
         Set<Event> otherEvents = new HashSet<>();
         try {
             while (schedulingStrategy.hasNextEvent()) {
@@ -3438,9 +3474,8 @@ public class TestingService implements TestingRemoteService {
                     final int sendingNodeId = sendingSubnode.getNodeId();
                     final int receivingNodeId = e1.getReceivingNodeId();
                     if (peers.contains(sendingNodeId) && peers.contains(receivingNodeId)) {
-                        e1.execute();
-                    } else {
-                        otherEvents.add(event);
+                        LOG.debug("set flag NODE_PAIR_IN_PARTITION to event: {}", e1);
+                        e1.setFlag(TestingDef.RetCode.NODE_PAIR_IN_PARTITION);
                     }
                 } else if (event instanceof FollowerToLeaderMessageEvent) {
                     FollowerToLeaderMessageEvent e1 = (FollowerToLeaderMessageEvent) event;
@@ -3449,9 +3484,8 @@ public class TestingService implements TestingRemoteService {
                     final int sendingNodeId = sendingSubnode.getNodeId();
                     final int receivingNodeId = e1.getReceivingNodeId();
                     if (peers.contains(sendingNodeId) && peers.contains(receivingNodeId)) {
-                        e1.execute();
-                    } else {
-                        otherEvents.add(event);
+                        LOG.debug("set flag NODE_PAIR_IN_PARTITION to event: {}", e1);
+                        e1.setFlag(TestingDef.RetCode.NODE_PAIR_IN_PARTITION);
                     }
                 } else if (event instanceof ElectionMessageEvent) {
                     ElectionMessageEvent e1 = (ElectionMessageEvent) event;
@@ -3460,19 +3494,17 @@ public class TestingService implements TestingRemoteService {
                     final int sendingNodeId = sendingSubnode.getNodeId();
                     final int receivingNodeId = e1.getReceivingNodeId();
                     if (peers.contains(sendingNodeId) && peers.contains(receivingNodeId)) {
-                        e1.execute();
-                    } else {
-                        otherEvents.add(event);
+                        LOG.debug("set flag NODE_PAIR_IN_PARTITION to event: {}", e1);
+                        e1.setFlag(TestingDef.RetCode.NODE_PAIR_IN_PARTITION);
                     }
-                } else {
-                    otherEvents.add(event);
                 }
+                otherEvents.add(event);
             }
             for (Event e: otherEvents) {
-                LOG.debug("Adding back event that is missed during partition: {}", e);
+                LOG.debug("Adding back event during recording partition: {}", e);
                 addEvent(e);
             }
-        } catch (IOException e) {
+        } catch (Exception e) {
             e.printStackTrace();
         }
         return true;
@@ -3504,7 +3536,8 @@ public class TestingService implements TestingRemoteService {
                     } else {
                         otherEvents.add(event);
                     }
-                } else if (event instanceof LocalEvent) {
+                } else
+                if (event instanceof LocalEvent) {
                     LocalEvent e1 = (LocalEvent) event;
                     final int subnodeId = e1.getSubnodeId();
                     final Subnode subnode = subnodes.get(subnodeId);
@@ -3569,7 +3602,7 @@ public class TestingService implements TestingRemoteService {
         synchronized (controlMonitor) {
             leaderElectionStates.set(nodeId, state);
             if (LeaderElectionState.LOOKING.equals(state)) {
-                nodePhases.set(nodeId, Phase.ELECTION_AND_DISCOVERY);
+                nodePhases.set(nodeId, Phase.ELECTION);
                 LOG.debug("set {}'s firstMessage null", nodeId);
                 firstMessage.set(nodeId, null);
                 votes.set(nodeId, null);
@@ -3579,7 +3612,7 @@ public class TestingService implements TestingRemoteService {
                 syncTypeList.set(nodeId, -1);
                 participants.remove(nodeId);
             } else {
-                nodePhases.set(nodeId, Phase.SYNC);
+                nodePhases.set(nodeId, Phase.DISCOVERY);
                 followerSocketAddressBook.set(nodeId, null);
                 followerLearnerHandlerMap.set(nodeId, null);
                 followerLearnerHandlerSenderMap.set(nodeId, null);
@@ -3922,8 +3955,26 @@ public class TestingService implements TestingRemoteService {
         wait(messageReleased, 0L);
     }
 
+    /***
+     * For local event
+     * @param msgId
+     * @param sendingNodeId
+     * @param sendingSubnodeId
+     */
     private void waitMessageReleased(final int msgId, final int sendingNodeId, final int sendingSubnodeId) {
         final WaitPredicate messageReleased = new MessageReleased(this, msgId, sendingNodeId, sendingSubnodeId);
+        wait(messageReleased, 0L);
+    }
+
+    /***
+     * For message event that will be affected by partition
+     * @param msgId
+     * @param sendingNodeId
+     * @param sendingSubnodeId
+     * @param event
+     */
+    private void waitMessageReleased(final int msgId, final int sendingNodeId, final int sendingSubnodeId, final Event event) {
+        final WaitPredicate messageReleased = new MessageReleased(this, msgId, sendingNodeId, sendingSubnodeId, event);
         wait(messageReleased, 0L);
     }
 
