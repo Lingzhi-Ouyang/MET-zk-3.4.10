@@ -238,7 +238,7 @@ public class ExternalModelStrategy implements SchedulingStrategy{
         nextEvent = null;
         // 2. search specific pre-condition event that should be lied in the sender
         switch (action) {
-            case LeaderSyncFollower: // follower to release ACKEPOCH (reply to LEADERINFO)
+            case FollowerSendACKEPOCH: // follower to release ACKEPOCH (reply to LEADERINFO)
             case LeaderProcessACKLD: // follower to release ACKLD
             case FollowerToLeaderACK: // follower to release ACK
                 searchFollowerMessage(action, peerId, nodeId, modelZxid, enabled);
@@ -252,6 +252,7 @@ public class ExternalModelStrategy implements SchedulingStrategy{
             case LeaderToFollowerCOMMIT: // leader to release COMMIT
                 searchLeaderMessage(action, peerId, nodeId, modelZxid, enabled);
                 break;
+            case LeaderWaitForEpochAck:
             case LeaderLog:
             case FollowerLog:
             case LeaderCommit:
@@ -348,7 +349,7 @@ public class ExternalModelStrategy implements SchedulingStrategy{
                 final int lastReadType = event.getType(); // this describes the message type that this ACK replies to
                 switch (lastReadType) {
                     case MessageType.LEADERINFO:
-                        if (!action.equals(ModelAction.LeaderSyncFollower)) continue;
+                        if (!action.equals(ModelAction.FollowerSendACKEPOCH)) continue;
                         break;
                     case MessageType.NEWLEADER:
                         if (!action.equals(ModelAction.LeaderProcessACKLD)) continue;
@@ -388,6 +389,9 @@ public class ExternalModelStrategy implements SchedulingStrategy{
                 final SubnodeType subnodeType = event.getSubnodeType();
                 final int type = event.getType();
                 switch (action) {
+//                    case LeaderWaitForEpochAck:
+//                        // TODO：ia.readRecord(ackEpochPacket, "packet");
+//                        break;
                     case LeaderLog:
                         final long eventZxid = event.getZxid();
                         if (!subnodeType.equals(SubnodeType.SYNC_PROCESSOR)) continue;
