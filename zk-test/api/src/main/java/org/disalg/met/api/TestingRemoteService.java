@@ -85,7 +85,7 @@ public interface TestingRemoteService extends Remote {
      *
      * @return The scheduler generates and returns a unique identifier of the current message
      */
-    int offerLocalEvent(int subnodeId, SubnodeType subnodeType, long zxid, String payload, int type) throws RemoteException;
+    int offerLocalEvent(int subnodeId, SubnodeType subnodeType, long zxidOrEpoch, String payload, int type) throws RemoteException;
 
     /**
      * If the subnode is in the state <code>{@link SubnodeState.RECEIVING}</code>, change it to
@@ -130,4 +130,8 @@ public interface TestingRemoteService extends Remote {
     void deregisterFollowerSocketInfo(int node) throws RemoteException;
 
     void readyForBroadcast(int subnodeId) throws RemoteException;
+
+//    ClientRequest getNextClientRequest(int clientId, String result) throws RemoteException;
+//
+//    int replyLastResult(ClientRequest clientRequest) throws RemoteException;
 }
