@@ -33,21 +33,21 @@ public class LeaderSyncReady implements WaitPredicate {
 //        if (testingService.getLeaderSyncFollowerCountMap().get(leaderId) != 0) {
 //            return false;
 //        }
-        List<Integer> followerLearnerHandlerMap = testingService.getFollowerLearnerHandlerMap();
-
-        for (Integer peer: peers) {
-            final Integer subnodeId = followerLearnerHandlerMap.get(peer);
-            if (subnodeId == null) return false;
-            Subnode subnode = testingService.getSubnodes().get(subnodeId);
-            if (!subnode.getSubnodeType().equals(SubnodeType.LEARNER_HANDLER)) {
-                LOG.debug("something wrong in the followerLearnerHandlerMap! follower: {}, learnerHandlerSubnode: {}",
-                        peer, subnodeId);
-                return false;
-            }
-            if (subnode.getState().equals(SubnodeState.PROCESSING)) {
-                return false;
-            }
-        }
+//        List<Integer> followerLearnerHandlerMap = testingService.getFollowerLearnerHandlerMap();
+//
+//        for (Integer peer: peers) {
+//            final Integer subnodeId = followerLearnerHandlerMap.get(peer);
+//            if (subnodeId == null) return false;
+//            Subnode subnode = testingService.getSubnodes().get(subnodeId);
+//            if (!subnode.getSubnodeType().equals(SubnodeType.LEARNER_HANDLER)) {
+//                LOG.debug("something wrong in the followerLearnerHandlerMap! follower: {}, learnerHandlerSubnode: {}",
+//                        peer, subnodeId);
+//                return false;
+//            }
+////            if (!subnode.getState().equals(SubnodeState.SENDING)) {
+////                return false;
+////            }
+//        }
 
 
         // check if the follower's quorum peer thread is in SENDING state (SENDING ACKEPOCH)
