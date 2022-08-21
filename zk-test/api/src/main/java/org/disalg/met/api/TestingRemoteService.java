@@ -61,7 +61,12 @@ public interface TestingRemoteService extends Remote {
      * @param payload String representation of the message payload
      * @return The scheduler generates and returns a unique identifier of the current message
      */
-    int offerElectionMessage(int sendingSubnodeId, int receivingNodeId, Set<Integer> predecessorMessageIds, String payload) throws RemoteException;
+    int offerElectionMessage(int sendingSubnodeId,
+                             int receivingNodeId,
+                             long electionEpoch,
+                             int leader,
+                             Set<Integer> predecessorMessageIds,
+                             String payload) throws RemoteException;
 
     /**
      * Indicates an internal message between nodes is about to be sent. Change its state to <code>{@link SubnodeState.SENDING}</code>,
