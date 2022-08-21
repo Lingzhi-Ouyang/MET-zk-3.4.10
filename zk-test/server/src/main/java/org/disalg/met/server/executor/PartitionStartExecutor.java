@@ -88,22 +88,28 @@ public class PartitionStartExecutor extends BaseEventExecutor {
             // if still in discovery phase, like follower sending ACKEPOCH, then,
             // follower will not be back to LOOKING until leader timeout due to waitForEpochAck
             // therefore, here we just wait for limited time
-            if (testingService.getNodePhases().get(follower).equals(Phase.DISCOVERY)) {
-                LOG.debug("do not wait for follower {} back into LOOKING since it is in DISCOVERY.", follower);
+//            if (testingService.getNodePhases().get(follower).equals(Phase.DISCOVERY)) {
+//                LOG.debug("do not wait for follower {} back into LOOKING since it is in DISCOVERY.", follower);
+////                testingService.waitAliveNodesInLookingState(new HashSet<Integer>() {{
+////                    add(follower);
+////                }}, 500L);
+//            } else {
+//                LOG.debug("do not wait for follower {} back into LOOKING.", follower);
 //                testingService.waitAliveNodesInLookingState(new HashSet<Integer>() {{
 //                    add(follower);
-//                }}, 500L);
-            } else {
-                LOG.debug("do not wait for follower {} back into LOOKING.", follower);
-                testingService.waitAliveNodesInLookingState(new HashSet<Integer>() {{
-                    add(follower);
-                }});
-            }
+//                }});
+//            }
+            LOG.debug("do not wait for follower {} back into LOOKING.", follower);
+            testingService.waitAliveNodesInLookingState(new HashSet<Integer>() {{
+                add(follower);
+            }});
 
             // if quorum breaks, wait for the leader into LOOKING
             int nodeNum = testingService.getSchedulerConfiguration().getNumNodes();
+            testingService.getParticipants().remove(follower);
             int participantCount = testingService.getParticipants().size();
             if (participantCount <= (nodeNum / 2)) {
+                testingService.getParticipants().clear();
                 LOG.debug("Leader's quorum peers count {} less than half the node num {}!  " +
                         "Wait for leader {} to be LOOKING", participantCount, nodeNum, leader);
                 // release leader's intercepted events
