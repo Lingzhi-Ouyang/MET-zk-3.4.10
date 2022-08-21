@@ -310,6 +310,10 @@ public class TestingService implements TestingRemoteService {
         schedulerConfiguration.load(args);
     }
 
+    public SchedulingStrategy getSchedulingStrategy() {
+        return schedulingStrategy;
+    }
+
     /***
      * The core process the scheduler by specifying each step
      * example: steps of ZK-3911
@@ -504,8 +508,11 @@ public class TestingService implements TestingRemoteService {
                             JSONArray participants = elements.getJSONArray("peerId");
                             List<Integer> peers = participants.stream()
                                     .map(p -> serverIdMap.get(p.toString())).collect(Collectors.toList());
-                            LOG.debug("election leader: {}, other participants: {}", nodeId, peers);
-                            totalExecuted = scheduleElectionAndDiscovery(currentStep, nodeId, peers, totalExecuted);
+                            // get leader's accepted epoch
+                            long modelAcceptedEpoch = getModelAcceptedEpoch(elements, serverName);
+                            LOG.debug("election leader: {}, other participants: {}, modelAcceptedEpoch: {}",
+                                    nodeId, peers, modelAcceptedEpoch);
+                            totalExecuted = scheduleElectionAndDiscovery(currentStep, nodeId, peers, modelAcceptedEpoch, totalExecuted);
                             break;
 
                         // focus on history
@@ -926,7 +933,15 @@ public class TestingService implements TestingRemoteService {
             LOG.debug("NullPointerException found when getLastNotCommittedInNodePacketsSync in {}", elements);
             return -1L;
         }
+    }
 
+    public long getModelAcceptedEpoch(JSONObject elements, String serverName) {
+        try {
+            return elements.getJSONObject("variables").getJSONObject("acceptedEpoch").getLong(serverName);
+        } catch (NullPointerException e) {
+            LOG.debug("NullPointerException found when getModelAcceptedEpoch in {}", elements);
+            return -1L;
+        }
     }
 
     public String getServerAddr(int serverId) {
@@ -1188,7 +1203,10 @@ public class TestingService implements TestingRemoteService {
                             final JSONObject elements,
                             int totalExecuted) throws SchedulerConfigurationException {
 
-        scheduleElectionAndDiscovery(currentStep, leaderId, peers, totalExecuted);
+        long modelAcceptedEpoch = getModelAcceptedEpoch(elements, serverName);
+        LOG.debug("election leader: {}, other participants: {}, modelAcceptedEpoch: {}",
+                leaderId, peers, modelAcceptedEpoch);
+        scheduleElectionAndDiscovery(currentStep, leaderId, peers, modelAcceptedEpoch, totalExecuted);
 
         for (Integer peer: peers) {
             long modelZxid = -1L;
@@ -1212,6 +1230,87 @@ public class TestingService implements TestingRemoteService {
         return totalExecuted;
 
     }
+
+
+    public long preferLeaderMessageInElection(final Integer leaderId,
+                                                    Set<Integer> allParticipants,
+                                                    Long maxElectionEpochInLeader,
+                                                    Set<Event> otherEvents,
+                                                    int totalExecuted) throws IOException {
+        Set<Event> peerEvents = new HashSet<>(); // delay scheduling non-leader's message
+//        Set<Event> otherEvents = new HashSet<>();
+
+        // prefer leader's message
+        while (schedulingStrategy.hasNextEvent()) {
+            long begintime = System.currentTimeMillis();
+            LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted);
+            final Event event = schedulingStrategy.nextEvent();
+            // do not schedule other types' events
+            if (!(event instanceof ElectionMessageEvent)) {
+                LOG.debug(" During election, will not schedule non-election message {}", event);
+                otherEvents.add(event);
+                continue;
+            }
+            // do not schedule other nodes' election events
+            ElectionMessageEvent e = (ElectionMessageEvent) event;
+            final int sendingSubnodeId = e.getSendingSubnodeId();
+            final int sendingNodeId = subnodes.get(sendingSubnodeId).getNodeId();
+            if (!allParticipants.contains(sendingNodeId)) {
+                LOG.debug(" During election, will not schedule non-participants' message {}", event);
+                otherEvents.add(event);
+                continue;
+            }
+
+            // if the receiving node is not a participants, just drop it.
+            final int receivingNode = e.getReceivingNodeId();
+            if (!allParticipants.contains(receivingNode)) {
+                LOG.debug("the receiving node is not a participants, just drop it.");
+                e.setFlag(TestingDef.RetCode.NODE_PAIR_IN_PARTITION);
+            }
+
+            long electionEpoch = e.getElectionEpoch();
+            int proposedLeader = e.getProposedLeader();
+            // update leader's electionEpoch
+            if (receivingNode == leaderId && electionEpoch > maxElectionEpochInLeader) {
+                LOG.debug("update leader {}'s maxElectionEpoch {} to {}",
+                        leaderId, electionEpoch, maxElectionEpochInLeader);
+                maxElectionEpochInLeader = electionEpoch;
+            }
+
+            if (electionEpoch == maxElectionEpochInLeader && proposedLeader != leaderId && sendingNodeId != receivingNode) {
+                LOG.debug("electionEpoch {} < maxElectionEpoch {}, proposedLeader {} != leaderId {}, just drop it.",
+                        electionEpoch, maxElectionEpochInLeader, proposedLeader, leaderId);
+                e.setFlag(TestingDef.RetCode.NODE_PAIR_IN_PARTITION);
+            }
+
+
+            if (sendingNodeId != leaderId) {
+                LOG.debug("peer event: {}", e);
+                peerEvents.add(event);
+                continue;
+            }
+
+//            firstMessage.set(leaderId, null);
+            if (event.execute()) {
+                recordProperties(totalExecuted, begintime, event);
+            }
+//            final int receivingNodeId = e.getReceivingNodeId();
+//            if (receivingNodeId != schedulerConfiguration.getNumNodes() - 1) {
+//                // wait for leader's next election message LOOKING node to come
+//                controlMonitor.notifyAll();
+//                waitFirstMessageOffered(leaderId);
+//            }
+        }
+
+        // ensure that there exists no leader event
+        for (Event e: peerEvents) {
+            LOG.debug("Adding back peer election message that is missed during election: {}", e);
+            addEvent(e);
+        }
+
+        return maxElectionEpochInLeader;
+    }
+
     /***
      * The schedule process of election and discovery
      * Pre-condition: all alive participants steady and in looking state including the leader
@@ -1224,12 +1323,16 @@ public class TestingService implements TestingRemoteService {
     public int scheduleElectionAndDiscovery(final Integer currentStep,
                                             final Integer leaderId,
                                             List<Integer> peers,
+                                            final Long modelAcceptedEpoch,
                                             int totalExecuted) throws SchedulerConfigurationException {
         try{
             Set<Integer> allParticipants = new HashSet<>(peers);
             allParticipants.add(leaderId);
             Set<Integer> lookingParticipants = new HashSet<>(peers);
-            if (!leaderElectionStates.get(leaderId).equals(LeaderElectionState.LEADING)) {
+//            if (!leaderElectionStates.get(leaderId).equals(LeaderElectionState.LEADING)) {
+//                lookingParticipants.add(leaderId);
+//            }
+            if (participants.size() <= (schedulerConfiguration.getNumNodes() / 2)) {
                 lookingParticipants.add(leaderId);
             }
             synchronized (controlMonitor) {
@@ -1244,11 +1347,20 @@ public class TestingService implements TestingRemoteService {
 
                 // Make all message events during election one single step
                 ++totalExecuted;
-                boolean leaderExists = false;
+                boolean electionFinished = false;
                 int retry = 0;
                 Set<Event> otherEvents = new HashSet<>();
-                while (!leaderExists && retry < 20) {
+                while (!electionFinished && retry < 20) {
                     retry++;
+                    // find max electionEpoch
+                    long maxElectionEpochInLeader = 0L;
+
+                    // if leader's message first
+//                    LOG.debug("try to schedule model leader {}'s message first if exists.", leaderId);
+//                    long maxElectionEpoch = preferLeaderMessageInElection(leaderId, allParticipants, 0L, otherEvents, totalExecuted);
+//                    otherEvents.addAll(preferLeaderMessageInElection(leaderId, allParticipants, maxElectionEpoch, otherEvents, totalExecuted));
+                    LOG.debug("after preferLeaderMessageInElection. maxElectionEpoch: {}, other events size: {} ",
+                            maxElectionEpochInLeader, otherEvents.size());
                     while (schedulingStrategy.hasNextEvent()) {
                         long begintime = System.currentTimeMillis();
                         LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted);
@@ -1275,105 +1387,44 @@ public class TestingService implements TestingRemoteService {
                             LOG.debug("the receiving node is not a participants, just drop it.");
                             e.setFlag(TestingDef.RetCode.NODE_PAIR_IN_PARTITION);
                         }
+
+                        long electionEpoch = e.getElectionEpoch();
+                        int proposedLeader = e.getProposedLeader();
+                        // update leader's electionEpoch
+                        if (sendingNodeId != leaderId) {
+                            if (receivingNode == leaderId ) {
+                                if (electionEpoch > maxElectionEpochInLeader) {
+                                    LOG.debug("update leader {}'s maxElectionEpoch {} to {}",
+                                            leaderId, electionEpoch, maxElectionEpochInLeader);
+                                    maxElectionEpochInLeader = electionEpoch;
+                                }
+                            } else {
+                                // all nodes should be communicated through leader
+                                if (sendingNodeId != receivingNode) {
+                                    LOG.debug("dropping notifications irrelative to leader {} ,sendingNodeId {}, receivingNode {}.",
+                                            leaderId, sendingNodeId, receivingNode);
+                                    e.setFlag(TestingDef.RetCode.NODE_PAIR_IN_PARTITION);
+                                }
+//                            if (electionEpoch >= maxElectionEpochInLeader && proposedLeader != leaderId && sendingNodeId != receivingNode) {
+//                                LOG.debug("electionEpoch {} >= maxElectionEpoch {}, proposedLeader {} != leaderId {}, just drop it.",
+//                                        electionEpoch, maxElectionEpochInLeader, proposedLeader, leaderId);
+//                                e.setFlag(TestingDef.RetCode.NODE_PAIR_IN_PARTITION);
+//                            }
+
+                            }
+                        }
+
                         if (event.execute()) {
                             recordProperties(totalExecuted, begintime, event);
                         }
 
-
-//                        Set<Event> peerEvents = new HashSet<>(); // delay scheduling non-leader's message
-//
-//                        // prefer leader's message
-//                        while (schedulingStrategy.hasNextEvent()) {
-//                            long begintime = System.currentTimeMillis();
-//                            LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted);
-//                            final Event event = schedulingStrategy.nextEvent();
-//                            // do not schedule other types' events
-//                            if (!(event instanceof ElectionMessageEvent)) {
-//                                LOG.debug(" During election, will not schedule non-election message {}", event);
-//                                otherEvents.add(event);
-//                                continue;
-//                            }
-//                            // do not schedule other nodes' election events
-//                            ElectionMessageEvent e = (ElectionMessageEvent) event;
-//                            final int sendingSubnodeId = e.getSendingSubnodeId();
-//                            final int sendingNodeId = subnodes.get(sendingSubnodeId).getNodeId();
-//                            if (!allParticipants.contains(sendingNodeId)) {
-//                                LOG.debug(" During election, will not schedule non-participants' message {}", event);
-//                                otherEvents.add(event);
-//                                continue;
-//                            }
-//                            if (event.execute()) {
-//                                recordProperties(totalExecuted, begintime, event);
-//                            }
-
-
-//                            // if model leader still in LOOKING state
-//                            // let leader's election messages to all nodes come first
-//                            if (!leaderElectionStates.get(leaderId).equals(LeaderElectionState.LEADING)) {
-//                                if (sendingNodeId != leaderId) {
-//                                    peerEvents.add(event);
-//                                    continue;
-//                                }
-//                                // set leader's first message null before execution
-//                                firstMessage.set(leaderId, null);
-//                                if (event.execute()) {
-//                                    recordProperties(totalExecuted, begintime, event);
-//                                }
-//                                final int receivingNodeId = e.getReceivingNodeId();
-//                                if (receivingNodeId != schedulerConfiguration.getNumNodes() - 1) {
-//                                    // wait for leader's next election message LOOKING node to come
-//                                    controlMonitor.notifyAll();
-//                                    waitFirstMessageOffered(leaderId);
-//                                }
-//                            }
-//                            // model leader already in LEADING state
-//                            // just schedule anyway
-//                            else {
-//                                if (event.execute()) {
-//                                    recordProperties(totalExecuted, begintime, event);
-//                                }
-//                            }
-
-//                        }
-
-//                        // ensure that there exists no leader event
-//                        for (Event e: peerEvents) {
-//                            LOG.debug("Adding back peer election message that is missed during election: {}", e);
-//                            addEvent(e);
-//                        }
-//
-//                        // schedule one other election event
-//                        if (schedulingStrategy.hasNextEvent()) {
-//                            long begintime = System.currentTimeMillis();
-//                            LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted);
-//                            final Event event = schedulingStrategy.nextEvent();
-//                            // do not schedule other types' events
-//                            if (!(event instanceof ElectionMessageEvent)) {
-//                                LOG.debug(" During election, will not schedule non-election message {}", event);
-//                                otherEvents.add(event);
-//                                continue;
-//                            }
-//                            // do not schedule other nodes' election events
-//                            ElectionMessageEvent e = (ElectionMessageEvent) event;
-//                            final int sendingSubnodeId = e.getSendingSubnodeId();
-//                            final int sendingNodeId = subnodes.get(sendingSubnodeId).getNodeId();
-//                            if (!allParticipants.contains(sendingNodeId)) {
-//                                LOG.debug(" During election, will not schedule non-participants' message {}", event);
-//                                otherEvents.add(event);
-//                                continue;
-//                            }
-//                            if (event.execute()) {
-//                                recordProperties(totalExecuted, begintime, event);
-//                            }
-//                        }
-
                     }
                     // pre-condition for election property check
-                    leaderExists = waitAllParticipantsVoted(allParticipants);
+                    electionFinished = waitAllParticipantsVoted(allParticipants);
                 }
 
                 // throw SchedulerConfigurationException if leader does not exist
-                if (!leaderExists) {
+                if (!electionFinished) {
                     LOG.debug("Leader not exist! " +
                             "SchedulerConfigurationException found when scheduling ElectionAndDiscovery." +
                             " leader: " + leaderId + " peers: " + peers);
@@ -1400,7 +1451,7 @@ public class TestingService implements TestingRemoteService {
                         + "ElectionAndDiscovery, leader: " + leaderId
                         + " peers: " + peers);
             }
-            statistics.reportTotalExecutedEvents(totalExecuted);
+            statistics.reportTotalExecutedEvents(totalExecuted+1);
             statisticsWriter.write(statistics.toString() + "\n\n");
             LOG.info(statistics.toString() + "\n\n\n\n\n");
             if (!traceMatched) {
@@ -2838,7 +2889,9 @@ public class TestingService implements TestingRemoteService {
     }
 
     @Override
-    public int offerElectionMessage(final int sendingSubnodeId, final int receivingNodeId, final Set<Integer> predecessorMessageIds, final String payload) {
+    public int offerElectionMessage(final int sendingSubnodeId, final int receivingNodeId,
+                                    final long electionEpoch, final int leader,
+                                    final Set<Integer> predecessorMessageIds, final String payload) {
         final List<Event> predecessorEvents = new ArrayList<>();
 //        for (final int messageId : predecessorMessageIds) {
 //            predecessorEvents.add(messageEventMap.get(messageId));
@@ -2855,6 +2908,7 @@ public class TestingService implements TestingRemoteService {
         // all nodes with smaller ids have offered their first message.
         synchronized (controlMonitor) {
             if (sendingNodeId > 0 && firstMessage.get(sendingNodeId - 1) == null) {
+                controlMonitor.notifyAll();
                 waitFirstMessageOffered(sendingNodeId - 1);
             }
         }
@@ -2870,7 +2924,8 @@ public class TestingService implements TestingRemoteService {
 //        }
 
         int id = generateEventId();
-        final ElectionMessageEvent electionMessageEvent = new ElectionMessageEvent(id, sendingSubnodeId, receivingNodeId, payload, electionMessageExecutor);
+        final ElectionMessageEvent electionMessageEvent =
+                new ElectionMessageEvent(id, sendingSubnodeId, receivingNodeId, electionEpoch, leader, payload, electionMessageExecutor);
         electionMessageEvent.addAllDirectPredecessors(predecessorEvents);
 
         synchronized (controlMonitor) {
@@ -3051,6 +3106,7 @@ public class TestingService implements TestingRemoteService {
         // record critical info: follower address & follower-learnerHandler relationship
         int receivingNodeId;
         synchronized (controlMonitor) {
+            controlMonitor.notifyAll();
             waitFollowerSocketAddrRegistered(receivingAddr);
             receivingNodeId = followerSocketAddressBook.indexOf(receivingAddr);
             LOG.debug("Leader {} offerLeaderToFollowerMessage. type: {}. receivingNodeId: {}, {}",
@@ -3473,7 +3529,7 @@ public class TestingService implements TestingRemoteService {
                     final Subnode sendingSubnode = subnodes.get(sendingSubnodeId);
                     final int sendingNodeId = sendingSubnode.getNodeId();
                     final int receivingNodeId = e1.getReceivingNodeId();
-                    if (peers.contains(sendingNodeId) && peers.contains(receivingNodeId)) {
+                    if (peers.contains(sendingNodeId) && peers.contains(receivingNodeId) && sendingNodeId != receivingNodeId) {
                         LOG.debug("set flag NODE_PAIR_IN_PARTITION to event: {}", e1);
                         e1.setFlag(TestingDef.RetCode.NODE_PAIR_IN_PARTITION);
                     }
@@ -3812,7 +3868,7 @@ public class TestingService implements TestingRemoteService {
     // Should be called while holding a lock on controlMonitor
     private boolean waitAllParticipantsVoted(final Set<Integer> participants) {
         final WaitPredicate allParticipantsVoted = new AllNodesVoted(this, participants);
-        wait(allParticipantsVoted, 2000L);
+        wait(allParticipantsVoted, 0L);
         boolean leaderExist = false;
         boolean lookingExist = false;
         for (int nodeId: participants) {
