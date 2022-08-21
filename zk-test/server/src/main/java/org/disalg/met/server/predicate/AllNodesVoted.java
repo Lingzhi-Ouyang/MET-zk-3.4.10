@@ -30,6 +30,10 @@ public class AllNodesVoted implements WaitPredicate {
 
     @Override
     public boolean isTrue() {
+        if (testingService.getSchedulingStrategy().hasNextEvent()) {
+            LOG.debug("new event arrives");
+            return true;
+        }
         if ( participants != null) {
             for (Integer nodeId: participants) {
                 LOG.debug("nodeId: {}, state: {}, votes: {}", nodeId, testingService.getNodeStates().get(nodeId), testingService.getVotes().get(nodeId));
