@@ -10,12 +10,22 @@ public class ElectionMessageEvent extends AbstractEvent {
     private final int sendingSubnodeId;
     private final int receivingNodeId;
     private final String payload;
+    private final long electionEpoch;
+    private final int proposedLeader;
 
-    public ElectionMessageEvent(final int id, final int sendingSubnodeId, final int receivingNodeId, final String payload, final ElectionMessageExecutor electionMessageExecutor) {
+    public ElectionMessageEvent(final int id,
+                                final int sendingSubnodeId,
+                                final int receivingNodeId,
+                                final long electionEpoch,
+                                final int proposedLeader,
+                                final String payload,
+                                final ElectionMessageExecutor electionMessageExecutor) {
         super(id, electionMessageExecutor);
         this.sendingSubnodeId = sendingSubnodeId;
         this.receivingNodeId = receivingNodeId;
         this.payload = payload;
+        this.electionEpoch = electionEpoch;
+        this.proposedLeader = proposedLeader;
     }
 
     public int getSendingSubnodeId() {
@@ -24,6 +34,14 @@ public class ElectionMessageEvent extends AbstractEvent {
 
     public int getReceivingNodeId() {
         return receivingNodeId;
+    }
+
+    public long getElectionEpoch() {
+        return electionEpoch;
+    }
+
+    public int getProposedLeader() {
+        return proposedLeader;
     }
 
     @Override
