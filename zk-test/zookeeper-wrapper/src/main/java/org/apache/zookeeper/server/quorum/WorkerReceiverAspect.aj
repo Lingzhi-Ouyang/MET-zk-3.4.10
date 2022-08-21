@@ -67,7 +67,8 @@ public aspect WorkerReceiverAspect {
             // before offerMessage: increase sendingSubnodeNum
             quorumPeerAspect.setSubnodeSending();
             final String payload = quorumPeerAspect.constructPayload(toSend);
-            lastSentMessageId = quorumPeerAspect.getTestingService().offerElectionMessage(workerReceiverSubnodeId, (int) toSend.sid, predecessorIds, payload);
+            lastSentMessageId = quorumPeerAspect.getTestingService().offerElectionMessage(workerReceiverSubnodeId,
+                    (int) toSend.sid, toSend.electionEpoch, (int) toSend.leader, predecessorIds, payload);
             LOG.debug("lastSentMessageId = {}", lastSentMessageId);
             // after offerMessage: decrease sendingSubnodeNum and shutdown this node if sendingSubnodeNum == 0
             quorumPeerAspect.postSend(workerReceiverSubnodeId, lastSentMessageId);

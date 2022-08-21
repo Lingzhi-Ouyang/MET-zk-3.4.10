@@ -295,7 +295,8 @@ public privileged aspect QuorumPeerAspect {
 //            }
             setSubnodeSending();
             final String payload = constructPayload(toSend);
-            lastSentMessageId = testingService.offerElectionMessage(quorumPeerSubnodeId, (int) toSend.sid, predecessorIds, payload);
+            lastSentMessageId = testingService.offerElectionMessage(quorumPeerSubnodeId,
+                    (int) toSend.sid, toSend.electionEpoch, (int) toSend.leader, predecessorIds, payload);
             LOG.debug("lastSentMessageId = {}", lastSentMessageId);
             postSend(quorumPeerSubnodeId, lastSentMessageId);
 //            synchronized (nodeOnlineMonitor) {

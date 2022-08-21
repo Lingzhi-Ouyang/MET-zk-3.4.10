@@ -170,7 +170,8 @@ public aspect FollowerAspect {
             if (followerWritePacketId == TestingDef.RetCode.NODE_PAIR_IN_PARTITION){
                 // just drop the message
                 LOG.debug("partition occurs! just drop the message. What about other types of messages?");
-                return;
+                throw new RuntimeException();
+//                return;
             }
 
             proceed(packet, flush);

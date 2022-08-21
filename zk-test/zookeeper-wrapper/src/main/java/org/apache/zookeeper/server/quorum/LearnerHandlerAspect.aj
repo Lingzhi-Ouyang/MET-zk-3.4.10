@@ -56,12 +56,14 @@ public aspect LearnerHandlerAspect {
         LOG.debug("after runLearnerHandler-------Thread: {}, {}------", threadId, threadName);
         Long learnerHandlerThreadId = Thread.currentThread().getId();
         quorumPeerAspect.deregisterSubnode(learnerHandlerThreadId);
-        assert learnerHandlerSenderMap.containsKey(learnerHandlerThreadId);
-        Long learnerHandlerSenderThreadId = learnerHandlerSenderMap.get(learnerHandlerThreadId);
-        quorumPeerAspect.deregisterSubnode(learnerHandlerSenderThreadId);
-        LOG.debug("de-registered: learnerHandlerThreadId: {} - learnerHandlerSenderThreadId: {}",
-                learnerHandlerThreadId, learnerHandlerSenderThreadId);
-        learnerHandlerSenderMap.remove(learnerHandlerThreadId);
+//        assert learnerHandlerSenderMap.containsKey(learnerHandlerThreadId);
+        Long learnerHandlerSenderThreadId = learnerHandlerSenderMap.get(learnerHandlerThreadId); // may be null in discovery phase
+        if (learnerHandlerThreadId != null) {
+            quorumPeerAspect.deregisterSubnode(learnerHandlerSenderThreadId);
+            LOG.debug("de-registered: learnerHandlerThreadId: {} - learnerHandlerSenderThreadId: {}",
+                    learnerHandlerThreadId, learnerHandlerSenderThreadId);
+            learnerHandlerSenderMap.remove(learnerHandlerThreadId);
+        }
     }
 
 
@@ -219,7 +221,8 @@ public aspect LearnerHandlerAspect {
             if (lastPacketId == TestingDef.RetCode.NODE_PAIR_IN_PARTITION){
                 // just drop the message
                 LOG.debug("partition occurs! just drop the message. What about other types of messages?");
-                return;
+                throw new RuntimeException();
+//                return;
             }
 
             proceed(r, s);
@@ -351,7 +354,8 @@ public aspect LearnerHandlerAspect {
             if (lastPacketId == TestingDef.RetCode.NODE_PAIR_IN_PARTITION){
                 // just drop the message
                 LOG.debug("partition occurs! just drop the message. What about other types of messages?");
-                return;
+                throw new RuntimeException();
+//                return;
             }
 
             proceed(r, s);
