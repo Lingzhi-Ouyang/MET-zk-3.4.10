@@ -1362,8 +1362,8 @@ public class TestingService implements TestingRemoteService {
                     long maxElectionEpochInLeader = 0L;
 
                     // if leader's message first
-                    LOG.debug("try to schedule model leader {}'s message first if exists.", leaderId);
-                    maxElectionEpochInLeader = preferLeaderMessageInElection(leaderId, allParticipants, maxElectionEpochInLeader, otherEvents, totalExecuted);
+//                    LOG.debug("try to schedule model leader {}'s message first if exists.", leaderId);
+//                    maxElectionEpochInLeader = preferLeaderMessageInElection(leaderId, allParticipants, maxElectionEpochInLeader, otherEvents, totalExecuted);
 //                    otherEvents.addAll(preferLeaderMessageInElection(leaderId, allParticipants, maxElectionEpoch, otherEvents, totalExecuted));
                     LOG.debug("after preferLeaderMessageInElection. maxElectionEpoch: {}, other events size: {} ",
                             maxElectionEpochInLeader, otherEvents.size());
