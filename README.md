@@ -18,7 +18,7 @@ Note: some modules of this project are developed based on the implementation [he
 
 The directories of the project mainly includes the following contents.
 
-* *zk-test* : the test engine for ZooKeeper-3.4.13
+* *zk-test* : the test engine for ZooKeeper
   * *api* : the RMI remote interface and state type definition for both RMI server and clients of the test engine (in this testing framework, the RMI clients are the instrumented ZooKeeper nodes).
   * *server* : the RMI server of the test engine, including the modules of scheduler, executor, checker and interceptor, etc. The server also implements the RMI remote interface, creates and exports a remote object that provides the service.
   * *zookeeper-ensemble* : the main entry of the testing engine, as well as the configuration and process control of the ZooKeeper ensembles.
