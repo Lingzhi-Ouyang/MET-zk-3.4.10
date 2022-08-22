@@ -1208,11 +1208,15 @@ public class TestingService implements TestingRemoteService {
                 leaderId, peers, modelAcceptedEpoch);
         scheduleElectionAndDiscovery(currentStep, leaderId, peers, modelAcceptedEpoch, totalExecuted);
 
+        long modelZxid = -1L;
+        int retry1 = 3;
+        // discovery
         for (Integer peer: peers) {
-            long modelZxid = -1L;
-            int retry1 = 3;
             scheduleInternalEventWithWaitingRetry(strategy,
                     ModelAction.FollowerSendACKEPOCH, leaderId, peer, modelZxid, totalExecuted, retry1);
+        }
+        // sync
+        for (Integer peer: peers) {
             scheduleInternalEventWithWaitingRetry(strategy,
                     ModelAction.FollowerProcessSyncMessage, peer, leaderId, modelZxid, totalExecuted, retry1);
             scheduleInternalEventWithWaitingRetry(strategy,
@@ -1271,18 +1275,20 @@ public class TestingService implements TestingRemoteService {
             long electionEpoch = e.getElectionEpoch();
             int proposedLeader = e.getProposedLeader();
             // update leader's electionEpoch
-            if (receivingNode == leaderId && electionEpoch > maxElectionEpochInLeader) {
-                LOG.debug("update leader {}'s maxElectionEpoch {} to {}",
-                        leaderId, electionEpoch, maxElectionEpochInLeader);
-                maxElectionEpochInLeader = electionEpoch;
+            if (sendingNodeId != leaderId) {
+                if (receivingNode == leaderId && electionEpoch > maxElectionEpochInLeader) {
+                        LOG.debug("update leader {}'s maxElectionEpoch {} to {}",
+                                leaderId, electionEpoch, maxElectionEpochInLeader);
+                        maxElectionEpochInLeader = electionEpoch;
+                } else {
+                    // all nodes should be communicated through leader
+                    if (sendingNodeId != receivingNode) {
+                        LOG.debug("dropping notifications irrelative to leader {} ,sendingNodeId {}, receivingNode {}.",
+                                leaderId, sendingNodeId, receivingNode);
+                        e.setFlag(TestingDef.RetCode.NODE_PAIR_IN_PARTITION);
+                    }
+                }
             }
-
-            if (electionEpoch == maxElectionEpochInLeader && proposedLeader != leaderId && sendingNodeId != receivingNode) {
-                LOG.debug("electionEpoch {} < maxElectionEpoch {}, proposedLeader {} != leaderId {}, just drop it.",
-                        electionEpoch, maxElectionEpochInLeader, proposedLeader, leaderId);
-                e.setFlag(TestingDef.RetCode.NODE_PAIR_IN_PARTITION);
-            }
-
 
             if (sendingNodeId != leaderId) {
                 LOG.debug("peer event: {}", e);
@@ -1356,8 +1362,8 @@ public class TestingService implements TestingRemoteService {
                     long maxElectionEpochInLeader = 0L;
 
                     // if leader's message first
-//                    LOG.debug("try to schedule model leader {}'s message first if exists.", leaderId);
-//                    long maxElectionEpoch = preferLeaderMessageInElection(leaderId, allParticipants, 0L, otherEvents, totalExecuted);
+                    LOG.debug("try to schedule model leader {}'s message first if exists.", leaderId);
+                    maxElectionEpochInLeader = preferLeaderMessageInElection(leaderId, allParticipants, maxElectionEpochInLeader, otherEvents, totalExecuted);
 //                    otherEvents.addAll(preferLeaderMessageInElection(leaderId, allParticipants, maxElectionEpoch, otherEvents, totalExecuted));
                     LOG.debug("after preferLeaderMessageInElection. maxElectionEpoch: {}, other events size: {} ",
                             maxElectionEpochInLeader, otherEvents.size());
@@ -3044,7 +3050,7 @@ public class TestingService implements TestingRemoteService {
                 LOG.debug("-------follower is about to reply ACK to PROPOSAL that should be processed in SYNC phase!");
                 break;
             default:
-                LOG.debug("-------follower is about to reply ACK that will not be intercepted!");
+                LOG.debug("-------follower is sending a message that will not be intercepted!");
                 return TestingDef.RetCode.NOT_INTERCEPTED;
         }
 

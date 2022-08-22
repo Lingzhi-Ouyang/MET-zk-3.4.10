@@ -68,6 +68,9 @@ public class PartitionStartExecutor extends BaseEventExecutor {
 
         // release all nodes' event related to the partitioned nodes
         testingService.getControlMonitor().notifyAll();
+
+        LOG.debug("\n");
+        LOG.debug("Try to set flag NODE_PAIR_IN_PARTITION to relative events before the node get into LOOKING...");
         testingService.recordPartitionedEvent(new HashSet<Integer>() {{
             add(node1);
             add(node2);
@@ -110,6 +113,7 @@ public class PartitionStartExecutor extends BaseEventExecutor {
             int participantCount = testingService.getParticipants().size();
             if (participantCount <= (nodeNum / 2)) {
                 testingService.getParticipants().clear();
+//                testingService.getLeaderElectionStates().set(leader, LeaderElectionState.LOOKING);
                 LOG.debug("Leader's quorum peers count {} less than half the node num {}!  " +
                         "Wait for leader {} to be LOOKING", participantCount, nodeNum, leader);
                 // release leader's intercepted events
