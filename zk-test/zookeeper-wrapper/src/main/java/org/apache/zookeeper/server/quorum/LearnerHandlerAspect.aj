@@ -221,12 +221,12 @@ public aspect LearnerHandlerAspect {
             if (lastPacketId == TestingDef.RetCode.NODE_PAIR_IN_PARTITION){
                 // just drop the message
                 LOG.debug("partition occurs! just drop the message. What about other types of messages?");
-                throw new RuntimeException();
+                throw new InterruptedException();
 //                return;
             }
 
             proceed(r, s);
-        } catch (RemoteException e) {
+        } catch (RemoteException | InterruptedException e) {
             LOG.debug("Encountered a remote exception", e);
             throw new RuntimeException(e);
         }
@@ -354,12 +354,12 @@ public aspect LearnerHandlerAspect {
             if (lastPacketId == TestingDef.RetCode.NODE_PAIR_IN_PARTITION){
                 // just drop the message
                 LOG.debug("partition occurs! just drop the message. What about other types of messages?");
-                throw new RuntimeException();
+                throw new InterruptedException();
 //                return;
             }
 
             proceed(r, s);
-        } catch (RemoteException e) {
+        } catch (RemoteException | InterruptedException e ) {
             LOG.debug("Encountered a remote exception", e);
             throw new RuntimeException(e);
         }

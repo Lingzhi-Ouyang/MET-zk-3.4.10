@@ -5,6 +5,7 @@ import org.disalg.met.api.TestingDef;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
 import java.rmi.RemoteException;
 
 /***
@@ -59,7 +60,7 @@ public aspect LearnerAspect {
             if (followerWritePacketId == TestingDef.RetCode.NODE_PAIR_IN_PARTITION){
                 // just drop the message
                 LOG.debug("partition occurs! just drop the message. What about other types of messages?");
-                throw new RuntimeException();
+                throw new IOException();
 //                return;
             }
 
@@ -67,6 +68,9 @@ public aspect LearnerAspect {
             return;
         } catch (RemoteException e) {
             LOG.debug("Encountered a remote exception", e);
+            throw new RuntimeException(e);
+        } catch (IOException e) {
+            LOG.debug("Encountered IOException", e);
             throw new RuntimeException(e);
         }
     }
@@ -177,13 +181,13 @@ public aspect LearnerAspect {
                 if (followerWritePacketId == TestingDef.RetCode.NODE_PAIR_IN_PARTITION){
                     // just drop the message
                     LOG.debug("partition occurs! just drop the message. What about other types of messages?");
-                    throw new RuntimeException();
+                    throw new InterruptedException();
 //                    return;
                 }
 
                 proceed(packet, flush);
                 return;
-            } catch (RemoteException e) {
+            } catch (RemoteException | InterruptedException e) {
                 LOG.debug("Encountered a remote exception", e);
                 throw new RuntimeException(e);
             }
@@ -207,13 +211,13 @@ public aspect LearnerAspect {
                 if (followerWritePacketId == TestingDef.RetCode.NODE_PAIR_IN_PARTITION){
                     // just drop the message
                     LOG.debug("partition occurs! just drop the message. What about other types of messages?");
-                    throw new RuntimeException();
+                    throw new InterruptedException();
 //                    return;
                 }
 
                 proceed(packet, flush);
                 return;
-            } catch (RemoteException e) {
+            } catch (RemoteException | InterruptedException e) {
                 LOG.debug("Encountered a remote exception", e);
                 throw new RuntimeException(e);
             }

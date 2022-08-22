@@ -1,11 +1,15 @@
 package org.apache.zookeeper.server.quorum;
 
+import org.disalg.met.api.MessageType;
 import org.disalg.met.api.SubnodeType;
 import org.disalg.met.api.TestingDef;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
 import java.rmi.RemoteException;
+import java.util.HashMap;
+import java.util.Map;
 
 public aspect FollowerAspect {
     private static final Logger LOG = LoggerFactory.getLogger(FollowerAspect.class);
@@ -13,7 +17,7 @@ public aspect FollowerAspect {
     private final QuorumPeerAspect quorumPeerAspect = QuorumPeerAspect.aspectOf();
 
     //Since follower will always reply ACK type, so it is more useful to match its last package type
-    private int lastReadType = -1;
+    private Map<Long, Integer> zxidTypeMap = new HashMap<>();
 
     /***
      * For follower's receiving packet from leader during BROADCAST.
@@ -43,7 +47,10 @@ public aspect FollowerAspect {
 
         LOG.debug("---------readPacket: ({}). Subnode: {}", payload, quorumPeerSubnodeId);
         final int type =  packet.getType();
-        lastReadType = type;
+        if (type == MessageType.PROPOSAL || type == MessageType.COMMIT) {
+            zxidTypeMap.put(packet.getZxid(), type);
+        }
+
 //        if (type == Leader.PROPOSAL || type == Leader.COMMIT) {
 //            try {
 //                // before offerMessage: increase sendingSubnodeNum
@@ -63,6 +70,20 @@ public aspect FollowerAspect {
 //            }
 //        }
     }
+
+//    protected void processPacket(QuorumPacket qp) throws IOException {
+//        long lastReadZxid = 0L;
+//        switch (qp.getType()) {
+//            case Leader.PROPOSAL:
+//                TxnHeader hdr = new TxnHeader();
+//                Record txn = SerializeUtils.deserializeTxn(qp.getData(), hdr);
+//                lastReadZxid = qp.getZxid();
+//                break;
+//            case Leader.COMMIT:
+//                lastReadZxid = qp.getZxid();
+//                break;
+//        }
+//    }
 
 
     /***
@@ -90,7 +111,13 @@ public aspect FollowerAspect {
         LOG.debug("---------writePacket: ({}). Subnode: {}", payload, syncSubnodeId);
         final Integer type =  packet == null ? null : packet.getType();
         final Long zxid = packet == null ? null : packet.getZxid();
-        LOG.debug("Follower is about to reply a message type={} to leader which is (type={})", type, lastReadType);
+        int previousType;
+        if (type == MessageType.PING) {
+            previousType = MessageType.PING;
+        } else {
+            previousType = zxidTypeMap.get(zxid);
+        }
+        LOG.debug("Follower is about to reply a message type={} to leader's previous message (type={})", type, previousType);
 //        if (type == null) {
 //            LOG.debug("Follower is about to send a null message, may be a flush.");
 //            proceed(packet, flush);
@@ -99,8 +126,8 @@ public aspect FollowerAspect {
         // if lastReadType == -1, this means to send ACK that should be processed during SYNC.
         try {
             quorumPeerAspect.setSubnodeSending();
-            LOG.debug(" before followerWritePacketId, lastReadType: {}", lastReadType);
-            final int followerWritePacketId = quorumPeerAspect.getTestingService().offerFollowerToLeaderMessage(syncSubnodeId, zxid, payload, lastReadType);
+            LOG.debug(" before followerWritePacketId, lastReadType: {}", previousType);
+            final int followerWritePacketId = quorumPeerAspect.getTestingService().offerFollowerToLeaderMessage(syncSubnodeId, zxid, payload, previousType);
             LOG.debug("followerWritePacketId = {}", followerWritePacketId);
             // after offerMessage: decrease sendingSubnodeNum and shutdown this node if sendingSubnodeNum == 0
             quorumPeerAspect.postSend(syncSubnodeId, followerWritePacketId);
@@ -112,12 +139,13 @@ public aspect FollowerAspect {
             if (followerWritePacketId == TestingDef.RetCode.NODE_PAIR_IN_PARTITION){
                 // just drop the message
                 LOG.debug("partition occurs! just drop the message. What about other types of messages?");
-                return;
+                throw new InterruptedException();
+//                return;
             }
 
             proceed(packet, flush);
             return;
-        } catch (RemoteException e) {
+        } catch (RemoteException | InterruptedException e) {
             LOG.debug("Encountered a remote exception", e);
             throw new RuntimeException(e);
         }
@@ -149,7 +177,7 @@ public aspect FollowerAspect {
         LOG.debug("---------writePacket: ({}). Subnode: {}", payload, quorumPeerSubnodeId);
         final Integer type =  packet == null ? null : packet.getType();
         final Long zxid = packet == null ? null : packet.getZxid();
-        LOG.debug("Follower is about to reply a message type={} to leader which is (type={})", type, lastReadType);
+        LOG.debug("Follower is about to reply a message type={} to leader's previous message (type=PING)", type);
 //        if (type == null) {
 //            LOG.debug("Follower is about to send a null message, may be a flush.");
 //            proceed(packet, flush);
@@ -157,9 +185,10 @@ public aspect FollowerAspect {
 //        }
         try {
             quorumPeerAspect.setSubnodeSending();
-            LOG.debug(" before followerWritePacketId, lastReadType: {}", lastReadType);
-            final int followerWritePacketId = quorumPeerAspect.getTestingService().offerFollowerToLeaderMessage(quorumPeerSubnodeId, zxid, payload, lastReadType);
-            LOG.debug("followerWritePacketId = {}", followerWritePacketId);
+            LOG.debug(" before followerWritePacketId in writePacketInPING");
+            final int followerWritePacketId = quorumPeerAspect.getTestingService()
+                    .offerFollowerToLeaderMessage(quorumPeerSubnodeId, zxid, payload, MessageType.PING);
+            LOG.debug("in writePacketInPING, followerWritePacketId = {}", followerWritePacketId);
             // after offerMessage: decrease sendingSubnodeNum and shutdown this node if sendingSubnodeNum == 0
             quorumPeerAspect.postSend(quorumPeerSubnodeId, followerWritePacketId);
 
@@ -170,13 +199,13 @@ public aspect FollowerAspect {
             if (followerWritePacketId == TestingDef.RetCode.NODE_PAIR_IN_PARTITION){
                 // just drop the message
                 LOG.debug("partition occurs! just drop the message. What about other types of messages?");
-                throw new RuntimeException();
+                throw new InterruptedException();
 //                return;
             }
 
             proceed(packet, flush);
             return;
-        } catch (RemoteException e) {
+        } catch (RemoteException | InterruptedException e) {
             LOG.debug("Encountered a remote exception", e);
             throw new RuntimeException(e);
         }
