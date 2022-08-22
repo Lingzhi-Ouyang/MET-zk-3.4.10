@@ -50,10 +50,10 @@ public class FollowerToLeaderMessageEvent extends AbstractEvent {
 
     @Override
     public String toString() {
-        String action = "FollowerReleaseACKto";
+        String action = "FollowerSendACKto";
         switch (type) {
             case MessageType.LEADERINFO:
-                action = "FollowerReleaseACKEPOCH";
+                action = "FollowerSendACKEPOCH";
                 break;
             case MessageType.NEWLEADER:
                 action += "NEWLEADER";

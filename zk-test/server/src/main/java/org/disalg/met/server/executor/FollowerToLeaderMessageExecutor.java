@@ -13,7 +13,7 @@ import java.util.Set;
 
 public class FollowerToLeaderMessageExecutor extends BaseEventExecutor {
 
-    private static final Logger LOG = LoggerFactory.getLogger(ElectionMessageExecutor.class);
+    private static final Logger LOG = LoggerFactory.getLogger(FollowerToLeaderMessageExecutor.class);
 
     private final TestingService testingService;
 
