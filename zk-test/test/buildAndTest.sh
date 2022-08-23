@@ -12,7 +12,7 @@ echo $WORKING_DIR
 #cd $WORKING_DIR/zookeeper-3.4.13 && ant
 
 # build HitMC
-cd $WORKING_DIR/zk-test && mvn clean install
+cd $WORKING_DIR/zk-test && mvn clean install -DskipTests
 cd $WORKING_DIR/zk-test/test
 
 tag=`date "+%y-%m-%d-%H-%M-%S"`
