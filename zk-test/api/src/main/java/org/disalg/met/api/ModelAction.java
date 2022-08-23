@@ -20,7 +20,7 @@ public enum ModelAction {
     FollowerProcessSyncMessage,
     FollowerProcessPROPOSALInSync,
     FollowerProcessCOMMITInSync,
-    FollowerProcessNEWLEADER,
+    FollowerProcessNEWLEADER, LearnerHandlerReadRecord,
     LeaderProcessACKLD,
     FollowerProcessUPTODATE,
 
