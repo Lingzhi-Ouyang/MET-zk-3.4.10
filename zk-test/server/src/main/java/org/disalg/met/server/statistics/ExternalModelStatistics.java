@@ -66,7 +66,7 @@ public class ExternalModelStatistics implements Statistics {
         final long totalTime = endTime - startTime;
         return "ExternalModelStatistics{" +
                 "\n, currentStep = " + currentStepEvent +
-                "\n, totalEvents = " + totalExecutedEvents +
+                "\n, executedEvents = " + totalExecutedEvents +
                 "\n, averageEnabledEvents = " + String.format("%.3f", avgEnabledEvents) +
                 "\n, maxEnabledEvents = " + maxEnabledEvents +
                 "\n, totalTime = " + totalTime + " ms" +
