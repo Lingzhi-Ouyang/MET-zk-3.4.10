@@ -85,7 +85,7 @@ public interface TestingRemoteService extends Remote {
     int offerLeaderToFollowerMessage(int sendingSubnodeId, String receivingAddr, long zxid, String payload, int type) throws RemoteException;
 
     /**
-     * Indicates a subnode is about to do a local event (sync a request log to disk or to commit a request). Change its state to <code>{@link SubnodeState.SENDING}</code>,
+     * Indicates a subnode is about to do a local event (e.g. sync a request log to disk, commit a request, etc). Change its state to <code>{@link SubnodeState.SENDING}</code>,
      * and blocks execution until the scheduler decides to release the message.
      *
      * @return The scheduler generates and returns a unique identifier of the current message
