@@ -16,7 +16,8 @@ public enum ModelAction {
     ElectionAndDiscovery,
 
     // sync
-    LeaderSyncFollower, FollowerSendACKEPOCH, LeaderWaitForEpochAck,
+    FollowerProcessLEADERINFO,
+    LeaderSyncFollower,
     FollowerProcessSyncMessage,
     FollowerProcessPROPOSALInSync,
     FollowerProcessCOMMITInSync,
