@@ -313,7 +313,7 @@ public privileged aspect QuorumPeerAspect {
 //            // TODO: to check if the partition happens with around()
             if (lastSentMessageId == TestingDef.RetCode.NODE_PAIR_IN_PARTITION){
                 // just drop the message
-                LOG.debug("partition occurs! just drop the message. What about other types of messages?");
+                LOG.debug("partition occurs! just drop the message.");
                 testingService.setReceivingState(quorumPeerSubnodeId);
                 // confirm the return value
                 return false;
@@ -656,17 +656,17 @@ public privileged aspect QuorumPeerAspect {
             }
             testingService.deregisterSubnode(subnodeId);
             LOG.debug("Finish de-registering {} subnode {}", subnodeType, subnodeId);
-            // for LearnerHandlerSender
-            synchronized (nodeOnlineMonitor) {
-                if (intercepter.sending) {
-                    intercepter.sending = false;
-                    if (sendingSubnodeNum.get() > 0){
-                        final int existingSendingSubnodeNum = sendingSubnodeNum.decrementAndGet();
-                        LOG.debug("-----subnode {} Id: {}, decrease sendingSubnodeNum: {}",
-                                subnodeType, subnodeId, sendingSubnodeNum.get());
-                    }
-                }
-            }
+//            // for LearnerHandlerSender
+//            synchronized (nodeOnlineMonitor) {
+//                if (intercepter.sending) {
+//                    intercepter.sending = false;
+//                    if (sendingSubnodeNum.get() > 0){
+//                        final int existingSendingSubnodeNum = sendingSubnodeNum.decrementAndGet();
+//                        LOG.debug("-----subnode {} Id: {}, decrease sendingSubnodeNum: {}",
+//                                subnodeType, subnodeId, sendingSubnodeNum.get());
+//                    }
+//                }
+//            }
         } catch (final RemoteException e) {
             LOG.debug("Encountered a remote exception", e);
             throw new RuntimeException(e);

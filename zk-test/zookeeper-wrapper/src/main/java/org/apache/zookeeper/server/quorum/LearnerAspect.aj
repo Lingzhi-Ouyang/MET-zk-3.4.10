@@ -59,7 +59,7 @@ public aspect LearnerAspect {
             // to check if the partition happens
             if (followerWritePacketId == TestingDef.RetCode.NODE_PAIR_IN_PARTITION){
                 // just drop the message
-                LOG.debug("partition occurs! just drop the message. What about other types of messages?");
+                LOG.debug("partition occurs! just drop the message.");
                 throw new IOException();
 //                return;
             }
@@ -180,7 +180,7 @@ public aspect LearnerAspect {
                 // to check if the partition happens
                 if (followerWritePacketId == TestingDef.RetCode.NODE_PAIR_IN_PARTITION){
                     // just drop the message
-                    LOG.debug("partition occurs! just drop the message. What about other types of messages?");
+                    LOG.debug("partition occurs! just drop the message.");
                     throw new InterruptedException();
 //                    return;
                 }
@@ -210,7 +210,7 @@ public aspect LearnerAspect {
                 // to check if the partition happens
                 if (followerWritePacketId == TestingDef.RetCode.NODE_PAIR_IN_PARTITION){
                     // just drop the message
-                    LOG.debug("partition occurs! just drop the message. What about other types of messages?");
+                    LOG.debug("partition occurs! just drop the message.");
                     throw new InterruptedException();
 //                    return;
                 }

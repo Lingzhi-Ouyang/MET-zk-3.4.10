@@ -64,27 +64,27 @@ public aspect CommitProcessorAspect {
             return;
         }
         final int type =  request.type;
-        switch (type) {
-            case TestingDef.OpCode.notification:
-            case TestingDef.OpCode.create:
-            case TestingDef.OpCode.delete:
-            case TestingDef.OpCode.getData:
-            case TestingDef.OpCode.exists:
-            case TestingDef.OpCode.check:
-            case TestingDef.OpCode.multi:
-            case TestingDef.OpCode.sync:
-            case TestingDef.OpCode.getACL:
-            case TestingDef.OpCode.setACL:
-            case TestingDef.OpCode.getChildren:
-            case TestingDef.OpCode.getChildren2:
-            case TestingDef.OpCode.ping:
-            case TestingDef.OpCode.createSession:
-            case TestingDef.OpCode.closeSession:
-            case TestingDef.OpCode.setWatches:
-                LOG.debug("Won't intercept toProcess request: {} ", request);
-                return;
-            default:
-        }
+//        switch (type) {
+//            case TestingDef.OpCode.notification:
+//            case TestingDef.OpCode.create:
+//            case TestingDef.OpCode.delete:
+//            case TestingDef.OpCode.getData:
+//            case TestingDef.OpCode.exists:
+//            case TestingDef.OpCode.check:
+//            case TestingDef.OpCode.multi:
+//            case TestingDef.OpCode.sync:
+//            case TestingDef.OpCode.getACL:
+//            case TestingDef.OpCode.setACL:
+//            case TestingDef.OpCode.getChildren:
+//            case TestingDef.OpCode.getChildren2:
+//            case TestingDef.OpCode.ping:
+//            case TestingDef.OpCode.createSession:
+//            case TestingDef.OpCode.closeSession:
+//            case TestingDef.OpCode.setWatches:
+//                LOG.debug("Won't intercept toProcess request: {} ", request);
+//                return;
+//            default:
+//        }
         try {
             // before offerMessage: increase sendingSubnodeNum
             quorumPeerAspect.setSubnodeSending();
