@@ -2,10 +2,7 @@ package org.disalg.met.server.scheduler;
 
 import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONObject;
-import org.disalg.met.api.MessageType;
-import org.disalg.met.api.ModelAction;
-import org.disalg.met.api.Phase;
-import org.disalg.met.api.SubnodeType;
+import org.disalg.met.api.*;
 import org.disalg.met.api.configuration.SchedulerConfigurationException;
 import org.disalg.met.server.TestingService;
 import org.disalg.met.server.event.Event;
@@ -238,21 +235,22 @@ public class ExternalModelStrategy implements SchedulingStrategy{
         nextEvent = null;
         // 2. search specific pre-condition event that should be lied in the sender
         switch (action) {
-            case FollowerSendACKEPOCH: // follower to release ACKEPOCH (reply to LEADERINFO)
+            case LeaderSyncFollower: // follower to release ACKEPOCH (reply to LEADERINFO)
             case LeaderProcessACKLD: // follower to release ACKLD
             case FollowerToLeaderACK: // follower to release ACK
                 searchFollowerMessage(action, peerId, nodeId, modelZxid, enabled);
                 break;
+            case FollowerProcessLEADERINFO:
             case FollowerProcessSyncMessage: // leader to release DIFF / TRUNC / SNAP
             case FollowerProcessPROPOSALInSync: // leader to release PROPOSAL
             case FollowerProcessCOMMITInSync: // leader to release COMMIT
             case FollowerProcessNEWLEADER: // leader to release NEWLEADER
+            case LearnerHandlerReadRecord:
             case FollowerProcessUPTODATE: // leader to release UPTODATE
             case LeaderToFollowerProposal: // leader to release PROPOSAL
             case LeaderToFollowerCOMMIT: // leader to release COMMIT
                 searchLeaderMessage(action, peerId, nodeId, modelZxid, enabled);
                 break;
-            case LeaderWaitForEpochAck:
             case LeaderLog:
             case FollowerLog:
             case LeaderCommit:
@@ -286,6 +284,9 @@ public class ExternalModelStrategy implements SchedulingStrategy{
                 if (sendingNodeId != leaderId || receivingNodeId != followerId) continue;
                 final int type = event.getType();
                 switch (type) {
+                    case MessageType.LEADERINFO:
+                        if (!action.equals(ModelAction.FollowerProcessLEADERINFO)) continue;
+                        break;
                     case MessageType.DIFF:
                     case MessageType.TRUNC:
                     case MessageType.SNAP:
@@ -297,11 +298,13 @@ public class ExternalModelStrategy implements SchedulingStrategy{
                         } else {
                             if (!action.equals(ModelAction.LeaderToFollowerProposal)) continue;
                             // check the equality between zxid mapping from model to code
-                            if (event.getZxid() != testingService.getModelToCodeZxidMap().get(modelZxid)) continue;
-                            LOG.debug("LeaderToFollowerProposal, check getModelToCodeZxidMap: {}, {}, {}",
-                                    Long.toHexString(modelZxid),
-                                    Long.toHexString(testingService.getModelToCodeZxidMap().get(modelZxid)),
-                                    Long.toHexString(event.getZxid()));
+                            if (modelZxid > 0) {
+                                LOG.debug("LeaderToFollowerProposal, check getModelToCodeZxidMap: {}, {}, {}",
+                                        Long.toHexString(modelZxid),
+                                        Long.toHexString(testingService.getModelToCodeZxidMap().get(modelZxid)),
+                                        Long.toHexString(event.getZxid()));
+                                if (event.getZxid() != testingService.getModelToCodeZxidMap().get(modelZxid)) continue;
+                            }
                         }
                         break;
                     case MessageType.COMMIT:
@@ -310,11 +313,13 @@ public class ExternalModelStrategy implements SchedulingStrategy{
                         } else {
                             if (!action.equals(ModelAction.LeaderToFollowerCOMMIT)) continue;
                             // check the equality between zxid mapping from model to code
-                            if (event.getZxid() != testingService.getModelToCodeZxidMap().get(modelZxid)) continue;
-                            LOG.debug("LeaderToFollowerCOMMIT, check getModelToCodeZxidMap: {}, {}, {}",
-                                    Long.toHexString(modelZxid),
-                                    Long.toHexString(testingService.getModelToCodeZxidMap().get(modelZxid)),
-                                    Long.toHexString(event.getZxid()));
+                            if (modelZxid > 0) {
+                                LOG.debug("LeaderToFollowerCOMMIT, check getModelToCodeZxidMap: {}, {}, {}",
+                                        Long.toHexString(modelZxid),
+                                        Long.toHexString(testingService.getModelToCodeZxidMap().get(modelZxid)),
+                                        Long.toHexString(event.getZxid()));
+                                if (event.getZxid() != testingService.getModelToCodeZxidMap().get(modelZxid)) continue;
+                            }
                         }
                         break;
                     case MessageType.NEWLEADER:
@@ -322,6 +327,9 @@ public class ExternalModelStrategy implements SchedulingStrategy{
                         break;
                     case MessageType.UPTODATE:
                         if (!action.equals(ModelAction.FollowerProcessUPTODATE)) continue;
+                        break;
+                    case TestingDef.MessageType.learnerHandlerReadRecord:
+                        if (!action.equals(ModelAction.LearnerHandlerReadRecord)) continue;
                         break;
                     default:
                         continue;
@@ -346,26 +354,28 @@ public class ExternalModelStrategy implements SchedulingStrategy{
                 final Subnode sendingSubnode = testingService.getSubnodes().get(sendingSubnodeId);
                 final int sendingNodeId = sendingSubnode.getNodeId();
                 if (sendingNodeId != followerId || receivingNodeId != leaderId) continue;
-                final int lastReadType = event.getType(); // this describes the message type that this ACK replies to
+                final int lastReadType = event.getType(); // Note: this describes leader's previous message type that this ACK replies to
                 switch (lastReadType) {
                     case MessageType.LEADERINFO:
-                        if (!action.equals(ModelAction.FollowerSendACKEPOCH)) continue;
+                        if (!action.equals(ModelAction.LeaderSyncFollower)) continue;
                         break;
                     case MessageType.NEWLEADER:
                         if (!action.equals(ModelAction.LeaderProcessACKLD)) continue;
                         break;
-//                    case MessageType.UPTODATE:
-//                        if (!action.equals(ModelAction.FollowerProcessUPTODATE)) continue;
-//                        break;
+                    case MessageType.UPTODATE:
+                        if (!action.equals(ModelAction.FollowerToLeaderACK)) continue;
+                        break;
                     case MessageType.PROPOSAL: // as for ACK to PROPOSAL during SYNC, we regard it as a local event
                     case MessageType.PROPOSAL_IN_SYNC:
                         if (!action.equals(ModelAction.FollowerToLeaderACK) ) continue;
                         // check the equality between zxid mapping from model to code
-                        if (event.getZxid() != testingService.getModelToCodeZxidMap().get(modelZxid)) continue;
-                        LOG.debug("FollowerToLeaderACK, check getModelToCodeZxidMap: {}, {}, {}",
-                                Long.toHexString(modelZxid),
-                                Long.toHexString(testingService.getModelToCodeZxidMap().get(modelZxid)),
-                                Long.toHexString(event.getZxid()));
+                        if (modelZxid > 0) {
+                            LOG.debug("FollowerToLeaderACK, check getModelToCodeZxidMap: {}, {}, {}",
+                                    Long.toHexString(modelZxid),
+                                    Long.toHexString(testingService.getModelToCodeZxidMap().get(modelZxid)),
+                                    Long.toHexString(event.getZxid()));
+                            if (event.getZxid() != testingService.getModelToCodeZxidMap().get(modelZxid)) continue;
+                        }
                         break;
                     default:
                         continue;
@@ -394,22 +404,27 @@ public class ExternalModelStrategy implements SchedulingStrategy{
 //                        break;
                     case LeaderLog:
                         final long eventZxid = event.getZxid();
+                        final int eventType = event.getType();
                         if (!subnodeType.equals(SubnodeType.SYNC_PROCESSOR)) continue;
                         // since leaderLog always come first, here record the zxid mapping from model to code
-                        testingService.getModelToCodeZxidMap().put(modelZxid, eventZxid);
-                        LOG.debug("LeaderLog, check getModelToCodeZxidMap: {}, {}, {}",
-                                Long.toHexString(modelZxid),
-                                Long.toHexString(testingService.getModelToCodeZxidMap().get(modelZxid)),
-                                Long.toHexString(event.getZxid()));
+                        if (modelZxid > 0) {
+                            testingService.getModelToCodeZxidMap().put(modelZxid, eventZxid);
+                            LOG.debug("LeaderLog, check getModelToCodeZxidMap: {}, {}, {}",
+                                    Long.toHexString(modelZxid),
+                                    Long.toHexString(testingService.getModelToCodeZxidMap().get(modelZxid)),
+                                    Long.toHexString(event.getZxid()));
+                        }
                         break;
                     case FollowerLog:
                         if (!subnodeType.equals(SubnodeType.SYNC_PROCESSOR)) continue;
                         // check the equality between zxid mapping from model to code
-                        if (event.getZxid() != testingService.getModelToCodeZxidMap().get(modelZxid)) continue;
-                        LOG.debug("FollowerLog, check getModelToCodeZxidMap: {}, {}, {}",
-                                Long.toHexString(modelZxid),
-                                Long.toHexString(testingService.getModelToCodeZxidMap().get(modelZxid)),
-                                Long.toHexString(event.getZxid()));
+                        if (modelZxid > 0) {
+                            LOG.debug("FollowerLog, check getModelToCodeZxidMap: {}, {}, {}",
+                                    Long.toHexString(modelZxid),
+                                    Long.toHexString(testingService.getModelToCodeZxidMap().get(modelZxid)),
+                                    Long.toHexString(event.getZxid()));
+                            if (event.getZxid() != testingService.getModelToCodeZxidMap().get(modelZxid)) continue;
+                        }
                         break;
                     case FollowerProcessPROPOSAL:  // DEPRECATED
                         if (!subnodeType.equals(SubnodeType.SYNC_PROCESSOR)) continue;
@@ -425,11 +440,13 @@ public class ExternalModelStrategy implements SchedulingStrategy{
 //                    case FollowerProcessCOMMIT: // DEPRECATED
                         if (!subnodeType.equals(SubnodeType.COMMIT_PROCESSOR)) continue;
                         // check the equality between zxid mapping from model to code
-                        LOG.debug("ProcessCOMMIT, check getModelToCodeZxidMap: {}, {}, {}",
-                                Long.toHexString(modelZxid),
-                                Long.toHexString(testingService.getModelToCodeZxidMap().get(modelZxid)),
-                                Long.toHexString(event.getZxid()));
-                        if (event.getZxid() != testingService.getModelToCodeZxidMap().get(modelZxid)) continue;
+                        if (modelZxid > 0) {
+                            LOG.debug("ProcessCOMMIT, check getModelToCodeZxidMap: {}, {}, {}",
+                                    Long.toHexString(modelZxid),
+                                    Long.toHexString(testingService.getModelToCodeZxidMap().get(modelZxid)),
+                                    Long.toHexString(event.getZxid()));
+                            if (event.getZxid() != testingService.getModelToCodeZxidMap().get(modelZxid)) continue;
+                        }
                         break;
                     default:
                         continue;
