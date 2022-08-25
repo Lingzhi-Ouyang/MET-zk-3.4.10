@@ -5,6 +5,7 @@ import org.disalg.met.api.SubnodeState;
 import org.disalg.met.api.TestingDef;
 import org.disalg.met.server.TestingService;
 import org.disalg.met.server.event.Event;
+import org.disalg.met.server.event.LocalEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -59,11 +60,22 @@ public class MessageReleased implements WaitPredicate {
     @Override
     public boolean isTrue() {
         if (event != null) {
+//            if (event instanceof LocalEvent) {
+////                 LeaderJudgingIsRunning
+//                return NodeState.STOPPING.equals(testingService.getNodeStates().get(sendingNodeId)) ||
+//                        event.getFlag() == TestingDef.RetCode.NODE_PAIR_IN_PARTITION;
+//            } else {
+//                // message event
+//                return testingService.getMessageInFlight() == msgId ||
+//                        NodeState.STOPPING.equals(testingService.getNodeStates().get(sendingNodeId)) ||
+//                        event.getFlag() == TestingDef.RetCode.NODE_PAIR_IN_PARTITION;
+//            }
             return testingService.getMessageInFlight() == msgId ||
                     NodeState.STOPPING.equals(testingService.getNodeStates().get(sendingNodeId)) ||
                     event.getFlag() == TestingDef.RetCode.NODE_PAIR_IN_PARTITION;
         }
         if (sendingSubnodeId != null) {
+            // other local event
             return testingService.getMessageInFlight() == msgId ||
                     NodeState.STOPPING.equals(testingService.getNodeStates().get(sendingNodeId)) ||
                     SubnodeState.UNREGISTERED.equals(testingService.getSubnodes().get(sendingSubnodeId).getState());
