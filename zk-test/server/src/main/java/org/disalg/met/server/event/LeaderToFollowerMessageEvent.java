@@ -1,5 +1,6 @@
 package org.disalg.met.server.event;
 
+import org.disalg.met.api.TestingDef;
 import org.disalg.met.server.executor.LeaderToFollowerMessageExecutor;
 import org.disalg.met.api.MessageType;
 
@@ -52,6 +53,9 @@ public class LeaderToFollowerMessageEvent extends AbstractEvent{
     public String toString() {
         String action = "LeaderToFollowerMessageEvent";
         switch (type) {
+            case MessageType.LEADERINFO:
+                action = "LeaderSendLEADERINFO";
+                break;
             case MessageType.DIFF:
                 action = "LeaderSendDIFF";
                 break;
@@ -73,10 +77,14 @@ public class LeaderToFollowerMessageEvent extends AbstractEvent{
             case MessageType.COMMIT:
                 action = "LeaderSendCOMMIT";
                 break;
+            case TestingDef.MessageType.learnerHandlerReadRecord:
+                action = "LearnerHandlerReadRecord";
+                break;
         }
         return action + "{" +
                 "id=" + getId() +
                 ", flag=" + getFlag() +
+                ", sendingSubnodeId=" + sendingSubnodeId +
                 ", receivingNodeId=" + receivingNodeId +
                 ", predecessors=" + getDirectPredecessorsString() +
                 ", type=" + type +

@@ -54,6 +54,7 @@ public class ElectionMessageEvent extends AbstractEvent {
         return "ElectionMessageEvent{" +
                 "id=" + getId() +
                 ", flag=" + getFlag() +
+                ", sendingSubnodeId=" + sendingSubnodeId +
                 ", predecessors=" + getDirectPredecessorsString() +
                 ", " + payload +
                 getLabelString() +

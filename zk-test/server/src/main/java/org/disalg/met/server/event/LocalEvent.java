@@ -1,6 +1,7 @@
 package org.disalg.met.server.event;
 
 import org.disalg.met.api.MessageType;
+import org.disalg.met.api.TestingDef;
 import org.disalg.met.server.executor.LocalEventExecutor;
 import org.disalg.met.api.SubnodeType;
 import org.slf4j.Logger;
@@ -88,10 +89,15 @@ public class LocalEvent extends AbstractEvent{
                 case MessageType.COMMIT:
                     action = "FollowerProcessCOMMIT";
                     break;
+                case TestingDef.MessageType.leaderJudgingIsRunning:
+                    action = "LeaderJudgingIsRunning";
+                    break;
             }
         }
         return action +
                 "{id=" + getId() +
+                ", flag=" + getFlag() +
+                ", type=" + type +
                 ", nodeId=" + nodeId +
                 ", subnodeId=" + subnodeId +
                 ", subnodeType=" + subnodeType +

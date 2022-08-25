@@ -30,7 +30,7 @@ public class ClientRequestEvent extends AbstractEvent{
         super(id, eventExecutor);
         this.type = type;
         this.clientId = clientId;
-        if (ClientRequestType.SET_DATA.equals(type)){
+        if (!ClientRequestType.GET_DATA.equals(type)){
             this.data = data;
         }
     }
