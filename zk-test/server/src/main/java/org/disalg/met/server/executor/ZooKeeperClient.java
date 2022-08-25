@@ -103,6 +103,18 @@ public class ZooKeeperClient {
         return createdPath;
     }
 
+    // In the test, the create request is only used in the session initialization phase
+    // Async
+    public String create(String path) {
+//        Stat stat = zk.exists(path, false);
+//        if (stat != null) {
+//            return null;
+//        }
+        zk.create(path, INITIAL_VAL.getBytes(), ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT, null,"状态异步修改");
+        LOG.debug("CREATE PATH {}: {}", path, INITIAL_VAL);
+        return path;
+    }
+
     public List<String> ls() throws KeeperException, InterruptedException {
         List<String> data = zk.getChildren(ZNODE_PATH, null);
         LOG.debug("ls {}: {}", ZNODE_PATH, data);

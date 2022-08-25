@@ -18,6 +18,8 @@ public class ClientProxy extends Thread{
 
     private final int clientId;
 
+    volatile boolean primeConnection;
+
     volatile boolean ready;
 
     volatile boolean stop;
@@ -33,6 +35,7 @@ public class ClientProxy extends Thread{
     LinkedBlockingQueue<String> responseQueue = new LinkedBlockingQueue<>();
 
     public ClientProxy(final TestingService testingService){
+        this.primeConnection = false;
         this.ready = false;
         this.stop = false;
         this.done = false;
@@ -45,6 +48,7 @@ public class ClientProxy extends Thread{
     }
 
     public ClientProxy(final TestingService testingService, final int clientId, final String serverList){
+        this.primeConnection = false;
         this.ready = false;
         this.stop = false;
 
@@ -56,6 +60,10 @@ public class ClientProxy extends Thread{
         this.clientId = clientId;
         this.setName("ZooKeeperClient-" + clientId);
         this.count++;
+    }
+
+    public boolean isPrimeConnection() {
+        return primeConnection;
     }
 
     public boolean isReady() {
@@ -71,21 +79,17 @@ public class ClientProxy extends Thread{
     }
 
     public boolean init() {
-
         this.ready = false;
 
         int retry = 5;
         while (retry > 0) {
             try {
                 zooKeeperClient = new ZooKeeperClient(this, serverList, true);
+                this.primeConnection = true;
+                synchronized (testingService.getControlMonitor()) {
+                    testingService.getControlMonitor().notifyAll();
+                }
                 zooKeeperClient.getCountDownLatch().await();
-
-                LOG.debug("----------create /test-------");
-//                if (count % 2 != 0) {
-//                    zooKeeperClient.create();
-//                }
-                zooKeeperClient.create();
-
                 return true;
             } catch (InterruptedException | KeeperException | IOException e) {
                 LOG.debug("----- caught {} during client session initialization", e.toString());
@@ -123,10 +127,6 @@ public class ClientProxy extends Thread{
         } else {
             LOG.info("Something wrong during Thread {} initializing ZooKeeper client.", currentThread().getName());
             return;
-        }
-        synchronized (testingService.getControlMonitor()) {
-            testingService.getControlMonitor().notifyAll();
-//                    testingService.waitClientRequestOffered(clientId);
         }
         while (!stop) {
             try {
@@ -179,6 +179,12 @@ public class ClientProxy extends Thread{
                 zooKeeperClient.setData(event.getData());
                 event.setResult(event.getData());
                 break;
+            case CREATE:
+                // always return immediately
+                zooKeeperClient.create(event.getData());
+                event.setResult(event.getData());
+                break;
+
         }
         synchronized (testingService.getControlMonitor()) {
 //            responseQueue.offer(event);
