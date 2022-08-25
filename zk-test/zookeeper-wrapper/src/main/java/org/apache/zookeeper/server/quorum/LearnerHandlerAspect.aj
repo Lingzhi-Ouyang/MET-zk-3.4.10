@@ -6,6 +6,8 @@ import org.disalg.met.api.TestingDef;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
+import java.net.SocketTimeoutException;
 import java.rmi.RemoteException;
 import java.util.HashMap;
 import java.util.Map;
@@ -21,7 +23,8 @@ public aspect LearnerHandlerAspect {
 
     private final QuorumPeerAspect quorumPeerAspect = QuorumPeerAspect.aspectOf();
 
-    private static Map<Long, Long> learnerHandlerSenderMap = new HashMap<>();
+    private static Map<Long, Long> learnerHandlerSenderThreadMap = new HashMap<>(); // key: learnerHandlerThreadId, value: learnerHandlerSenderThreadId
+    private static Map<Long, Long> learnerHandlerThreadMap = new HashMap<>(); // key: learnerHandlerSenderThreadId, value: learnerHandlerThreadId
 
     // Intercept starting the thread
     // This thread should only be run by the leader
@@ -57,12 +60,13 @@ public aspect LearnerHandlerAspect {
         Long learnerHandlerThreadId = Thread.currentThread().getId();
         quorumPeerAspect.deregisterSubnode(learnerHandlerThreadId);
 //        assert learnerHandlerSenderMap.containsKey(learnerHandlerThreadId);
-        Long learnerHandlerSenderThreadId = learnerHandlerSenderMap.get(learnerHandlerThreadId); // may be null in discovery phase
+        Long learnerHandlerSenderThreadId = learnerHandlerSenderThreadMap.get(learnerHandlerThreadId); // may be null in discovery phase
         if (learnerHandlerThreadId != null) {
             quorumPeerAspect.deregisterSubnode(learnerHandlerSenderThreadId);
             LOG.debug("de-registered: learnerHandlerThreadId: {} - learnerHandlerSenderThreadId: {}",
                     learnerHandlerThreadId, learnerHandlerSenderThreadId);
-            learnerHandlerSenderMap.remove(learnerHandlerThreadId);
+            learnerHandlerSenderThreadMap.remove(learnerHandlerThreadId);
+            learnerHandlerThreadMap.remove(learnerHandlerSenderThreadId);
         }
     }
 
@@ -82,7 +86,8 @@ public aspect LearnerHandlerAspect {
         LOG.debug("before runSender-------parent thread {}: {}------", threadId, threadName);
         LOG.debug("before runSender-------child Thread {}: {}------", childThreadId, childThreadName);
         quorumPeerAspect.registerSubnode(childThreadId, childThreadName, SubnodeType.LEARNER_HANDLER_SENDER);
-        learnerHandlerSenderMap.put(threadId, childThreadId);
+        learnerHandlerSenderThreadMap.put(threadId, childThreadId);
+        learnerHandlerThreadMap.put(childThreadId, threadId);
     }
 
 //    after(java.lang.Thread childThread): runLearnerHandlerSender(childThread) {
@@ -133,9 +138,8 @@ public aspect LearnerHandlerAspect {
             LOG.debug("LearnerHandlerSender threadId: {}, subnodeId == -1, indicating the node is STOPPING or OFFLINE", threadId);
             return;
         }
-        final AtomicInteger msgsInQueuedPackets = intercepter.getMsgsInQueue();
-        LOG.debug("--------------My queuedPackets has {} element. msgsInQueuedPackets has {}.",
-                queue.size(), msgsInQueuedPackets.get());
+        LOG.debug("--------------My queuedPackets has {} element.",
+                queue.size());
 
         if (queue.isEmpty()) {
             // Going to block here. Better notify the scheduler
@@ -168,7 +172,7 @@ public aspect LearnerHandlerAspect {
         LOG.debug("------around-before writeRecord");
         final long threadId = Thread.currentThread().getId();
         final String threadName = Thread.currentThread().getName();
-        LOG.debug("before advice of learner handler send-------Thread: {}, {}------", threadId, threadName);
+        LOG.debug("before advice of learner handler sender-------Thread: {}, {}------", threadId, threadName);
 
         QuorumPeerAspect.SubnodeIntercepter intercepter = quorumPeerAspect.getIntercepter(threadId);
         int subnodeId;
@@ -220,28 +224,98 @@ public aspect LearnerHandlerAspect {
             // to check if the partition happens
             if (lastPacketId == TestingDef.RetCode.NODE_PAIR_IN_PARTITION){
                 // just drop the message
-                LOG.debug("partition occurs! just drop the message. What about other types of messages?");
-                throw new InterruptedException();
+                LOG.debug("partition occurs! just drop the message.");
+
+//                long learnerHandlerThreadId = learnerHandlerThreadMap.get(threadId);
+//                LOG.debug("try to interrupt my learnerHandlerThread: {}", learnerHandlerThreadId);
+//                ThreadGroup group = Thread.currentThread().getThreadGroup();
+//                if (group != null) {
+//                    Thread[] threads = new Thread[(int)(group.activeCount() * 1.2)];
+//                    int count = group.enumerate(threads, true);
+//                    for (int i = 0; i < count; i++) {
+//                        LOG.debug("get thread: {}, {}", threads[i].getName(), threads[i].getId());
+//                        if (learnerHandlerThreadId == threads[i].getId()) {
+//                            Thread learnerHandlerThreadObject = threads[i];
+//                            LOG.debug("learnerHandlerThreadObject: {}, {}", learnerHandlerThreadObject.getName(), learnerHandlerThreadObject.getId());
+//                            learnerHandlerThreadObject.interrupt();
+//                            LOG.debug("after interrupt my learnerHandlerThread: {}", learnerHandlerThreadId);
+//                            break;
+//                        }
+//                    }
+//                }
+
+                throw new IOException();
 //                return;
             }
 
             proceed(r, s);
-        } catch (RemoteException | InterruptedException e) {
+        } catch (RemoteException e) {
             LOG.debug("Encountered a remote exception", e);
+            throw new RuntimeException(e);
+        } catch (IOException e) {
+            LOG.debug("Encountered an IO exception", e);
             throw new RuntimeException(e);
         }
 
     }
 
 
-//    /***
-//     * For LearnerHandler reading record during DISCOVERY & SYNC
-//     * Related code: LearnerHandler.java
-//     */
-//    pointcut learnerHandlerReadRecord(Record r, String s):
-//            withincode(* org.apache.zookeeper.server.quorum.LearnerHandler.run()) &&
-//                    call(* org.apache.jute.BinaryInputArchive.readRecord(Record, String)) && args(r, s);
-//
+
+    /***
+     * For LearnerHandler reading record during DISCOVERY & SYNC
+     * Related code: LearnerHandler.java
+     */
+    pointcut learnerHandlerReadRecord(Record r, String s):
+            withincode(* org.apache.zookeeper.server.quorum.LearnerHandler.run()) &&
+                    call(* org.apache.jute.BinaryInputArchive.readRecord(Record, String)) && args(r, s);
+
+    before(Record r, String s): learnerHandlerReadRecord(r, s) {
+        LOG.debug("------before learnerHandlerReadRecord");
+        final long threadId = Thread.currentThread().getId();
+        final String threadName = Thread.currentThread().getName();
+        LOG.debug("before advice of learnerHandlerReadRecord-------Thread: {}, {}------", threadId, threadName);
+
+        QuorumPeerAspect.SubnodeIntercepter intercepter = quorumPeerAspect.getIntercepter(threadId);
+        int subnodeId;
+        try{
+            subnodeId = intercepter.getSubnodeId();
+        } catch (RuntimeException e) {
+            LOG.debug("--------catch exception: {}", e.toString());
+            throw new RuntimeException(e);
+        }
+        if (subnodeId == TestingDef.RetCode.NODE_CRASH) {
+            LOG.debug("LearnerHandler threadId: {}, subnodeId == -1, indicating the node is STOPPING or OFFLINE", threadId);
+            return;
+        }
+
+
+        try {
+            // before offerMessage: increase sendingSubnodeNum
+            quorumPeerAspect.setSubnodeSending(intercepter);
+
+            final String receivingAddr = threadName.split("-")[1];
+            final int lastPacketId = intercepter.getTestingService().offerLeaderToFollowerMessage(
+                    subnodeId, receivingAddr, -1L, null, TestingDef.MessageType.learnerHandlerReadRecord);
+            LOG.debug("learnerHandlerReadRecord lastPacketId = {}", lastPacketId);
+
+            quorumPeerAspect.postSend(intercepter, subnodeId, lastPacketId);
+
+            // Trick: set RECEIVING state here
+            intercepter.getTestingService().setReceivingState(subnodeId);
+
+            // to check if the partition happens
+            if (lastPacketId == TestingDef.RetCode.NODE_PAIR_IN_PARTITION){
+                // just drop the message
+                LOG.debug("partition occurs! just drop the message.");
+                throw new SocketTimeoutException();
+//                return;
+            }
+        } catch (RemoteException | SocketTimeoutException e) {
+            LOG.debug("Encountered a remote exception", e);
+            throw new RuntimeException(e);
+        }
+    }
+
 //    after(Record r, String s) returning: learnerHandlerReadRecord(r, s) {
 //        LOG.debug("------after learnerHandlerReadRecord");
 //        final long threadId = Thread.currentThread().getId();
@@ -353,13 +427,13 @@ public aspect LearnerHandlerAspect {
             // to check if the partition happens
             if (lastPacketId == TestingDef.RetCode.NODE_PAIR_IN_PARTITION){
                 // just drop the message
-                LOG.debug("partition occurs! just drop the message. What about other types of messages?");
-                throw new InterruptedException();
+                LOG.debug("partition occurs! just drop the message.");
+                throw new SocketTimeoutException();
 //                return;
             }
 
             proceed(r, s);
-        } catch (RemoteException | InterruptedException e ) {
+        } catch (RemoteException | SocketTimeoutException e ) {
             LOG.debug("Encountered a remote exception", e);
             throw new RuntimeException(e);
         }
