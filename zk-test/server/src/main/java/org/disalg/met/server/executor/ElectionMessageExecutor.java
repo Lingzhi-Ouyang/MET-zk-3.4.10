@@ -29,6 +29,7 @@ public class ElectionMessageExecutor extends BaseEventExecutor {
         }
         LOG.debug("Releasing message: {}", event.toString());
         releaseMessage(event);
+        testingService.getControlMonitor().notifyAll();
         testingService.waitAllNodesSteady();
         event.setExecuted();
         LOG.debug("Message executed: {}\n\n\n", event.toString());

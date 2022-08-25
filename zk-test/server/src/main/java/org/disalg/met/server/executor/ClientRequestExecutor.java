@@ -1,5 +1,7 @@
 package org.disalg.met.server.executor;
 
+import org.disalg.met.api.SubnodeType;
+import org.disalg.met.api.state.LeaderElectionState;
 import org.disalg.met.server.TestingService;
 import org.disalg.met.api.NodeStateForClientRequest;
 import org.disalg.met.api.state.ClientRequestType;
@@ -36,8 +38,8 @@ public class ClientRequestExecutor extends BaseEventExecutor {
         }
         LOG.debug("Releasing client request event: {}", event.toString());
         releaseClientRequest(event);
-        // waitPredicate has moved to the above method
-
+        testingService.getControlMonitor().notifyAll();
+        testingService.waitAllNodesSteady();
         event.setExecuted();
         LOG.debug("Client request executed: {}", event.toString());
         return true;
@@ -56,41 +58,47 @@ public class ClientRequestExecutor extends BaseEventExecutor {
 //                    nodeStateForClientRequests.set(i, NodeStateForClientRequest.SET_PROCESSING);
 //                }
                 testingService.getRequestQueue(clientId).offer(event);
-                testingService.getControlMonitor().notifyAll();
-
                 // Post-condition
                 if (waitForResponse) {
                     // When we want to get the result immediately
                     // This will not generate later events automatically
+                    testingService.getControlMonitor().notifyAll();
                     testingService.waitResponseForClientRequest(event);
                 }
                 // Note: the client request event may lead to deadlock easily
                 //          when scheduled between some RequestProcessorEvents
-                if (count > 0) {
-                    final ClientRequestEvent clientRequestEvent =
-                            new ClientRequestEvent(testingService.generateEventId(), clientId,
-                            ClientRequestType.GET_DATA, this);
-                    testingService.addEvent(clientRequestEvent);
-                    count--;
-                }
-                testingService.waitAllNodesSteady();
+//                final ClientRequestEvent clientRequestEvent =
+//                        new ClientRequestEvent(testingService.generateEventId(), clientId,
+//                                ClientRequestType.GET_DATA, this);
+//                testingService.addEvent(clientRequestEvent);
                 break;
             case SET_DATA:
-                for (int i = 0 ; i < testingService.getSchedulerConfiguration().getNumNodes(); i++) {
-                    testingService.getNodeStateForClientRequests().set(i, NodeStateForClientRequest.SET_PROCESSING);
+            case CREATE:
+//                for (int peer: testingService.getParticipants()) {
+//                    testingService.getNodeStateForClientRequests().set(peer, NodeStateForClientRequest.SET_PROCESSING);
+//                }
+
+                testingService.getRequestQueue(clientId).offer(event);
+                // Post-condition
+//                testingService.waitResponseForClientRequest(event);
+//                testingService.waitAllNodesSteadyAfterMutation();
+                for (int node: testingService.getParticipants()) {
+                    LeaderElectionState role = testingService.getLeaderElectionState(node);
+                    switch (role) {
+                        case LEADING:
+                            testingService.getControlMonitor().notifyAll();
+                            testingService.waitSubnodeTypeSending(node, SubnodeType.SYNC_PROCESSOR);
+                            break;
+                        case FOLLOWING:
+                            testingService.getControlMonitor().notifyAll();
+                            testingService.waitSubnodeInSendingState(testingService.getFollowerLearnerHandlerSenderMap(node));
+                            break;
+                        default:
+                            break;
+                    }
                 }
 
-                // TODO: This should set the leader learnerHandlerSender / syncProcessor into PROCESSING state
-                // TODO: what if leader does not exist?
 
-//                String data = String.valueOf(event.getId());
-//                event.setData(data);
-                testingService.getRequestQueue(clientId).offer(event);
-                // notifyAll() should be called after related states have been changed
-                testingService.getControlMonitor().notifyAll();
-
-                // Post-condition
-                testingService.waitAllNodesSteadyAfterMutation();
                 break;
         }
     }

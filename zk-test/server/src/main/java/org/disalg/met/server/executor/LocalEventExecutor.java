@@ -3,6 +3,7 @@ package org.disalg.met.server.executor;
 import org.disalg.met.api.MessageType;
 import org.disalg.met.api.SubnodeState;
 import org.disalg.met.api.SubnodeType;
+import org.disalg.met.api.state.LeaderElectionState;
 import org.disalg.met.server.TestingService;
 import org.disalg.met.server.event.LocalEvent;
 import org.disalg.met.server.state.Subnode;
@@ -33,6 +34,7 @@ public class LocalEventExecutor extends BaseEventExecutor{
         }
         LOG.debug("Processing request: {}", event.toString());
         releaseLocalEvent(event);
+        testingService.getControlMonitor().notifyAll();
         testingService.waitAllNodesSteady();
         event.setExecuted();
         LOG.debug("Local event executed: {}\n\n\n", event.toString());
@@ -54,24 +56,30 @@ public class LocalEventExecutor extends BaseEventExecutor{
             Map<Long, Integer> zxidSyncedMap = testingService.getZxidSyncedMap();
             testingService.getZxidSyncedMap().put(zxid, zxidSyncedMap.getOrDefault(zxid, 0) + 1);
         }
-        final Subnode subnode = testingService.getSubnodes().get(event.getSubnodeId());
+        final int subnodeId = event.getSubnodeId();
+        final Subnode subnode = testingService.getSubnodes().get(subnodeId);
+        final int nodeId = subnode.getNodeId();
 
         // set the corresponding subnode to be PROCESSING
         subnode.setState(SubnodeState.PROCESSING);
 
-        testingService.getControlMonitor().notifyAll();
-
         // set the next subnode to be PROCESSING
         switch (event.getSubnodeType()) {
-            case QUORUM_PEER: // for FollowerProcessSyncMessage
-                // for FollowerProcessSyncMessage: wait itself to SENDING state since ACK_NEWLEADER will come later anyway
-                // for FollowerProcessCOMMITInSync:
-                // FollowerProcessPROPOSALInSync:
-                int eventType = event.getType();
-                if (eventType == MessageType.DIFF || eventType == MessageType.TRUNC || eventType == MessageType.SNAP) {
-                    testingService.getSyncTypeList().set(event.getNodeId(), event.getType());
+            case QUORUM_PEER: // for FollowerProcessSyncMessage && LeaderJudgingIsRunning
+                LeaderElectionState role = testingService.getLeaderElectionState(nodeId);
+                if (role.equals(LeaderElectionState.FOLLOWING)) {
+                    // for FollowerProcessSyncMessage: wait itself to SENDING state since ACK_NEWLEADER will come later anyway
+                    // for FollowerProcessCOMMITInSync:
+                    // FollowerProcessPROPOSALInSync:
+                    int eventType = event.getType();
+                    if (eventType == MessageType.DIFF || eventType == MessageType.TRUNC || eventType == MessageType.SNAP) {
+                        testingService.getSyncTypeList().set(event.getNodeId(), event.getType());
+                    }
+                    testingService.getControlMonitor().notifyAll();
+                    testingService.waitSubnodeInSendingState(testingService.getFollowerLearnerHandlerSenderMap(nodeId));
+                    testingService.getControlMonitor().notifyAll();
+                    testingService.waitSubnodeInSendingState(testingService.getFollowerLearnerHandlerMap(nodeId));
                 }
-                testingService.waitSubnodeInSendingState(event.getSubnodeId());
                 break;
             case SYNC_PROCESSOR:
 //                // interceptor version 1
@@ -94,6 +102,7 @@ public class LocalEventExecutor extends BaseEventExecutor{
 //                testingService.waitSubnodeInSendingState(subnode.getId()); // this is just for follower
                 break;
             case COMMIT_PROCESSOR:
+                testingService.getControlMonitor().notifyAll();
                 testingService.waitCommitProcessorDone(event.getId(), event.getNodeId());
                 break;
         }
