@@ -28,6 +28,7 @@ public class PartitionStartExecutor extends BaseEventExecutor {
         boolean truelyExecuted = false;
         if (enablePartition()) {
             startPartition(event.getNode1(), event.getNode2());
+            testingService.getControlMonitor().notifyAll();
             testingService.waitAllNodesSteady();
             partitionBudget--;
             truelyExecuted = true;
@@ -64,17 +65,10 @@ public class PartitionStartExecutor extends BaseEventExecutor {
         List<LeaderElectionState> leaderElectionStates = testingService.getLeaderElectionStates();
         LeaderElectionState role1 = leaderElectionStates.get(node1);
         LeaderElectionState role2 = leaderElectionStates.get(node2);
-        LOG.debug("Node {} & {} partition start.", node1, node2);
+        LOG.debug("Node {} & {} partition start.\n\n\n ", node1, node2);
 
-        // release all nodes' event related to the partitioned nodes
-        testingService.getControlMonitor().notifyAll();
-
-        LOG.debug("\n");
-        LOG.debug("Try to set flag NODE_PAIR_IN_PARTITION to relative events before the node get into LOOKING...");
-        testingService.recordPartitionedEvent(new HashSet<Integer>() {{
-            add(node1);
-            add(node2);
-        }});
+//        // release all nodes' event related to the partitioned nodes
+//        testingService.getControlMonitor().notifyAll();
 
         // leader & follower: need to set related nodes back to LOOKING state and release broadcast events
         boolean leaderExist = LeaderElectionState.LEADING.equals(role1) || LeaderElectionState.LEADING.equals(role2);
@@ -82,8 +76,7 @@ public class PartitionStartExecutor extends BaseEventExecutor {
         if (leaderExist && followerExist) {
             int leader = LeaderElectionState.LEADING.equals(role1) ? node1 : node2;
             int follower = LeaderElectionState.FOLLOWING.equals(role1) ? node1 : node2;
-            LOG.debug("Leader {} & Follower {} get partition. ",
-                    leader, follower);
+            LOG.debug("Leader {} & Follower {} get partition.", leader, follower);
 
             // release follower's intercepted events
             testingService.getControlMonitor().notifyAll();
@@ -102,10 +95,7 @@ public class PartitionStartExecutor extends BaseEventExecutor {
 //                    add(follower);
 //                }});
 //            }
-            LOG.debug("do not wait for follower {} back into LOOKING.", follower);
-            testingService.waitAliveNodesInLookingState(new HashSet<Integer>() {{
-                add(follower);
-            }});
+
 
             // if quorum breaks, wait for the leader into LOOKING
             int nodeNum = testingService.getSchedulerConfiguration().getNumNodes();
@@ -117,14 +107,27 @@ public class PartitionStartExecutor extends BaseEventExecutor {
                 LOG.debug("Leader's quorum peers count {} less than half the node num {}!  " +
                         "Wait for leader {} to be LOOKING", participantCount, nodeNum, leader);
                 // release leader's intercepted events
-                testingService.getControlMonitor().notifyAll();
                 // Predicate AliveNodesInLookingState will releaseBroadcastEvent
+                LOG.debug("Try to set flag NODE_PAIR_IN_PARTITION to relative events before the node get into LOOKING...");
+                testingService.recordPartitionedEvent(new HashSet<Integer>() {{
+                    add(node1);
+                    add(node2);
+                }}, true);
                 testingService.waitAliveNodesInLookingState(new HashSet<Integer>() {{
                     add(leader);
+                    add(follower);
+                }});
+            } else {
+                LOG.debug("wait for follower {} back into LOOKING.", follower);
+                LOG.debug("Try to set flag NODE_PAIR_IN_PARTITION to relative events before the node get into LOOKING...");
+                testingService.recordPartitionedEvent(new HashSet<Integer>() {{
+                    add(node1);
+                    add(node2);
+                }}, false);
+                testingService.waitAliveNodesInLookingState(new HashSet<Integer>() {{
+                    add(follower);
                 }});
             }
         }
-
-        testingService.getControlMonitor().notifyAll();
     }
 }
