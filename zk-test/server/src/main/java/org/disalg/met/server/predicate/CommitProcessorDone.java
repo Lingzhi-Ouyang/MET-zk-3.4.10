@@ -30,6 +30,6 @@ public class CommitProcessorDone implements WaitPredicate{
 
     @Override
     public String describe() {
-        return "release of commit request " + msgId + " by node " + nodeId;
+        return " commit request " + msgId + " by node " + nodeId + " done";
     }
 }

@@ -40,7 +40,7 @@ public class AliveNodesInLookingState implements WaitPredicate{
             // broadcast events should be released first
             // o.w. the node will be blocked and will not return to LOOKING state
             LOG.debug("Try to release intercepted broadcast event first before the node get into LOOKING...");
-            testingService.releaseBroadcastEvent(participants);
+            testingService.releaseBroadcastEvent(participants, true);
             for (Integer nodeId : participants) {
                 if (checkNodeNotLooking(nodeId)) return false;
             }

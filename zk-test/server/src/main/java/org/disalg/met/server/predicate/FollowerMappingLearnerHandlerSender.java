@@ -19,7 +19,7 @@ public class FollowerMappingLearnerHandlerSender implements WaitPredicate{
 
     @Override
     public boolean isTrue() {
-        return testingService.getFollowerLearnerHandlerSenderMap().get(subnodeId) != null;
+        return testingService.getFollowerLearnerHandlerSenderMap(subnodeId) != null;
     }
 
     @Override

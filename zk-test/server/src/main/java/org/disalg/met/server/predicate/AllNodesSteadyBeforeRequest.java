@@ -1,5 +1,6 @@
 package org.disalg.met.server.predicate;
 
+import org.disalg.met.api.Phase;
 import org.disalg.met.api.SubnodeState;
 import org.disalg.met.api.NodeState;
 import org.disalg.met.api.state.LeaderElectionState;
@@ -7,6 +8,9 @@ import org.disalg.met.server.TestingService;
 import org.disalg.met.server.state.Subnode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.util.HashSet;
+import java.util.Set;
 
 /***
  * Pre-condition for client requests
@@ -23,7 +27,15 @@ public class AllNodesSteadyBeforeRequest implements WaitPredicate{
 
     @Override
     public boolean isTrue() {
-        // TODO: is it needed to combine AllNodesSteady?
+        LOG.debug("Try to release all alive nodes' intercepted broadcast event first before the node get into LOOKING...");
+        Set<Integer> nodes = new HashSet<>();
+        for (int nodeId = 0; nodeId < testingService.getSchedulerConfiguration().getNumNodes(); ++nodeId) {
+            if (testingService.getNodeStates().get(nodeId).equals(NodeState.ONLINE) &&
+                    testingService.getNodePhases().get(nodeId).equals(Phase.BROADCAST)) {
+                nodes.add(nodeId);
+            }
+        }
+        testingService.releaseBroadcastEvent(nodes, false);
         for (int nodeId = 0; nodeId < testingService.getSchedulerConfiguration().getNumNodes(); ++nodeId) {
             final NodeState nodeState = testingService.getNodeStates().get(nodeId);
             switch (nodeState) {

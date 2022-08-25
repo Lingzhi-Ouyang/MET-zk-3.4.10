@@ -1,5 +1,6 @@
 package org.disalg.met.server.predicate;
 
+import org.disalg.met.api.state.ClientRequestType;
 import org.disalg.met.server.TestingService;
 import org.disalg.met.server.event.ClientRequestEvent;
 import org.slf4j.Logger;
@@ -28,8 +29,10 @@ public class ResponseForClientRequest implements WaitPredicate {
         String result = event.getResult();
         if(result != null){
             responseGot = true;
-            testingService.getReturnedDataList().add(Integer.parseInt(result));
-            LOG.debug("getReturnedData: {}", testingService.getReturnedDataList());
+            if (event.getType().equals(ClientRequestType.SET_DATA) ) {
+                testingService.getReturnedDataList().add(Integer.parseInt(result));
+                LOG.debug("getReturnedData: {}", testingService.getReturnedDataList());
+            }
         }
         return responseGot;
     }

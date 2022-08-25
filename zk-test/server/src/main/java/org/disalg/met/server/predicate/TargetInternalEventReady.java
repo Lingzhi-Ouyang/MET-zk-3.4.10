@@ -5,6 +5,7 @@ import org.disalg.met.api.NodeState;
 import org.disalg.met.api.configuration.SchedulerConfigurationException;
 import org.disalg.met.server.TestingService;
 import org.disalg.met.server.event.Event;
+import org.disalg.met.server.event.LocalEvent;
 import org.disalg.met.server.scheduler.ExternalModelStrategy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -59,9 +60,15 @@ public class TargetInternalEventReady implements WaitPredicate{
 
     @Override
     public String describe() {
-        return "target internal event (action: " + modelAction +
-                " nodeId: " + nodeId +
-                " peerId: " + peerId +
-                " ready";
+        if (event instanceof LocalEvent) {
+            return "target local event (action: " + modelAction +
+                    " node: " + nodeId +
+                    " ready";
+        } else {
+            return "target message event (action: " + modelAction +
+                    " sendingNode: " + peerId +
+                    " receivingNode: " + nodeId +
+                    " ready";
+        }
     }
 }

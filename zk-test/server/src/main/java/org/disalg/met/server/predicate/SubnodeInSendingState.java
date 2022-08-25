@@ -28,6 +28,7 @@ public class SubnodeInSendingState implements WaitPredicate{
         if (NodeState.ONLINE.equals(nodeState)) {
             return SubnodeState.SENDING.equals(subnode.getState());
         }
+        LOG.debug("node {} is not ONLINE!", nodeId);
         return true;
     }
 

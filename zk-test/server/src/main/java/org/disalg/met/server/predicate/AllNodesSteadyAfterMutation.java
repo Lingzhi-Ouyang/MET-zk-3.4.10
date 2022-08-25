@@ -42,7 +42,6 @@ public class AllNodesSteadyAfterMutation implements WaitPredicate {
                     LOG.debug("-----------Node {} status: {}", nodeId, nodeState);
             }
             LeaderElectionState leaderElectionState = testingService.getLeaderElectionStates().get(nodeId);
-            // TODO: LOOKING ??? for now we miss this
             if (LeaderElectionState.LEADING.equals(leaderElectionState)) {
                 if (!leaderSteadyAfterMutation(nodeId)) {
                     return false;
