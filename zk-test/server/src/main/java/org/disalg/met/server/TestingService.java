@@ -25,6 +25,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.rmi.NotBoundException;
 import java.rmi.RemoteException;
 import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
@@ -430,7 +431,6 @@ public class TestingService implements TestingRemoteService {
         serverIdMap.put("s2", 0);
 
         for (int executionId = 1; executionId <= traceNum; ++executionId) {
-
             externalModelStrategy.clearEvents();
             schedulingStrategy = externalModelStrategy;
             statistics = externalModelStatistics;
@@ -684,6 +684,16 @@ public class TestingService implements TestingRemoteService {
                 }
                 clientMap.clear();
                 ensemble.stopEnsemble();
+
+                synchronized (controlMonitor) {
+                    while (schedulingStrategy.hasNextEvent()) {
+                        Event event = schedulingStrategy.nextEvent();
+                        event.setFlag(TestingDef.RetCode.EXIT);
+                        event.execute();
+                    }
+                    controlMonitor.notifyAll();
+                    waitAllNodesSteady();
+                }
 
                 executionWriter.close();
                 statisticsWriter.close();
@@ -979,12 +989,12 @@ public class TestingService implements TestingRemoteService {
 
     public void initRemote() {
         try {
-            final TestingRemoteService schedulerRemote = (TestingRemoteService) UnicastRemoteObject.exportObject(this, 0);
+            final TestingRemoteService testingRemoteService = (TestingRemoteService) UnicastRemoteObject.exportObject(this, 0);
             final Registry registry = LocateRegistry.createRegistry(2599);
-//            final Registry registry = LocateRegistry.getRegistry(2599);
-            LOG.debug("{}, {}", TestingRemoteService.REMOTE_NAME, schedulerRemote);
-            registry.rebind(TestingRemoteService.REMOTE_NAME, schedulerRemote);
-            LOG.debug("Bound the remote scheduler");
+////            final Registry registry = LocateRegistry.getRegistry(2599);
+            LOG.debug("{}, {}", TestingRemoteService.REMOTE_NAME, testingRemoteService);
+            registry.rebind(TestingRemoteService.REMOTE_NAME, testingRemoteService);
+            LOG.debug("Bound the remote testing service. ");
         } catch (final RemoteException e) {
             LOG.error("Encountered a remote exception while initializing the scheduler.", e);
             throw new RuntimeException(e);
@@ -3161,6 +3171,14 @@ public class TestingService implements TestingRemoteService {
             controlMonitor.notifyAll();
 
             waitMessageReleased(id, sendingNodeId, sendingSubnodeId, electionMessageEvent);
+            if (electionMessageEvent.getFlag() == TestingDef.RetCode.EXIT) {
+                LOG.debug(" Test trace is over. Drop the event {}", electionMessageEvent);
+                if (sendingSubnode.getState().equals(SubnodeState.PROCESSING)) {
+                    sendingSubnode.setState(SubnodeState.RECEIVING);
+                }
+                controlMonitor.notifyAll();
+                return TestingDef.RetCode.EXIT;
+            }
 
             try {
                 // normally, this event is released when scheduled except:
@@ -3287,6 +3305,14 @@ public class TestingService implements TestingRemoteService {
             controlMonitor.notifyAll();
 
             waitMessageReleased(id, sendingNodeId, sendingSubnodeId, messageEvent);
+            if (messageEvent.getFlag() == TestingDef.RetCode.EXIT) {
+                LOG.debug(" Test trace is over. Drop the event {}", messageEvent);
+                if (sendingSubnode.getState().equals(SubnodeState.PROCESSING)) {
+                    sendingSubnode.setState(SubnodeState.RECEIVING);
+                }
+                controlMonitor.notifyAll();
+                return TestingDef.RetCode.EXIT;
+            }
 
             // normally, this event is released when scheduled except:
             // case 1: this event is released since the sending node is crashed
@@ -3385,8 +3411,6 @@ public class TestingService implements TestingRemoteService {
                     break;
             }
 
-            controlMonitor.notifyAll();
-
             //        // not in partition
 //        // during client session establishment, do not intercept
 //        if (!clientInitializationDone) {
@@ -3471,6 +3495,15 @@ public class TestingService implements TestingRemoteService {
             controlMonitor.notifyAll();
             waitMessageReleased(id, sendingNodeId, sendingSubnodeId, messageEvent);
 
+            if (messageEvent.getFlag() == TestingDef.RetCode.EXIT) {
+                LOG.debug(" Test trace is over. Drop the event {}", messageEvent);
+                if (sendingSubnode.getState().equals(SubnodeState.PROCESSING)) {
+                    sendingSubnode.setState(SubnodeState.RECEIVING);
+                }
+                controlMonitor.notifyAll();
+                return TestingDef.RetCode.EXIT;
+            }
+
             if (type == TestingDef.MessageType.learnerHandlerReadRecord) {
                 LOG.debug("readRecordIntercepted: {}", readRecordIntercepted);
                 readRecordIntercepted.put(receivingNodeId, false);
@@ -3549,7 +3582,16 @@ public class TestingService implements TestingRemoteService {
                 waitMessageReleased(id, nodeId, subnodeId);
             }
 
-            // case 2: this event is released since the node is crashed
+            if (localEvent.getFlag() == TestingDef.RetCode.EXIT) {
+                LOG.debug(" Test trace is over. Drop the event {}", localEvent);
+                if (subnode.getState().equals(SubnodeState.PROCESSING)) {
+                    subnode.setState(SubnodeState.RECEIVING);
+                }
+                controlMonitor.notifyAll();
+                return TestingDef.RetCode.EXIT;
+            }
+
+            // case 1: this event is released since the node is crashed
             if (NodeState.STOPPING.equals(nodeStates.get(nodeId))) {
                 LOG.debug("----------node {} is crashed! setting localEvent executed. {}", nodeId, localEvent);
                 id = TestingDef.RetCode.NODE_CRASH;
@@ -3781,6 +3823,9 @@ public class TestingService implements TestingRemoteService {
                 if (leaderId >= 0 ) {
 //                    participants.clear();
                     LOG.debug("Try to set flag NODE_PAIR_IN_PARTITION to leader's & crash node's events before the node get into LOOKING...");
+                    // all participants: need to change node state
+                    // drop message whose sender or receiver is crashed node or leader,
+                    // which means leader's all message will be dropped
                     recordPartitionedEvent(new HashSet<Integer>() {{
                         add(nodeId);
                         add(leaderId);
@@ -3788,14 +3833,13 @@ public class TestingService implements TestingRemoteService {
 
                     LOG.debug("release Broadcast Events of leader {} and wait for it in LOOKING state", leaderId);
                     controlMonitor.notifyAll();
-//                    releaseBroadcastEvent(new HashSet<Integer>() {{
-//                        add(leaderId);
-//                    }});
                     waitAliveNodesInLookingState(new HashSet<Integer>() {{
                         add(leaderId);
                     }});
                 }
             } else {
+                // leader: do not need to change node state
+                // only drop the message between crashed node & leader, do not drop leader's message with other nodes
                 recordPartitionedEvent(new HashSet<Integer>() {{
                     add(nodeId);
                     add(leaderId);
@@ -3806,22 +3850,104 @@ public class TestingService implements TestingRemoteService {
         else if (role.equals(LeaderElectionState.LEADING)) {
             // if leader un-exists, then wait for the other nodes back into LOOKING. For now we just wait.
 
-            // release all nodes' event related to the partitioned nodes
             LOG.debug("Try to set flag NODE_PAIR_IN_PARTITION to all participants' events before the node get into LOOKING...");
-            recordPartitionedEvent(participants, true);
-//            releaseBroadcastEvent(new HashSet<Integer>() {{
-//                add(leaderId);
-//            }});
+//            recordCrashRelatedEventPartitioned(participants, true);
+            for (int peer: participants) {
+                recordPartitionedEvent(new HashSet<Integer>() {{
+                    add(nodeId);
+                    add(peer);
+                }}, false);
+            }
             // release all SYNC /COMMIT message
             LOG.debug("release Broadcast Events of server {} and wait for them in LOOKING state", participants);
             controlMonitor.notifyAll();
             waitAliveNodesInLookingState(participants);
+        } else {
+            // looking node crashed, other nodes do not need to transfer states
+            recordCrashRelatedEventPartitioned(new HashSet<Integer>() {{
+                add(nodeId);
+            }},false);
+
         }
+    }
+
+    /***
+     * drop the message between specific sender || receiver
+     * @param peers
+     * @param leaderShutdown whether leader is going to be looking or not
+     * @return
+     */
+    public boolean recordCrashRelatedEventPartitioned(Set<Integer> peers, boolean leaderShutdown) {
+        Set<Event> otherEvents = new HashSet<>();
+        try {
+            while (schedulingStrategy.hasNextEvent()) {
+                final Event event = schedulingStrategy.nextEvent();
+                if (event instanceof LeaderToFollowerMessageEvent) {
+                    LeaderToFollowerMessageEvent e1 = (LeaderToFollowerMessageEvent) event;
+                    final int sendingSubnodeId = e1.getSendingSubnodeId();
+                    final Subnode sendingSubnode = subnodes.get(sendingSubnodeId);
+                    final int sendingNodeId = sendingSubnode.getNodeId();
+                    final int receivingNodeId = e1.getReceivingNodeId();
+                    if ((peers.contains(sendingNodeId) || peers.contains(receivingNodeId))) {
+                        LOG.debug("set flag NODE_PAIR_IN_PARTITION to event: {}", e1);
+                        e1.setFlag(TestingDef.RetCode.NODE_PAIR_IN_PARTITION);
+                        if (sendingSubnode.getState().equals(SubnodeState.SENDING)) {
+                            sendingSubnode.setState(SubnodeState.PROCESSING);
+                        }
+                    }
+                } else if (event instanceof FollowerToLeaderMessageEvent) {
+                    FollowerToLeaderMessageEvent e1 = (FollowerToLeaderMessageEvent) event;
+                    final int sendingSubnodeId = e1.getSendingSubnodeId();
+                    final Subnode sendingSubnode = subnodes.get(sendingSubnodeId);
+                    final int sendingNodeId = sendingSubnode.getNodeId();
+                    final int receivingNodeId = e1.getReceivingNodeId();
+                    if ((peers.contains(sendingNodeId) || peers.contains(receivingNodeId))) {
+                        LOG.debug("set flag NODE_PAIR_IN_PARTITION to event: {}", e1);
+                        e1.setFlag(TestingDef.RetCode.NODE_PAIR_IN_PARTITION);
+                        if (sendingSubnode.getState().equals(SubnodeState.SENDING)) {
+                            sendingSubnode.setState(SubnodeState.PROCESSING);
+                        }
+                    }
+                } else if (event instanceof ElectionMessageEvent) {
+                    ElectionMessageEvent e1 = (ElectionMessageEvent) event;
+                    final int sendingSubnodeId = e1.getSendingSubnodeId();
+                    final Subnode sendingSubnode = subnodes.get(sendingSubnodeId);
+                    final int sendingNodeId = sendingSubnode.getNodeId();
+                    final int receivingNodeId = e1.getReceivingNodeId();
+                    if ((peers.contains(sendingNodeId) || peers.contains(receivingNodeId))) {
+                        LOG.debug("set flag NODE_PAIR_IN_PARTITION to event: {}", e1);
+                        e1.setFlag(TestingDef.RetCode.NODE_PAIR_IN_PARTITION);
+                        if (sendingSubnode.getState().equals(SubnodeState.SENDING)) {
+                            sendingSubnode.setState(SubnodeState.PROCESSING);
+                        }
+                    }
+                } else if (leaderShutdown && event instanceof LocalEvent) {
+                    LocalEvent e1 = (LocalEvent) event;
+                    final int subnodeId = e1.getSubnodeId();
+                    final Subnode sendingSubnode = subnodes.get(subnodeId);
+                    if (e1.getType() == TestingDef.MessageType.leaderJudgingIsRunning) {
+                        LOG.debug("set flag NODE_PAIR_IN_PARTITION to event: {}", e1);
+                        e1.setFlag(TestingDef.RetCode.NODE_PAIR_IN_PARTITION);
+                        if (sendingSubnode.getState().equals(SubnodeState.SENDING)) {
+                            sendingSubnode.setState(SubnodeState.PROCESSING);
+                        }
+                    }
+                }
+                otherEvents.add(event);
+            }
+            LOG.debug("Adding back all events during recording partition");
+            for (Event e: otherEvents) {
+                addEvent(e);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return true;
     }
 
 
     /***
-     *
+     * drop the message between specific sender && receiver
      * @param peers
      * @param leaderShutdown whether leader is going to be looking or not
      * @return
@@ -3840,6 +3966,9 @@ public class TestingService implements TestingRemoteService {
                     if (peers.contains(sendingNodeId) && peers.contains(receivingNodeId) && sendingNodeId != receivingNodeId) {
                         LOG.debug("set flag NODE_PAIR_IN_PARTITION to event: {}", e1);
                         e1.setFlag(TestingDef.RetCode.NODE_PAIR_IN_PARTITION);
+                        if (sendingSubnode.getState().equals(SubnodeState.SENDING)) {
+                            sendingSubnode.setState(SubnodeState.PROCESSING);
+                        }
                     }
                 } else if (event instanceof FollowerToLeaderMessageEvent) {
                     FollowerToLeaderMessageEvent e1 = (FollowerToLeaderMessageEvent) event;
@@ -3847,9 +3976,12 @@ public class TestingService implements TestingRemoteService {
                     final Subnode sendingSubnode = subnodes.get(sendingSubnodeId);
                     final int sendingNodeId = sendingSubnode.getNodeId();
                     final int receivingNodeId = e1.getReceivingNodeId();
-                    if (peers.contains(sendingNodeId) && peers.contains(receivingNodeId)) {
+                    if (peers.contains(sendingNodeId) && peers.contains(receivingNodeId) && sendingNodeId != receivingNodeId) {
                         LOG.debug("set flag NODE_PAIR_IN_PARTITION to event: {}", e1);
                         e1.setFlag(TestingDef.RetCode.NODE_PAIR_IN_PARTITION);
+                        if (sendingSubnode.getState().equals(SubnodeState.SENDING)) {
+                            sendingSubnode.setState(SubnodeState.PROCESSING);
+                        }
                     }
                 } else if (event instanceof ElectionMessageEvent) {
                     ElectionMessageEvent e1 = (ElectionMessageEvent) event;
@@ -3857,16 +3989,36 @@ public class TestingService implements TestingRemoteService {
                     final Subnode sendingSubnode = subnodes.get(sendingSubnodeId);
                     final int sendingNodeId = sendingSubnode.getNodeId();
                     final int receivingNodeId = e1.getReceivingNodeId();
-                    if (peers.contains(sendingNodeId) && peers.contains(receivingNodeId)) {
+                    if (peers.contains(sendingNodeId) && peers.contains(receivingNodeId) && sendingNodeId != receivingNodeId) {
                         LOG.debug("set flag NODE_PAIR_IN_PARTITION to event: {}", e1);
                         e1.setFlag(TestingDef.RetCode.NODE_PAIR_IN_PARTITION);
+                        if (sendingSubnode.getState().equals(SubnodeState.SENDING)) {
+                            sendingSubnode.setState(SubnodeState.PROCESSING);
+                        }
                     }
-                } else if (leaderShutdown && event instanceof LocalEvent) {
+                } else if (event instanceof LocalEvent) {
                     LocalEvent e1 = (LocalEvent) event;
-                    if (e1.getType() == TestingDef.MessageType.leaderJudgingIsRunning) {
-                        LOG.debug("set flag NODE_PAIR_IN_PARTITION to event: {}", e1);
-                        e1.setFlag(TestingDef.RetCode.NODE_PAIR_IN_PARTITION);
+                    final int subnodeId = e1.getSubnodeId();
+                    final Subnode sendingSubnode = subnodes.get(subnodeId);
+                    if (peers.contains(subnodeId)) {
+                        if (e1.getType() == TestingDef.MessageType.leaderJudgingIsRunning) {
+                            if (leaderShutdown) {
+                                LOG.debug("set flag NODE_PAIR_IN_PARTITION to event: {}", e1);
+                                e1.setFlag(TestingDef.RetCode.NODE_PAIR_IN_PARTITION);
+                                if (sendingSubnode.getState().equals(SubnodeState.SENDING)) {
+                                    sendingSubnode.setState(SubnodeState.PROCESSING);
+                                }
+                            }
+                        }
+//                        else {
+//                            LOG.debug("set flag NODE_PAIR_IN_PARTITION to event: {}", e1);
+//                            e1.setFlag(TestingDef.RetCode.NODE_PAIR_IN_PARTITION);
+//                            if (sendingSubnode.getState().equals(SubnodeState.SENDING)) {
+//                                sendingSubnode.setState(SubnodeState.PROCESSING);
+//                            }
+//                        }
                     }
+
                 }
                 otherEvents.add(event);
             }
@@ -3925,6 +4077,7 @@ public class TestingService implements TestingRemoteService {
                             LOG.debug("leader is not going to shutdown. Do not release LeaderJudgingIsRunning event: {}", event);
                             otherEvents.add(event);
                         } else {
+                            e1.setFlag(TestingDef.RetCode.NO_WAIT);
                             e1.execute();
                         }
                     } else {
