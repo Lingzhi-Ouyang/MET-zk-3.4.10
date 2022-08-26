@@ -78,56 +78,47 @@ public class PartitionStartExecutor extends BaseEventExecutor {
             int follower = LeaderElectionState.FOLLOWING.equals(role1) ? node1 : node2;
             LOG.debug("Leader {} & Follower {} get partition.", leader, follower);
 
-            // release follower's intercepted events
-            testingService.getControlMonitor().notifyAll();
-            // Predicate AliveNodesInLookingState will releaseBroadcastEvent
-            // if still in discovery phase, like follower sending ACKEPOCH, then,
-            // follower will not be back to LOOKING until leader timeout due to waitForEpochAck
-            // therefore, here we just wait for limited time
-//            if (testingService.getNodePhases().get(follower).equals(Phase.DISCOVERY)) {
-//                LOG.debug("do not wait for follower {} back into LOOKING since it is in DISCOVERY.", follower);
-////                testingService.waitAliveNodesInLookingState(new HashSet<Integer>() {{
-////                    add(follower);
-////                }}, 500L);
-//            } else {
-//                LOG.debug("do not wait for follower {} back into LOOKING.", follower);
-//                testingService.waitAliveNodesInLookingState(new HashSet<Integer>() {{
-//                    add(follower);
-//                }});
-//            }
-
-
             // if quorum breaks, wait for the leader into LOOKING
             int nodeNum = testingService.getSchedulerConfiguration().getNumNodes();
             testingService.getParticipants().remove(follower);
             int participantCount = testingService.getParticipants().size();
             if (participantCount <= (nodeNum / 2)) {
                 testingService.getParticipants().clear();
-//                testingService.getLeaderElectionStates().set(leader, LeaderElectionState.LOOKING);
+                // leader & follower need to change node state to LOOKING
                 LOG.debug("Leader's quorum peers count {} less than half the node num {}!  " +
                         "Wait for leader {} to be LOOKING", participantCount, nodeNum, leader);
-                // release leader's intercepted events
                 // Predicate AliveNodesInLookingState will releaseBroadcastEvent
                 LOG.debug("Try to set flag NODE_PAIR_IN_PARTITION to relative events before the node get into LOOKING...");
                 testingService.recordPartitionedEvent(new HashSet<Integer>() {{
                     add(node1);
                     add(node2);
                 }}, true);
+                testingService.getControlMonitor().notifyAll();
                 testingService.waitAliveNodesInLookingState(new HashSet<Integer>() {{
                     add(leader);
                     add(follower);
                 }});
             } else {
+                // leader : no need to change node state
+                // follower: need to change node state
                 LOG.debug("wait for follower {} back into LOOKING.", follower);
                 LOG.debug("Try to set flag NODE_PAIR_IN_PARTITION to relative events before the node get into LOOKING...");
                 testingService.recordPartitionedEvent(new HashSet<Integer>() {{
                     add(node1);
                     add(node2);
                 }}, false);
+                testingService.getControlMonitor().notifyAll();
                 testingService.waitAliveNodesInLookingState(new HashSet<Integer>() {{
                     add(follower);
                 }});
             }
+        } else {
+            // leader & candidate / follower & candidate: no need to change node state
+            LOG.debug("Try to set flag NODE_PAIR_IN_PARTITION to relative events before the node get into LOOKING...");
+            testingService.recordPartitionedEvent(new HashSet<Integer>() {{
+                add(node1);
+                add(node2);
+            }}, false);
         }
     }
 }

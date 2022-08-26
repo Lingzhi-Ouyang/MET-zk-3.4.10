@@ -25,6 +25,7 @@ public class PartitionStopExecutor extends BaseEventExecutor {
         boolean truelyExecuted = false;
         if (enablePartitionStop()) {
             stopPartition(event.getNode1(), event.getNode2());
+            testingService.getControlMonitor().notifyAll();
             testingService.waitAllNodesSteady();
             partitionStopBudget--;
             truelyExecuted = true;

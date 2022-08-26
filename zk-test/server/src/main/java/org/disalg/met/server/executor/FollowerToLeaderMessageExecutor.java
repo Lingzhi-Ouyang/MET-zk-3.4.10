@@ -46,7 +46,9 @@ public class FollowerToLeaderMessageExecutor extends BaseEventExecutor {
         // set the sending subnode to be PROCESSING
         sendingSubnode.setState(SubnodeState.PROCESSING);
 
-        testingService.getControlMonitor().notifyAll();
+        if (event.getFlag() == TestingDef.RetCode.EXIT) {
+            return;
+        }
 
         // if in partition, then just drop it
         final int followerId = sendingSubnode.getNodeId();

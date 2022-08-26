@@ -28,6 +28,7 @@ public class NodeStartExecutor extends BaseEventExecutor {
             final int nodeId = event.getNodeId();
             testingService.setLastNodeStartEvent(nodeId, event);
             testingService.startNode(nodeId);
+            testingService.getControlMonitor().notifyAll();
             testingService.waitAllNodesSteady();
             rebootBudget--;
             if (testingService.getNodeCrashExecutor().hasCrashes()) {

@@ -31,6 +31,7 @@ public class NodeCrashExecutor extends BaseEventExecutor {
                 testingService.addEvent(nodeStartEvent);
             }
             testingService.stopNode(nodeId);
+            testingService.getControlMonitor().notifyAll();
             testingService.waitAllNodesSteady();
             truelyExecuted = true;
         }

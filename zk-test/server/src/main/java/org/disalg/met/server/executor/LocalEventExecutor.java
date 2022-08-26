@@ -3,6 +3,7 @@ package org.disalg.met.server.executor;
 import org.disalg.met.api.MessageType;
 import org.disalg.met.api.SubnodeState;
 import org.disalg.met.api.SubnodeType;
+import org.disalg.met.api.TestingDef;
 import org.disalg.met.api.state.LeaderElectionState;
 import org.disalg.met.server.TestingService;
 import org.disalg.met.server.event.LocalEvent;
@@ -12,7 +13,6 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.Map;
-import java.util.Set;
 
 /***
  * Executor of local event
@@ -48,14 +48,9 @@ public class LocalEventExecutor extends BaseEventExecutor{
      * @param event
      */
     public void releaseLocalEvent(final LocalEvent event) {
-//        logRequestInFlight = event.getId();
         testingService.setMessageInFlight(event.getId());
         SubnodeType subnodeType = event.getSubnodeType();
-        if (SubnodeType.SYNC_PROCESSOR.equals(subnodeType)) {
-            final Long zxid = event.getZxid();
-            Map<Long, Integer> zxidSyncedMap = testingService.getZxidSyncedMap();
-            testingService.getZxidSyncedMap().put(zxid, zxidSyncedMap.getOrDefault(zxid, 0) + 1);
-        }
+
         final int subnodeId = event.getSubnodeId();
         final Subnode subnode = testingService.getSubnodes().get(subnodeId);
         final int nodeId = subnode.getNodeId();
@@ -63,8 +58,12 @@ public class LocalEventExecutor extends BaseEventExecutor{
         // set the corresponding subnode to be PROCESSING
         subnode.setState(SubnodeState.PROCESSING);
 
+        if (event.getFlag() == TestingDef.RetCode.EXIT) {
+            return;
+        }
+
         // set the next subnode to be PROCESSING
-        switch (event.getSubnodeType()) {
+        switch (subnodeType) {
             case QUORUM_PEER: // for FollowerProcessSyncMessage && LeaderJudgingIsRunning
                 LeaderElectionState role = testingService.getLeaderElectionState(nodeId);
                 if (role.equals(LeaderElectionState.FOLLOWING)) {
@@ -82,24 +81,19 @@ public class LocalEventExecutor extends BaseEventExecutor{
                 }
                 break;
             case SYNC_PROCESSOR:
-//                // interceptor version 1
-//                // This if for the implementation not intercepting follower's ack to leader,
-//                // which means we assume that after the proposal logs,
-//                // the follower will ack to leader successfully
-//                if (quorumSynced(event.getZxid())){
-//                    // If learnerHandler's COMMIT is not intercepted
-////                    testingService.waitQuorumToCommit(event);
-//                    testingService.waitAllNodesSteadyAfterQuorumSynced();
-//                } else {
-//                    testingService.waitAllNodesSteady();
-//                }
+                final Long zxid = event.getZxid();
+                Map<Long, Integer> zxidSyncedMap = testingService.getZxidSyncedMap();
+                testingService.getZxidSyncedMap().put(zxid, zxidSyncedMap.getOrDefault(zxid, 0) + 1);
 
-                // interceptor version 2
-                // intercept log event and ack event
-                // leader will ack self, which is not intercepted
-                // follower will send ACK message to leader, which is intercepted only in follower
-//                LOG.debug("wait follower {}'s SYNC thread be SENDING ACK", event.getNodeId());
-//                testingService.waitSubnodeInSendingState(subnode.getId()); // this is just for follower
+//                 intercept log event and ack event
+//                 leader will ack self, which is not intercepted
+//                 follower will send ACK message to leader, which is intercepted only in follower
+                LOG.debug("wait follower {}'s SYNC thread be SENDING ACK", event.getNodeId());
+                if (LeaderElectionState.FOLLOWING.equals(testingService.getLeaderElectionState(nodeId))
+                        && event.getFlag() != TestingDef.RetCode.NO_WAIT) {
+                    testingService.getControlMonitor().notifyAll();
+                    testingService.waitSubnodeInSendingState(subnodeId); // this is just for follower
+                }
                 break;
             case COMMIT_PROCESSOR:
                 testingService.getControlMonitor().notifyAll();
@@ -107,8 +101,4 @@ public class LocalEventExecutor extends BaseEventExecutor{
                 break;
         }
     }
-
-
-
-
 }
