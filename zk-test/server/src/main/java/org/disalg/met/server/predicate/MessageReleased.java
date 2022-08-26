@@ -61,11 +61,11 @@ public class MessageReleased implements WaitPredicate {
     public boolean isTrue() {
         if (event != null) {
 //            if (event instanceof LocalEvent) {
-////                 LeaderJudgingIsRunning
-//                return NodeState.STOPPING.equals(testingService.getNodeStates().get(sendingNodeId)) ||
-//                        event.getFlag() == TestingDef.RetCode.NODE_PAIR_IN_PARTITION;
-//            } else {
-//                // message event
+//////                 LeaderJudgingIsRunning
+////                return NodeState.STOPPING.equals(testingService.getNodeStates().get(sendingNodeId)) ||
+////                        event.getFlag() == TestingDef.RetCode.NODE_PAIR_IN_PARTITION;
+////            } else {
+////                // message event
 //                return testingService.getMessageInFlight() == msgId ||
 //                        NodeState.STOPPING.equals(testingService.getNodeStates().get(sendingNodeId)) ||
 //                        event.getFlag() == TestingDef.RetCode.NODE_PAIR_IN_PARTITION;
