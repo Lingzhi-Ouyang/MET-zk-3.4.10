@@ -58,8 +58,6 @@ public class ZooKeeperClientGroup implements ClientGroup, SchedulerConfiguration
         final String log4JConfigurationOption = "-Dlog4j.configuration=file:" + zookeeperConfiguration.getLog4JConfig();
 
         try {
-            FileInputStream fis = new FileInputStream("/Users/ouyanglingzhi/Documents/RemoteRepository/hitmc-develop/HitMC/test/in.txt");
-            System.setIn(fis);
             final Process process = ProcessUtil.startJavaProcess(zookeeperConfiguration.getWorkingDir(),
                     zookeeperConfiguration.getClasspath(), outputFile,
                     // Additional JVM options
