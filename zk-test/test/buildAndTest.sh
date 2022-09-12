@@ -8,12 +8,11 @@ WORKING_DIR=$(cd $SCRIPT_DIR/../..;pwd)
 
 echo $WORKING_DIR
 
-## build ZooKeeper
-#cd $WORKING_DIR/zookeeper-3.4.13 && ant
-
 # build HitMC
 cd $WORKING_DIR/zk-test && mvn clean install -DskipTests
 cd $WORKING_DIR/zk-test/test
+
+# TODO: configure classpath automatically. For now: set classpath manually in zookeeper.properties
 
 tag=`date "+%y-%m-%d-%H-%M-%S"`
 mkdir $tag
