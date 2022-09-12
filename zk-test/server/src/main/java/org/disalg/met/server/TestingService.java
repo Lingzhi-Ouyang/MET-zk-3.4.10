@@ -1885,56 +1885,6 @@ public class TestingService implements TestingRemoteService {
         }
     }
 
-//    /***
-//     * This triggers two events :
-//     *  --> setData
-//     *  --> Leader log proposal
-//     *  --> send LeaderToFollowerMessageEvent(PROPOSAL)
-//     *  Note: if without specific data, will use eventId as its written string value
-//     */
-//    private int scheduleLeaderProcessRequest(ExternalModelStrategy strategy,
-//                                             final int clientId,
-//                                             final int serverId,
-//                                             final long modelZxid,
-//                                             int totalExecuted) throws SchedulerConfigurationException {
-//        try {
-//            // Step 0. establish session if un-exists
-//            ClientProxy clientProxy = clientMap.get(clientId);
-//            if (clientProxy == null || clientProxy.isStop()) {
-//                String serverAddr = getServerAddr(serverId);
-//                LOG.debug("client establish connection with server {}", serverAddr);
-//                establishSession(clientId, true, serverAddr);
-//            }
-//
-//            // Step 1. setData
-//            synchronized (controlMonitor) {
-//                waitAllNodesSteadyBeforeRequest();
-//                long startTime = System.currentTimeMillis();
-//                Event event;
-//                String data = Long.toHexString(modelZxid);
-//                event = new ClientRequestEvent(generateEventId(), clientId,
-//                        ClientRequestType.SET_DATA, data, clientRequestExecutor);
-//                LOG.debug("\n\n\n\n\n---------------------------Step: {}--------------------------", totalExecuted + 1);
-//                LOG.debug("prepare to execute event: {}", event);
-//                if (event.execute()) {
-////                    ++totalExecuted;
-//                    recordProperties(totalExecuted + 1, startTime, event);
-//                }
-//            }
-//        } catch (IOException e) {
-//            e.printStackTrace();
-//        }
-//
-//        // Step 2. Leader log proposal
-//        totalExecuted = scheduleInternalEventWithWaitingRetry(strategy, ModelAction.LeaderLog,
-//                serverId, -1, modelZxid, totalExecuted, 1);
-//
-////        // Step 3. release LeaderToFollowerPROPOSAL(PROPOSAL) if partition un-exists
-////        totalExecuted = scheduleLeaderToFollowerPROPOSAL(strategy, totalExecuted);
-//
-//        return totalExecuted;
-//    }
-
     /***
      * This triggers two events :
      *  --> setData
