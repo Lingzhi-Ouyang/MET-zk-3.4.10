@@ -64,6 +64,8 @@ public class LeaderToFollowerMessageExecutor extends BaseEventExecutor {
         final int type = event.getType();
         final NodeState followerState = testingService.getNodeStates().get(followerId);
 
+        // release the leader's message,
+        // and then wait for the target follower to be at the next intercepted point
         if (NodeState.ONLINE.equals(followerState)) {
             switch (type) {
                 case MessageType.LEADERINFO:

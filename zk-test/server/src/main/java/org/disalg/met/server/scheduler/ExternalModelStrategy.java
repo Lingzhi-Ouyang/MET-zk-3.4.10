@@ -235,7 +235,7 @@ public class ExternalModelStrategy implements SchedulingStrategy{
         nextEvent = null;
         // 2. search specific pre-condition event that should be lied in the sender
         switch (action) {
-            case LeaderSyncFollower: // follower to release ACKEPOCH (reply to LEADERINFO)
+            case LeaderSyncFollower: // follower to release ACKEPOCH
             case LeaderProcessACKLD: // follower to release ACKLD
             case FollowerToLeaderACK: // follower to release ACK
                 searchFollowerMessage(action, peerId, nodeId, modelZxid, enabled);

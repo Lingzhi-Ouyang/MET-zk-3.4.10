@@ -68,7 +68,7 @@ public class FollowerToLeaderMessageExecutor extends BaseEventExecutor {
 
         if (NodeState.ONLINE.equals(nodeState)) {
             switch (lastReadType) {
-                case MessageType.LEADERINFO:
+                case MessageType.LEADERINFO:   // releasing my ACKEPOCH
                     // wait for leader update currentEpoch file
                     LOG.info("follower replies ACKEPOCH : {}", event);
                     testingService.getControlMonitor().notifyAll();
@@ -77,7 +77,7 @@ public class FollowerToLeaderMessageExecutor extends BaseEventExecutor {
                     testingService.getControlMonitor().notifyAll();
                     testingService.waitSubnodeInSendingState(testingService.getFollowerLearnerHandlerMap(followerId));
                     break;
-                case MessageType.NEWLEADER:
+                case MessageType.NEWLEADER:     // releasing my ACK
                     // let leader's corresponding learnerHandler be intercepted at ReadRecord
                     // this has been done in last step
                     testingService.getControlMonitor().notifyAll();
@@ -86,14 +86,14 @@ public class FollowerToLeaderMessageExecutor extends BaseEventExecutor {
                     testingService.getControlMonitor().notifyAll();
                     testingService.waitSubnodeInSendingState(testingService.getFollowerLearnerHandlerSenderMap(followerId));
                     break;
-                case MessageType.UPTODATE:
+                case MessageType.UPTODATE:      // releasing my ACK
                     testingService.getControlMonitor().notifyAll();
                     testingService.waitFollowerSteadyAfterProcessingUPTODATE(followerId);
                     // let leader's corresponding learnerHandler process this ACK, then again be intercepted at ReadRecord
                     testingService.getControlMonitor().notifyAll();
                     testingService.waitSubnodeInSendingState(testingService.getFollowerLearnerHandlerMap(followerId));
                     break;
-                case MessageType.PROPOSAL:
+                case MessageType.PROPOSAL:      // releasing my ACK
                     if (followerPhase.equals(Phase.BROADCAST)) {
                         LOG.info("follower replies to previous PROPOSAL message type : {}", event);
                         // let leader's corresponding learnerHandler process this ACK, then again be intercepted at ReadRecord
