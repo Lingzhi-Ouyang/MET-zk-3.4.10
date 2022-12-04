@@ -227,5 +227,17 @@ public aspect LearnerAspect {
         }
     }
 
+//    /***
+//     * intercept a learner's setCurrentEpoch() action when receiving leader's NEWLEADER
+//     * Related code: Learner.java
+//     */
+//    pointcut writePacketInSyncWithLeader(long epoch):
+//            withincode(* org.apache.zookeeper.server.quorum.Learner.syncWithLeader(..)) &&
+//                    call(void org.apache.zookeeper.server.quorum.QuorumPeer.setCurrentEpoch(long)) && args(epoch);
+
+
+
+
+
 
 }

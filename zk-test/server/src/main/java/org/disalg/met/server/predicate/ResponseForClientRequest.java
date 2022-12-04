@@ -30,7 +30,7 @@ public class ResponseForClientRequest implements WaitPredicate {
         if(result != null){
             responseGot = true;
             if (event.getType().equals(ClientRequestType.SET_DATA) ) {
-                testingService.getReturnedDataList().add(Integer.parseInt(result));
+                testingService.getReturnedDataList().add(Long.parseLong(result));
                 LOG.debug("getReturnedData: {}", testingService.getReturnedDataList());
             }
         }

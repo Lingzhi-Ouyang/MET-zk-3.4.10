@@ -13,7 +13,7 @@ public class GetDataVerifier implements Verifier{
 
     private final TestingService testingService;
     private final Statistics statistics;
-    private Integer modelResult;
+    private Long modelResult;
 
     public GetDataVerifier(final TestingService testingService, Statistics statistics) {
         this.testingService = testingService;
@@ -21,18 +21,18 @@ public class GetDataVerifier implements Verifier{
         this.modelResult = null;
     }
 
-    public void setModelResult(Integer modelResult) {
+    public void setModelResult(long modelResult) {
         this.modelResult = modelResult;
     }
 
     @Override
     public boolean verify() {
         String matchModel = "UNMATCHED";
-        List<Integer> returnedDataList = testingService.getReturnedDataList();
+        List<Long> returnedDataList = testingService.getReturnedDataList();
         final int len = returnedDataList.size();
         assert len >= 2;
-        final int latestOne = returnedDataList.get(len - 1);
-        final int latestSecond = returnedDataList.get(len - 2);
+        final long latestOne = returnedDataList.get(len - 1);
+        final long latestSecond = returnedDataList.get(len - 2);
         boolean result = latestOne >= latestSecond;
         if (this.modelResult == null) {
             matchModel = "UNKNOWN";

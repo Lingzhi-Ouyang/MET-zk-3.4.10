@@ -133,7 +133,7 @@ public class TestingService implements TestingRemoteService {
     private final List<List<Long>> allZxidRecords = new ArrayList<>();
 
     // record the returned values of GetData according to the timeline
-    private final List<Integer> returnedDataList = new ArrayList<>();
+    private final List<Long> returnedDataList = new ArrayList<>();
 
     // record the committed / applied history (may be visible by clients)
     // Note: do not record zxid whose counter is 0 when the epoch >= 1 (since this zxid does not map to a real commit)
@@ -204,7 +204,7 @@ public class TestingService implements TestingRemoteService {
         return modelToCodeZxidMap;
     }
 
-    public List<Integer> getReturnedDataList() {
+    public List<Long> getReturnedDataList() {
         return returnedDataList;
     }
 
@@ -330,15 +330,13 @@ public class TestingService implements TestingRemoteService {
     }
 
     /***
-     * The core process the scheduler by specifying each step
-     * example: steps of ZK-3911
+     * The core process the scheduler by specifying each step pf zk-3911
      * @throws SchedulerConfigurationException
      * @throws IOException
      */
     public void start() throws SchedulerConfigurationException, IOException {
         LOG.debug("Starting the testing service");
         long startTime = System.currentTimeMillis();
-//        initRemote();
 
         for (int executionId = 1; executionId <= schedulerConfiguration.getNumExecutions(); ++executionId) {
             ensemble.configureEnsemble(String.valueOf(executionId));
@@ -406,7 +404,6 @@ public class TestingService implements TestingRemoteService {
 
     /***
      * The core process the scheduler by external model
-     * example: steps of ZK-3911
      * @throws SchedulerConfigurationException
      * @throws IOException
      */
@@ -439,23 +436,8 @@ public class TestingService implements TestingRemoteService {
             String traceName = trace.getTraceName();
             int stepCount = trace.getStepCount();
             LOG.info("\n\n\n\n\nTrace {}: {}, total steps: {}", executionId, traceName, stepCount);
-//            LOG.info("\n\n\n\n\ncurrentTrace: {}, total steps: {}", trace, stepCount);
-
-//            // get event info
-//            Set<String> keys = new HashSet<>();
-//
-//            int crnt = 1;
-//            for (; crnt <= stepCount; ++crnt) {
-//                JSONObject jsonObject = trace.nextStep();
-//                String key = jsonObject.keySet().iterator().next();
-//                keys.add(key);
-//            }
-//            LOG.debug("keySize: {}", keys.size());
-//            LOG.debug("keys: {}", keys);
-
 
             ensemble.configureEnsemble(traceName);
-//            configureSchedulingStrategy(executionId);
 
             int totalExecuted = 0;
 
@@ -467,8 +449,9 @@ public class TestingService implements TestingRemoteService {
             // configure the execution before first election
             configureNextExecution();
             // start the ensemble at the beginning of the execution
+            long traceStartTime = System.currentTimeMillis();
             ensemble.startEnsemble();
-            executionWriter.write("-----Initialization cost time: " + (System.currentTimeMillis() - startTime) + "\n\n");
+            executionWriter.write("-----Initialization cost time: " + (System.currentTimeMillis() - traceStartTime) + "\n\n");
 
             // Start the timer for recoding statistics
             statistics.startTimer();
@@ -514,8 +497,10 @@ public class TestingService implements TestingRemoteService {
                             break;
 
                         case ClientGetData:
-                            int getDataClientId = elements.getInteger("clientId");
-                            Integer returnedData = elements.getInteger("data");
+                            int getDataClientId = elements.getInteger("clientId") != null ?
+                                    elements.getInteger("clientId") : nodeId;
+                            LOG.debug("ClientGetData: {}", getDataClientId);
+                            long returnedData = getModelZxidFromArrayForm(elements.getJSONArray("zxid"));
                             totalExecuted = scheduleClientGetData(currentStep, getDataClientId, nodeId, returnedData, totalExecuted);
                             break;
 
@@ -631,6 +616,7 @@ public class TestingService implements TestingRemoteService {
                     statisticsWriter.write(statistics.toString() + "\n\n");
                     LOG.info("trace: {}", traceName);
                     LOG.info(statistics.toString() + "\n\n\n\n\n");
+
                 }
             } catch (SchedulerConfigurationException e) {
                 LOG.info("SchedulerConfigurationException found when scheduling Trace {} in Step {} / {}. ",
@@ -662,6 +648,8 @@ public class TestingService implements TestingRemoteService {
                 statisticsWriter.write(statistics.toString() + "\n\n");
                 LOG.info(statistics.toString() + "\n\n\n\n\n");
 
+                executionWriter.write("\ntrace time/ms: " + (System.currentTimeMillis() - traceStartTime) + "\n");
+                executionWriter.flush();
 
                 if (!matchedAndPassed) {
                     bugCount++;
@@ -723,7 +711,6 @@ public class TestingService implements TestingRemoteService {
     @Deprecated
     /***
      * The traces are provided by external sequences of events
-     * example: steps of ZK-3911
      * Note: The granularity of the trace is coarse with only events with little simple info
      * @throws SchedulerConfigurationException
      * @throws IOException
@@ -1135,7 +1122,7 @@ public class TestingService implements TestingRemoteService {
         leaderElectionStates.addAll(Collections.nCopies(nodeNum, LeaderElectionState.LOOKING));
 
         returnedDataList.clear();
-        returnedDataList.add(0);
+        returnedDataList.add(0L);
 
         lastCommittedZxid.clear();
         lastCommittedZxid.add(0L);
@@ -2173,7 +2160,7 @@ public class TestingService implements TestingRemoteService {
     private int scheduleClientGetData(final Integer currentStep,
                                       final int clientId,
                                       final int serverId,
-                                      final Integer modelResult,
+                                      final long modelResult,
                                       int totalExecuted) {
         try {
             ClientProxy clientProxy = clientMap.get(clientId);
@@ -2196,7 +2183,8 @@ public class TestingService implements TestingRemoteService {
             }
             statistics.endTimer();
             // check election results
-            getDataVerifier.setModelResult(modelResult);
+            LOG.debug("scheduleClientGetData: {}, {}", modelResult, modelToCodeZxidMap.get(modelResult));
+            getDataVerifier.setModelResult(modelToCodeZxidMap.get(modelResult));
             getDataVerifier.verify();
             // report statistics
             if (currentStep != null ) {
