@@ -735,7 +735,6 @@ public class TestingService implements TestingRemoteService {
             LOG.info("currentTrace: {}, total steps: {}", trace, stepCount);
 
             ensemble.configureEnsemble(traceName);
-//            configureSchedulingStrategy(executionId);
 
             int totalExecuted = 0;
 
@@ -747,8 +746,9 @@ public class TestingService implements TestingRemoteService {
             // configure the execution before first election
             configureNextExecution();
             // start the ensemble at the beginning of the execution
+            long traceStartTime = System.currentTimeMillis();
             ensemble.startEnsemble();
-            executionWriter.write("-----Initialization cost time: " + (System.currentTimeMillis() - startTime) + "\n\n");
+            executionWriter.write("-----Initialization cost time: " + (System.currentTimeMillis() - traceStartTime) + "\n\n");
 
             // Start the timer for recoding statistics
             statistics.startTimer();
