@@ -29,8 +29,8 @@ public class ResponseForClientRequest implements WaitPredicate {
         String result = event.getResult();
         if(result != null){
             responseGot = true;
-            if (event.getType().equals(ClientRequestType.SET_DATA) ) {
-                testingService.getReturnedDataList().add(Long.parseLong(result));
+            if (event.getType().equals(ClientRequestType.GET_DATA) ) {
+                testingService.getReturnedDataList().add(result);
                 LOG.debug("getReturnedData: {}", testingService.getReturnedDataList());
             }
         }

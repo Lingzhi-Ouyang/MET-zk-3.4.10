@@ -46,7 +46,7 @@ public class TestingService implements TestingRemoteService {
     private Ensemble ensemble;
 
     private Map<Integer, ClientProxy> clientMap = new HashMap<>();
-    private Map<String, Boolean> keyMap = new HashMap<>();
+    private Set<String> keySet = new HashSet<>();
 
     // strategy
     private SchedulingStrategy schedulingStrategy;
@@ -133,7 +133,7 @@ public class TestingService implements TestingRemoteService {
     private final List<List<Long>> allZxidRecords = new ArrayList<>();
 
     // record the returned values of GetData according to the timeline
-    private final List<Long> returnedDataList = new ArrayList<>();
+    private final List<String> returnedDataList = new ArrayList<>();
 
     // record the committed / applied history (may be visible by clients)
     // Note: do not record zxid whose counter is 0 when the epoch >= 1 (since this zxid does not map to a real commit)
@@ -204,7 +204,7 @@ public class TestingService implements TestingRemoteService {
         return modelToCodeZxidMap;
     }
 
-    public List<Long> getReturnedDataList() {
+    public List<String> getReturnedDataList() {
         return returnedDataList;
     }
 
@@ -483,6 +483,19 @@ public class TestingService implements TestingRemoteService {
                         // external events
                         case NodeCrash:
                             totalExecuted = scheduleNodeCrash(nodeId, totalExecuted);
+
+                            // close client session if specified
+                            LOG.debug("shutting down client or not: {}", nodeId);
+                            boolean closeSession = elements.getBoolean("closeSession")  != null ?
+                                    elements.getBoolean("closeSession")  : false;
+                            LOG.debug("closeSession: {}", closeSession);
+                            if (closeSession) {
+                                ClientProxy clientProxy = clientMap.get(nodeId);
+                                if (clientProxy != null && !clientProxy.isStop())  {
+                                    LOG.debug("shutting down client {}", nodeId);
+                                    clientProxy.shutdown();
+                                }
+                            }
                             break;
                         case NodeStart:
                             totalExecuted = scheduleNodeStart(nodeId, totalExecuted);
@@ -499,9 +512,13 @@ public class TestingService implements TestingRemoteService {
                         case ClientGetData:
                             int getDataClientId = elements.getInteger("clientId") != null ?
                                     elements.getInteger("clientId") : nodeId;
+                            boolean shutdown = elements.getBoolean("closeSession")  != null ?
+                                    elements.getBoolean("closeSession")  : false;
                             LOG.debug("ClientGetData: {}", getDataClientId);
                             long returnedData = getModelZxidFromArrayForm(elements.getJSONArray("zxid"));
-                            totalExecuted = scheduleClientGetData(currentStep, getDataClientId, nodeId, returnedData, totalExecuted);
+                            totalExecuted = scheduleClientGetData(externalModelStrategy,
+                                    currentStep, getDataClientId, nodeId, returnedData,
+                                    shutdown, totalExecuted);
                             break;
 
                         // internal events
@@ -1122,7 +1139,7 @@ public class TestingService implements TestingRemoteService {
         leaderElectionStates.addAll(Collections.nCopies(nodeNum, LeaderElectionState.LOOKING));
 
         returnedDataList.clear();
-        returnedDataList.add(0L);
+        returnedDataList.add("0");
 
         lastCommittedZxid.clear();
         lastCommittedZxid.add(0L);
@@ -1162,7 +1179,7 @@ public class TestingService implements TestingRemoteService {
 
         // configure client map
         clientMap.clear();
-        keyMap.clear();
+        keySet.clear();
 
         // configure network partion info
         partitionMap.clear();
@@ -1504,7 +1521,7 @@ public class TestingService implements TestingRemoteService {
             leaderElectionVerifier.verify();
             // report statistics
             if (currentStep != null) {
-                statistics.reportCurrentStep("[Step " + currentStep + "]-"
+                statistics.reportCurrentStep("[Step " + (currentStep + 1) + "]-"
                         + "ElectionAndDiscovery, leader: " + leaderId
                         + " peers: " + peers);
             }
@@ -1751,7 +1768,6 @@ public class TestingService implements TestingRemoteService {
     private void establishSession(ExternalModelStrategy strategy,
                                   final int clientId,
                                   final int leaderId,
-                                  final long modelZxid,
                                   int totalExecuted,
                                   final boolean resetConnectionState,
                                   final String serverList) throws SchedulerConfigurationException, IOException {
@@ -1799,7 +1815,7 @@ public class TestingService implements TestingRemoteService {
 
         // create key=/test if un-exists
         String key = "/test";
-        if (!keyMap.containsKey(key)) {
+        if (!keySet.contains(key)) {
             synchronized (controlMonitor) {
                 long startTime = System.currentTimeMillis();
                 Event event = new ClientRequestEvent(generateEventId(), clientId,
@@ -1839,6 +1855,8 @@ public class TestingService implements TestingRemoteService {
                 if (peer == leaderId) continue;
                 scheduleFollowerProcessCOMMIT(strategy, peer, leaderId, -1, totalExecuted);
             }
+
+            keySet.add(key);
         }
 
         synchronized (controlMonitor) {
@@ -1856,7 +1874,7 @@ public class TestingService implements TestingRemoteService {
             if (resetConnectionState) {
                 clientInitializationDone = false;
             }
-            waitAllNodesSteadyBeforeRequest(); // will not release LeaderJudgingIsRunning
+//            waitAllNodesSteadyBeforeRequest(); // will not release LeaderJudgingIsRunning
             ClientProxy clientProxy = new ClientProxy(this, clientId, serverList);
             clientMap.put(clientId, clientProxy);
 
@@ -1895,7 +1913,7 @@ public class TestingService implements TestingRemoteService {
             if (clientProxy == null || clientProxy.isStop()) {
                 String serverAddr = getServerAddr(leaderId);
                 LOG.debug("client is going to establish connection with server {}", serverAddr);
-                establishSession(strategy, clientId, leaderId, modelZxid, totalExecuted, true, serverAddr);
+                establishSession(strategy, clientId, leaderId, totalExecuted, true, serverAddr);
             }
 
             // Step 1. setData
@@ -2038,8 +2056,8 @@ public class TestingService implements TestingRemoteService {
                                               final int leaderId,
                                               final long modelZxid,
                                               int totalExecuted) throws SchedulerConfigurationException {
-        // In broadcast, leader release PROPOSAL successfully
-        // Or,  follower just log request that received in SYNC
+        // In broadcast, leader release COMMIT successfully
+        // Or,  follower just COMMIT in SYNC
         try {
             LOG.debug("try to schedule LeaderToFollowerCOMMIT leaderId: {}", leaderId);
             scheduleInternalEventWithWaitingRetry(strategy, ModelAction.LeaderToFollowerCOMMIT,
@@ -2157,20 +2175,22 @@ public class TestingService implements TestingRemoteService {
     /***
      * getData for externalModelStrategy
      */
-    private int scheduleClientGetData(final Integer currentStep,
+    private int scheduleClientGetData(ExternalModelStrategy strategy,
+                                      final Integer currentStep,
                                       final int clientId,
                                       final int serverId,
                                       final long modelResult,
-                                      int totalExecuted) {
+                                      final boolean shutdown,
+                                      int totalExecuted) throws SchedulerConfigurationException {
         try {
             ClientProxy clientProxy = clientMap.get(clientId);
             if (clientProxy == null || clientProxy.isStop())  {
                 String serverAddr = getServerAddr(serverId);
                 LOG.debug("client establish connection with server {}", serverAddr);
-                establishSession(clientId, true, serverAddr);
+                establishSession(strategy, clientId, serverId, totalExecuted, true, serverAddr);
             }
             synchronized (controlMonitor) {
-                waitAllNodesSteadyBeforeRequest();
+//                waitAllNodesSteadyBeforeRequest();
                 long startTime = System.currentTimeMillis();
                 Event event = new ClientRequestEvent(generateEventId(), clientId,
                         ClientRequestType.GET_DATA, clientRequestWaitingResponseExecutor);
@@ -2183,16 +2203,24 @@ public class TestingService implements TestingRemoteService {
             }
             statistics.endTimer();
             // check election results
-            LOG.debug("scheduleClientGetData: {}, {}", modelResult, modelToCodeZxidMap.get(modelResult));
-            getDataVerifier.setModelResult(modelToCodeZxidMap.get(modelResult));
+            LOG.debug("scheduleClientGetData: {}, {}", modelResult, Long.toHexString(modelResult));
+            getDataVerifier.setModelResult(Long.toHexString(modelResult));
             getDataVerifier.verify();
             // report statistics
             if (currentStep != null ) {
-                statistics.reportCurrentStep("[Step " + currentStep + "]-ClientGetData");
+                statistics.reportCurrentStep("[Step " + (currentStep + 1) + "]-ClientGetData");
             }
             statistics.reportTotalExecutedEvents(totalExecuted);
             statisticsWriter.write(statistics.toString() + "\n\n");
             LOG.info(statistics.toString() + "\n\n\n\n\n");
+
+
+            if (shutdown) {
+                clientProxy = clientMap.get(clientId);
+                LOG.debug("shutting down client {}", clientId);
+                clientProxy.shutdown();
+            }
+
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -2229,7 +2257,7 @@ public class TestingService implements TestingRemoteService {
             }
             statistics.endTimer();
             // check election results
-            getDataVerifier.setModelResult(modelResult);
+            getDataVerifier.setModelResult(Long.toHexString(modelResult));
             getDataVerifier.verify();
             // report statistics
             if (currentStep != null && line != null) {
@@ -4221,7 +4249,7 @@ public class TestingService implements TestingRemoteService {
     }
 
     public void updateResponseForClientRequest(ClientRequestEvent event) throws IOException {
-        executionWriter.write("\n---Get response of " + event.getType() + ": ");
+        executionWriter.write("\n---Get response of " + event.getType() + " (Async for setData): ");
         executionWriter.write(event.toString() + "\n");
         executionWriter.flush();
     }
