@@ -1,5 +1,6 @@
 package org.apache.zookeeper.server.quorum;
 
+import org.apache.zookeeper.ZooDefs;
 import org.apache.zookeeper.server.Request;
 import org.disalg.met.api.SubnodeType;
 import org.disalg.met.api.TestingDef;
@@ -63,28 +64,22 @@ public aspect CommitProcessorAspect {
             LOG.debug("COMMIT threadId: {}, subnodeId == -1, indicating the node is STOPPING or OFFLINE", threadId);
             return;
         }
-        final int type =  request.type;
-//        switch (type) {
-//            case TestingDef.OpCode.notification:
-//            case TestingDef.OpCode.create:
-//            case TestingDef.OpCode.delete:
-//            case TestingDef.OpCode.getData:
-//            case TestingDef.OpCode.exists:
-//            case TestingDef.OpCode.check:
-//            case TestingDef.OpCode.multi:
-//            case TestingDef.OpCode.sync:
-//            case TestingDef.OpCode.getACL:
-//            case TestingDef.OpCode.setACL:
-//            case TestingDef.OpCode.getChildren:
-//            case TestingDef.OpCode.getChildren2:
-//            case TestingDef.OpCode.ping:
-//            case TestingDef.OpCode.createSession:
-//            case TestingDef.OpCode.closeSession:
-//            case TestingDef.OpCode.setWatches:
-//                LOG.debug("Won't intercept toProcess request: {} ", request);
-//                return;
-//            default:
-//        }
+        final int type = request.type;
+        switch (type) {
+            case TestingDef.OpCode.create:
+            case TestingDef.OpCode.delete:
+            case TestingDef.OpCode.setData:
+            case TestingDef.OpCode.multi:
+            case TestingDef.OpCode.setACL:
+            case TestingDef.OpCode.createSession:
+            case TestingDef.OpCode.closeSession:
+            case TestingDef.OpCode.error:
+                LOG.debug("Will intercept toProcess request: {} ", request);
+                break;
+            default:
+                LOG.debug("Won't intercept toProcess request: {} ", request);
+                return;
+        }
         try {
             // before offerMessage: increase sendingSubnodeNum
             quorumPeerAspect.setSubnodeSending();
