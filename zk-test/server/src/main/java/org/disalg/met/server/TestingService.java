@@ -1511,7 +1511,7 @@ public class TestingService implements TestingRemoteService {
             LOG.debug("Election finished and start DISCOVERY! leader: {}, followers: {}", leaderId, peers);
             // leader releases LEADERINFO
             for (int peer: peers) {
-                scheduleInternalEvent(strategy, ModelAction.FollowerProcessLEADERINFO, peer, leaderId, -1L, totalExecuted);
+                scheduleInternalEvent(strategy, ModelAction.FollowerProcessLEADERINFO, peer, leaderId, -1L, totalExecuted - 1);
             }
 
             statistics.endTimer();
