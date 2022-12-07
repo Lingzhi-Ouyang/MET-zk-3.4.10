@@ -6,7 +6,7 @@
 
     <groupId>org.disalg.met.zk</groupId>
     <artifactId>parent</artifactId>
-    <version>1.0-SNAPSHOT</version>
+    <version>3.4.10-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <properties>
