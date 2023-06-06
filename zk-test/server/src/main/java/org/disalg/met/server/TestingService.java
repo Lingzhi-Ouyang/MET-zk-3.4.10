@@ -4158,28 +4158,14 @@ public class TestingService implements TestingRemoteService {
                 List<Long> zxidRecord = allZxidRecords.get(nodeId);
                 int len = zxidRecord.size();
                 LOG.debug("Node " + nodeId + " record: {}", zxidRecord);
-                // TODO: buggy
-//                if (syncTypeList.get(nodeId).equals(MessageType.SNAP) || syncTypeList.get(nodeId).equals(MessageType.TRUNC)) {
-//                    LOG.debug("{}, {}", lastProcessedZxid, lastCommittedZxid);
-////                    allZxidRecords.clear();
-////                    for (Long zxid: lastCommittedZxid) {
-////                        zxidRecord.add(zxid);
-////                    }
-//                    int idx = lastCommittedZxid.indexOf(lastProcessedZxid);
-//                    allZxidRecords.set(nodeId, new ArrayList<>(lastCommittedZxid.subList(0, idx+1)));
-//                    LOG.debug("syncTypeList({}): SNAP / TRUNC, {}, {}", nodeId, zxidRecord, allZxidRecords.get(nodeId));
-//                    syncTypeList.set(nodeId, -1);
-//                    executionWriter.write(
-//                            "\n---just update Node " + nodeId + "'s last record: " + allZxidRecords.get(nodeId));
-//                } else
                 if (zxidRecord.get(len - 1) < lastProcessedZxid
                         && (lastProcessedZxid & 0xffffffffL) != 0L  ){
                     zxidRecord.add(lastProcessedZxid);
-//                allZxidRecords.get(nodeId).add(lastProcessedZxid);
                     executionWriter.write(
                             "\n---just update Node " + nodeId + "'s last record: " + allZxidRecords.get(nodeId));
 
                     // Update lastCommittedZxid by leader since in the test leader is always the first to update lastCommittedZxid
+                    // TODO: This is buggy. Might omit the committed zxid once the leader finished SYNC phase.
                     if (NodeState.ONLINE.equals(nodeStates.get(nodeId))
                             && LeaderElectionState.LEADING.equals(leaderElectionStates.get(nodeId))
                             && Phase.BROADCAST.equals(nodePhases.get(nodeId))) {
