@@ -140,9 +140,9 @@ public class ExternalModelStrategy implements SchedulingStrategy{
                 if (file.isFile() && file.exists()) {
                     Trace trace = importTrace(file);
                     if (null == trace) continue;
+                    if (!file.getName().endsWith(".json")) continue;
                     traces.add(trace);
                     count++;
-//                    LOG.debug("trace: {}", trace.toString());
                 } else {
                     LOG.debug("file does not exists! ");
                 }
