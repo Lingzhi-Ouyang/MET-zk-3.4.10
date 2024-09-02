@@ -16,7 +16,7 @@ Note: some modules of this project are developed based on the implementation [he
 
 
 
-The directories of the project mainly includes the following contents. The test on zk-3.8.0 is provided [here](https://github.com/Lingzhi-Ouyang/MET-zk-3.8.0).
+The directories of the project mainly includes the following contents. 
 
 * *zk-test* : the test engine for ZooKeeper
   * *api* : the RMI remote interface and state type definition for both RMI server and clients of the test engine (in this testing framework, the RMI clients are the instrumented ZooKeeper nodes).
